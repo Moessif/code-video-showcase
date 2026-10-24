@@ -1,0 +1,116 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<!-- 建议在项目里放一份本地字体 CSS（含 @font-face），路径按项目结构调整 -->
+<link rel="stylesheet" href="/shared/fonts.css">
+<title>segment</title>
+<style>
+  html, body { margin: 0; padding: 0; background: #0e0e0d; overflow: hidden; }
+  #stage { position: relative; width: 1920px; height: 1080px; overflow: hidden; }
+  canvas#c { position: absolute; inset: 0; width: 1920px; height: 1080px; }
+  /* 如需叠加 DOM/KaTeX，可在这里放绝对定位层；但不要用 CSS transition/animation */
+</style>
+</head>
+<body>
+<div id="stage"><canvas id="c" width="1920" height="1080"></canvas></div>
+
+<script type="module">
+import {
+  createSegment, applyImpact2D, drawFlash, drawCapsuleLabel, drawCountdown, drawStamp,
+  loadFonts, rng, TAU,
+} from './common.js';
+
+const W = 1920, H = 1080;
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+
+// ---------- segment config ----------
+// 正常预览:  http://127.0.0.1:4600/segments/01.html
+// 片段模式:  ?seg=1&t0=0.35&speed=1.4&dur=3   (渲染器自动加)
+const seg = createSegment({ duration: 3.0 });
+window.DURATION = seg.duration;
+
+// 所有随机都必须来自固定种子；同一 t 永远同一画面
+const rnd = rng(20251023);
+const STARS = Array.from({ length: 140 }, () => ({
+  x: rnd.range(0, W), y: rnd.range(0, H),
+  r: rnd.range(0.4, 2.0), a: rnd.range(0.15, 0.85), ph: rnd.range(0, TAU),
+}));
+
+const BRAND = '{{BRAND}}';
+
+// ---------- scene ----------
+// 替换成你的风格场景。t = 场景时间（秒，已按 t0/speed 映射），u = 片段本地时间
+function drawScene(t, u) {
+  // background
+  const bg = ctx.createLinearGradient(0, 0, 0, H);
+  bg.addColorStop(0, '#071026');
+  bg.addColorStop(1, '#0e0e0d');
+  ctx.fillStyle = bg;
+  ctx.fillRect(0, 0, W, H);
+
+  // starfield (deterministic twinkle)
+  for (const s of STARS) {
+    const a = s.a * (0.72 + 0.28 * Math.sin(t * 1.6 + s.ph));
+    ctx.globalAlpha = a;
+    ctx.fillStyle = '#ffffff';
+    ctx.beginPath(); ctx.arc(s.x, s.y, s.r, 0, TAU); ctx.fill();
+  }
+  ctx.globalAlpha = 1;
+
+  // === demo content: replace this block with the real style ===
+  const cx = W / 2, cy = H * 0.52;
+  const glow = ctx.createRadialGradient(cx, cy, 20, cx, cy, 560);
+  glow.addColorStop(0, 'rgba(217,119,87,0.33)');
+  glow.addColorStop(1, 'rgba(217,119,87,0)');
+  ctx.fillStyle = glow;
+  ctx.fillRect(0, 0, W, H);
+
+  const r = 230 + 14 * Math.sin(t * 2.1);
+  ctx.strokeStyle = 'rgba(217,119,87,0.9)';
+  ctx.lineWidth = 4;
+  ctx.beginPath(); ctx.arc(cx, cy, r, t * 0.9, t * 0.9 + Math.PI * 1.5); ctx.stroke();
+
+  ctx.fillStyle = '#f5f0e8';
+  ctx.font = '900 160px "Noto Sans SC", sans-serif';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText('风格段标题', cx, cy - 20);
+
+  ctx.fillStyle = '#d97757';
+  ctx.font = '500 40px "Noto Sans SC", sans-serif';
+  ctx.fillText('替换 drawScene() 开始做真正的画面', cx, cy + 150);
+  // === end demo content ===
+
+  // standard chrome
+  drawCapsuleLabel(ctx, 1, '示例风格', '分类');
+  drawCountdown(ctx, u, seg.duration);
+  drawStamp(ctx, BRAND, { y: 72, size: 22 });
+}
+
+// ---------- render frame ----------
+window.renderFrame = (u) => {
+  const { t, fx } = seg.sample(u);
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.clearRect(0, 0, W, H);
+  ctx.save();
+  applyImpact2D(ctx, fx, W, H);
+  drawScene(t, u);
+  ctx.restore();
+  drawFlash(ctx, fx.flash, W, H);
+};
+
+// ---------- readiness ----------
+window.__ready = false;
+(async () => {
+  await loadFonts(['Noto Sans SC', 'Inter', 'JetBrains Mono', 'ZCOOL KuaiLe']);
+  window.renderFrame(0);
+  window.__ready = true;
+})().catch((err) => { window.__bootError = String(err && err.stack || err); });
+
+// 调试：控制台里可用 window.__seg.sample(1.0)
+window.__seg = seg;
+</script>
+</body>
+</html>

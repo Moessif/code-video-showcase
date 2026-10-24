@@ -1,0 +1,20 @@
+# dependencies
+node_modules/
+.pnpm-store/
+
+# build products / rendered media
+out/
+tmp/
+*.mp4
+*.mov
+*.wav
+*.m4a
+*.mp3
+*.webm
+*.log
+
+# OS / editor noise
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/

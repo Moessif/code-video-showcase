@@ -1,0 +1,17 @@
+* text=auto eol=lf
+
+# never normalise binary media
+*.jpg binary
+*.jpeg binary
+*.png binary
+*.gif binary
+*.webp binary
+*.mp4 binary
+*.wav binary
+*.mp3 binary
+
+# scripts that must keep LF to stay executable on Linux/WSL
+*.sh text eol=lf
+*.py text eol=lf
+*.mjs text eol=lf
+*.js text eol=lf
