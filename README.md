@@ -397,3 +397,11 @@ python3 synth_audio.py --out audio/demo.wav
 - 仓库不包含任何第三方代码或媒体素材；画面在运行时绘制，配乐实时合成。
 - 字体不随仓库分发，请自行下载 OFL 字体并在本地提供服务。
 - 珊瑚色 `#d97757` 与样片文案是占位示例，正式制作时替换成自己的品牌与脚本。
+
+---
+
+## Star History / Star 历史
+
+[![Star History Chart](https://api.star-history.com/svg?repos=Moessif/code-video-showcase&type=Date)](https://www.star-history.com/#Moessif/code-video-showcase&Date)
+
+> Star History 图的生成与嵌入方法参考：[如何拥有漂亮的 GitHub Star History 折线图](https://blog.csdn.net/SoulmateY/article/details/135317109)（CSDN）。
