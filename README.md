@@ -6,6 +6,12 @@ An Agent Skill for producing 30–90 s "style showcase" films: an 8 s opening, e
 
 > **中文简介**：这是一个「用代码做视频」的 Agent Skill：画面用 HTML/Canvas/SVG/Three.js 逐帧渲染，配乐用 Python（numpy/scipy）合成，最后由 FFmpeg 合成 30–90 秒的卡点风格展示片，全程不调用任何视频、图像或音乐生成模型。仓库里包含剪辑结构公式、11 种风格配方、大字卡系统、120 BPM 配乐方案、Playwright 渲染管线、质检清单和可运行模板。完整中文说明见 [中文](#中文)。
 
+> **一键安装 / Install in one sentence**
+>
+> 把这句话发给你的 Agent：「把这个仓库安装成 Agent Skill：`git clone https://github.com/Moessif/code-video-showcase.git ~/.dsh/skills/code-video-showcase`（Claude Code 换成 `~/.claude/skills/`，通用 Agent 用 `.agents/skills/`），装好后读一遍 `SKILL.md` 确认可用。」
+>
+> Send this to your agent: "Install https://github.com/Moessif/code-video-showcase as an Agent Skill: clone it into `~/.dsh/skills/code-video-showcase` (`~/.claude/skills/` for Claude Code, `.agents/skills/` for generic agents), then read `SKILL.md` to confirm it works."
+
 [![MIT License](https://img.shields.io/badge/license-MIT-d97757?style=flat-square)](LICENSE)
 [![Node 20+](https://img.shields.io/badge/node-%E2%89%A5%2020-3c873a?style=flat-square)](https://nodejs.org/)
 [![FFmpeg](https://img.shields.io/badge/ffmpeg-libx264%20%2B%20AAC-007808?style=flat-square)](https://ffmpeg.org/)

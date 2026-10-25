@@ -3,6 +3,14 @@
 本项目的版本更新记录。版本号遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)，格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
 每个版本同时发布在 [GitHub Releases](https://github.com/Moessif/code-video-showcase/releases)。
 
+## [v1.0.4] - 2026-10-25 — README 一键安装说明
+
+### 新增
+- README 顶部新增「一键安装 / Install in one sentence」区块：一段可直接发给 Agent 的中英文安装指令，包含 `git clone` 到 `~/.dsh/skills/`（Claude Code 为 `~/.claude/skills/`，通用 Agent 为 `.agents/skills/`）以及装好后读 `SKILL.md` 自检。
+
+### 变更
+- 无代码、模板与渲染管线变更。
+
 ## [v1.0.3] - 2026-10-25 — 更新历史与发布自动化
 
 ### 新增
