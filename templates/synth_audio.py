@@ -12,6 +12,11 @@ Reference design (120 BPM, A minor):
   styles       : 6-beat groove + per-style instrument (marimba, epiano, bells, ...)
   ending       : pad + piano/bell, fade out after 60.4
 Mix: kick sidechain (55% duck), 2.2 s synthetic reverb, tanh soft clip, normalize -0.6 dBFS.
+
+Frequency restraint (important): metallic accents (FM bells / plucks / bright stabs /
+coin FX / high-octave arpeggios) are for 2-3 key moments only. Never use them as a bed,
+never one ding per stat/number, never 16th-note high arpeggios. Stats and numeric sections
+use low drums (sub + tom + kick + clap). See references/audio-recipes.md section 7.
 """
 from __future__ import annotations
 

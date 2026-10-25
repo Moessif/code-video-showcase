@@ -60,6 +60,8 @@ kick + clap + snare + crash + sub boom + 高频爆裂（短 noise burst），6 �
 | 10 3D | 钟声琶音 + boing | 小球弹跳 |
 | 11 竖屏 | 808 + 超级锯齿 + trap 镲 + pop | 文本弹出配 pop |
 
+> 表中的钟 / 拨弦 / 滴答 / coin 类高频音色按第 7 节处理：只做点状点缀，不铺底、不连奏、不每个数字都响一次。
+
 ---
 
 ## 3. 音色合成公式
@@ -137,3 +139,58 @@ for ev in events:
 ```
 
 做新片时若这些数值相差太大（如 onset 中位误差 > 30 ms、卡片没有 drop-out），先修时间常量再继续混音。
+
+---
+
+## 7. 频率克制：铃音只在关键位置「点缀」
+
+> 真实片例的教训：一版 24 s 发布片在统计段五个拍点、用法段、尾段都铺了 FM 铃 / 拨弦 / 高八度琶音，被评价为「太吵、叮叮叮」。
+> 重混后：高频 8–16 kHz 在蒙太奇段降了 6.9 dB、瞬态密度降 44%，全片铃音从 25 处减到 3 处；关键节点（2.5 s 标题揭示、18.5 s 结尾 impact）保留原样，听感明显更高级。
+
+**什么算「叮」**：FM 钟声、拨弦、玻璃/钟、coin/chip 音效、亮 saw/方波 stab、高八度琶音、短促高音 click —— 都是 4–16 kHz 的金属/瞬态点缀。
+
+**分配规则**
+1. 全片金属/铃音点缀 **≤ 3 处**，只放在「信息节点」：标题揭示、结尾 impact、唯一一次 resolve。
+2. 统计 / 数字 / 计数段落用 **低频鼓点**（sub stab + tom + kick + clap），不要用铃音或琶音代替鼓点。
+3. 有 drop-out 的段落（大字卡等）不叠铃音，保留干净留白。
+4. 铃音之间至少留 **1 拍空白**；不允许连续两拍以上仍有金属泛音在响。
+5. 风格专属音色里的钟/拨弦（如三维段的钟声琶音）也要稀疏化：点状、单音、不铺底、不连奏。
+
+**删掉高频层后怎么补能量（避免变空）**
+- pad 电平 +3~4 dB，每个和弦下加持续 sub bed；
+- 切点补低 tom，用低 tom/低音下行线替代原来的铃音下行线；
+- 不要用「更多铃音」补偿，用低频与中频。
+
+**可量化自检**
+- 铃音计数：全片金属点缀 ≤ 3 处（脚本里给每处点赞打 label，渲染后 grep 检查）；
+- 8–16 kHz 段能量：非点缀段应比关键点缀段低 **≥ 6 dB**（示例中蒙太奇 −6.9 dB、用法段 −2.1 dB、统计段 −2.0 dB、尾段 −12.0 dB）；
+- 高频瞬态密度：100 ms 窗口内的 HF 谱通量峰，普通段 **< 2 /s**（示例 3.2 → 1.8 /s）；
+- 频谱图：非点缀段不应出现连续的亮高频竖条或水平泛音线；统计段只应是低频鼓点竖条；
+- 听感测试：把 <200 Hz 全部切掉后听一遍——如果只剩「叮叮叮」，就是高频点缀过量。
+
+**检测片段（numpy/scipy，读回 WAV）**
+```python
+import numpy as np
+from scipy.io import wavfile
+from scipy import signal
+
+sr, x = wavfile.read('audio/final.wav')
+x = x.astype(np.float32) / 32768.0
+if x.ndim == 2:
+    x = x.mean(axis=1)
+
+b, a = signal.butter(4, [8000 / (sr / 2), 16000 / (sr / 2)], btype='band')
+hf = signal.lfilter(b, a, x)
+
+def hf_db(t0, t1):
+    seg = hf[int(t0 * sr):int(t1 * sr)]
+    return 20 * np.log10(np.sqrt(np.mean(seg ** 2)) + 1e-12)
+
+for name, (t0, t1) in {
+    'montage 7-12': (7, 12), 'howto 12-16': (12, 16),
+    'stats 16-18': (16, 18), 'impact 18.5': (18.4, 18.7),
+}.items():
+    print(name, round(hf_db(t0, t1), 1), 'dBFS')
+# 目标：stats / montage / howto 比 impact 低 6 dB 以上
+```
+

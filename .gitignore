@@ -18,3 +18,7 @@ tmp/
 Thumbs.db
 .idea/
 .vscode/
+
+# python cache
+__pycache__/
+*.pyc
