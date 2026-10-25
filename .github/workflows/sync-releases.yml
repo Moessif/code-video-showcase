@@ -1,0 +1,62 @@
+name: Sync releases
+
+# 把 CHANGELOG.md 里的版本小节同步成 GitHub Release。
+# 触发：推送到 main（新建 tag 后推一次 main 即可），或手动 workflow_dispatch。
+# 权限：使用内置 GITHUB_TOKEN，workflow 级 contents: write；不需要额外 secret。
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: sync-releases
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Create missing releases from CHANGELOG
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ ! -f CHANGELOG.md ]; then
+            echo "CHANGELOG.md not found - nothing to sync."
+            exit 0
+          fi
+          git fetch --tags --force
+          created=0
+          while IFS= read -r tag; do
+            [ -z "$tag" ] && continue
+            if gh release view "$tag" >/dev/null 2>&1; then
+              echo "release $tag already exists - skip"
+              continue
+            fi
+            notes="$(mktemp)"
+            awk -v tag="$tag" '
+              $0 ~ "^## " && index($0, tag) > 0 { hit = 1; print; next }
+              hit && $0 ~ "^## " { exit }
+              hit { print }
+            ' CHANGELOG.md > "$notes"
+            if [ ! -s "$notes" ]; then
+              echo "No CHANGELOG section for $tag - using fallback notes."
+              echo "Changes for $tag. See CHANGELOG.md for details." > "$notes"
+            fi
+            gh release create "$tag" \
+              --title "$tag" \
+              --notes-file "$notes" \
+              --verify-tag
+            rm -f "$notes"
+            created=$((created + 1))
+          done < <(git tag --list 'v*' --sort=version:refname)
+          echo "release sync complete - created ${created} release(s)"

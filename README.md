@@ -10,6 +10,9 @@ An Agent Skill for producing 30–90 s "style showcase" films: an 8 s opening, e
 [![Node 20+](https://img.shields.io/badge/node-%E2%89%A5%2020-3c873a?style=flat-square)](https://nodejs.org/)
 [![FFmpeg](https://img.shields.io/badge/ffmpeg-libx264%20%2B%20AAC-007808?style=flat-square)](https://ffmpeg.org/)
 [![No generative models](https://img.shields.io/badge/generative%20models-none-d97757?style=flat-square)](#design-constraints)
+[![Latest release](https://img.shields.io/github/v/release/Moessif/code-video-showcase?style=flat-square&color=d97757)](https://github.com/Moessif/code-video-showcase/releases)
+
+**Changelog / 更新历史**：[CHANGELOG.md](CHANGELOG.md) · [GitHub Releases](https://github.com/Moessif/code-video-showcase/releases)
 
 ## Preview
 
