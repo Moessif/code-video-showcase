@@ -1,8 +1,8 @@
 name: Sync releases
 
-# 把 CHANGELOG.md 里的版本小节同步成 GitHub Release。
+# 把 CHANGELOG.md 的版本小节同步/更新成 GitHub Release。
 # 触发：推送到 main（新建 tag 后推一次 main 即可），或手动 workflow_dispatch。
-# 权限：使用内置 GITHUB_TOKEN，workflow 级 contents: write；不需要额外 secret。
+# 权限：内置 GITHUB_TOKEN + workflow 级 contents: write，不需要额外 secret。
 on:
   push:
     branches: [main]
@@ -24,7 +24,7 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Create missing releases from CHANGELOG
+      - name: Sync releases with CHANGELOG
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         shell: bash
@@ -36,27 +36,37 @@ jobs:
           fi
           git fetch --tags --force
           created=0
+          updated=0
+          prev=""
           while IFS= read -r tag; do
             [ -z "$tag" ] && continue
-            if gh release view "$tag" >/dev/null 2>&1; then
-              echo "release $tag already exists - skip"
-              continue
-            fi
             notes="$(mktemp)"
-            awk -v tag="$tag" '
-              $0 ~ "^## " && index($0, tag) > 0 { hit = 1; print; next }
+            heading="$(mktemp)"
+            awk -v tag="$tag" -v hfile="$heading" '
+              $0 ~ "^## " && index($0, tag) > 0 { hit = 1; print > hfile; next }
               hit && $0 ~ "^## " { exit }
               hit { print }
             ' CHANGELOG.md > "$notes"
             if [ ! -s "$notes" ]; then
-              echo "No CHANGELOG section for $tag - using fallback notes."
               echo "Changes for $tag. See CHANGELOG.md for details." > "$notes"
             fi
-            gh release create "$tag" \
-              --title "$tag" \
-              --notes-file "$notes" \
-              --verify-tag
-            rm -f "$notes"
-            created=$((created + 1))
+            if [ -n "$prev" ]; then
+              printf '\n\n**Changes since %s**: [compare %s...%s](https://github.com/%s/compare/%s...%s)\n' \
+                "$prev" "$prev" "$tag" "$GITHUB_REPOSITORY" "$prev" "$tag" >> "$notes"
+            fi
+            title="$tag"
+            if [ -s "$heading" ]; then
+              desc="$(head -n1 "$heading" | sed -E 's/^##[[:space:]]+//; s/^\[[^]]*\][[:space:]]*-*[[:space:]]*//; s/^[0-9]{4}-[0-9]{2}-[0-9]{2}[[:space:]]*-*[[:space:]]*//; s/^—[[:space:]]*//')"
+              [ -n "$desc" ] && title="$tag — $desc"
+            fi
+            if gh release view "$tag" >/dev/null 2>&1; then
+              gh release edit "$tag" --title "$title" --notes-file "$notes"
+              updated=$((updated + 1))
+            else
+              gh release create "$tag" --title "$title" --notes-file "$notes" --verify-tag
+              created=$((created + 1))
+            fi
+            rm -f "$notes" "$heading"
+            prev="$tag"
           done < <(git tag --list 'v*' --sort=version:refname)
-          echo "release sync complete - created ${created} release(s)"
+          echo "release sync complete - created ${created}, updated ${updated}"
