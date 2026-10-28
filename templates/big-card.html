@@ -15,6 +15,7 @@
 
 <script type="module">
 import { loadFonts, clamp, ease, rng, mulberry32 } from './common.js';
+import { themeFromURL, cardColors, mix } from './themes.js';
 
 const W = 1920, H = 1080;
 const canvas = document.getElementById('c');
@@ -35,6 +36,161 @@ const CARD = {
 
 const FONT = '"Noto Sans SC", "Inter", sans-serif';
 const rnd = rng(1200 + CARD.index * 37);
+
+// ---------- theme ----------
+// 不传 ?theme= 时保留旧模板的默认路径（旧硬编码配色 + ?color= 强调色），保证逐像素不变。
+// 传 ?theme= 时颜色全部由 themes.js 的 cardColors(theme, layout) 驱动；角落 HUD 用卡片 ink 派生。
+const HAS_THEME = p.has('theme');
+const THEME = themeFromURL(location.search);
+const CC = HAS_THEME ? cardColors(THEME, CARD.layout) : null;
+
+// ---------- color helpers ----------
+function hexToRgb(hex) {
+  const h = hex.replace('#', '');
+  const v = h.length === 3 ? h.split('').map((c) => c + c).join('') : h;
+  return [parseInt(v.slice(0, 2), 16), parseInt(v.slice(2, 4), 16), parseInt(v.slice(4, 6), 16)];
+}
+
+// 任意 CSS 颜色（#hex / rgb() / rgba()）→ [r,g,b,a]
+function parseColor(color) {
+  const s = String(color).trim();
+  if (s[0] === '#') {
+    const h = s.slice(1);
+    const f = h.length === 3 ? h.split('').map((c) => c + c).join('') : h;
+    return [parseInt(f.slice(0, 2), 16), parseInt(f.slice(2, 4), 16), parseInt(f.slice(4, 6), 16), 1];
+  }
+  const m = s.match(/^rgba?\(([^)]+)\)$/i);
+  if (m) {
+    const parts = m[1].split(',').map((x) => parseFloat(x));
+    return [parts[0] | 0, parts[1] | 0, parts[2] | 0, parts.length > 3 ? parts[3] : 1];
+  }
+  return [0, 0, 0, 1];
+}
+// 颜色 → 指定透明度
+function withAlpha(color, alpha) {
+  const [r, g, b] = parseColor(color);
+  return `rgba(${r},${g},${b},${alpha})`;
+}
+// 主题色混合（themes.js 的 mix 失败时回退 a）
+function mixHex(a, b, k) {
+  try { return mix(a, b, k); } catch { return a; }
+}
+function contrast(a, b) {
+  const lum = (c) => {
+    const [r, g, bl] = parseColor(c);
+    const lin = (v) => { const s = v / 255; return s <= 0.03928 ? s / 12.92 : Math.pow((s + 0.055) / 1.055, 2.4); };
+    return 0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(bl);
+  };
+  const l1 = lum(a), l2 = lum(b);
+  const [hi, lo] = l1 >= l2 ? [l1, l2] : [l2, l1];
+  return (hi + 0.05) / (lo + 0.05);
+}
+
+// ---------- palette: legacy path = 旧模板的逐值常量；theme path = cardColors 派生 ----------
+const PAL = (() => {
+  const [AC_R, AC_G, AC_B] = hexToRgb(CARD.color);
+  const AC = (a = 1) => `rgba(${AC_R},${AC_G},${AC_B},${a})`;
+  const legacy = (extra) => Object.assign({
+    bgTop: '#0e0e0d', bgBottom: null, grid: null,
+    streakRgb: [AC_R, AC_G, AC_B], speedLine: AC(0.55), glowRgb: [AC_R, AC_G, AC_B],
+    footerStyle: 'rgba(245,240,232,0.5)', footerBrand: 'rgba(245,240,232,0.35)', flash: '#fff',
+  }, extra);
+
+  if (!HAS_THEME) {
+    if (CARD.layout === 0) {
+      return legacy({
+        bgTop: CARD.color,
+        bgBottom: `rgba(${AC_R * 0.82 | 0},${AC_G * 0.82 | 0},${AC_B * 0.82 | 0},1)`,
+        grid: 'rgba(0,0,0,0.06)',
+        firstColor: '#0e0e0d',
+        keyColor: '#0e0e0d',
+        echo: 'rgba(255,255,255,0.07)',
+        underline: 'rgba(14,14,13,0.9)',
+      });
+    }
+    if (CARD.layout === 1) {
+      return legacy({
+        bgTop: '#f4efe6',
+        grid: 'rgba(20,20,20,0.045)',
+        firstColor: '#0e0e0d',
+        keyColor: '#0e0e0d',
+        echo: 'rgba(20,20,20,0.07)',
+        underline: AC(1),
+        footerStyle: 'rgba(20,20,20,0.5)',
+        footerBrand: 'rgba(20,20,20,0.35)',
+      });
+    }
+    return legacy({
+      firstColor: 'rgba(245,240,232,0.92)',
+      keyColor: CARD.color,
+      echo: 'rgba(255,255,255,0.07)',
+    });
+  }
+
+  // theme path
+  const dark = CARD.layout >= 2;
+  // ?color= 仍可作为强调色覆盖（保持旧模板「逐卡换色」的用法），其余一律取自主题。
+  const accent = p.has('color')
+    ? CARD.color
+    : (CC.field === 'accent' ? CC.bg : CC.keyword);
+  const accentRgb = parseColor(accent).slice(0, 3);
+  // 角落 HUD 跟着卡片 ink 走（对比度兜底），不套主题的亮/暗 HUD 规格：
+  // layout0 强调底 / layout1 纸底 / layout2,3 暗卡都能保证可读。
+  const footerFor = (bg) => {
+    const base = contrast(CC.ink, bg) >= 2.5 ? CC.ink : (THEME.colors.cardDarkInk || '#f5f0e8');
+    return { footerStyle: withAlpha(base, 0.5), footerBrand: withAlpha(base, 0.35) };
+  };
+  const flash = THEME.colors.flash;
+
+  if (CARD.layout === 0) {
+    return {
+      bgTop: accent,
+      bgBottom: mixHex(accent, '#000000', 0.18),
+      grid: CC.grid,
+      firstColor: CC.ink,
+      keyColor: CC.ink,
+      echo: CC.echo,
+      underline: withAlpha(CC.ink, 0.9),
+      streakRgb: accentRgb,
+      speedLine: withAlpha(CC.ink, 0.35),
+      glowRgb: parseColor(mixHex(accent, '#ffffff', 0.45)).slice(0, 3),
+      ...footerFor(accent), flash,
+    };
+  }
+  if (CARD.layout === 1) {
+    // 纸底上强调色对比不足时（例如沿用旧 ?color= 的金色）退到 ink，保证大字可读。
+    const paperKey = contrast(accent, CC.bg) >= 2.2 ? accent : CC.ink;
+    return {
+      bgTop: CC.bg,
+      grid: CC.grid,
+      firstColor: CC.ink,
+      keyColor: paperKey,
+      echo: CC.echo,
+      underline: withAlpha(accent, 1),
+      streakRgb: accentRgb,
+      speedLine: withAlpha(accent, 0.55),
+      glowRgb: accentRgb,
+      ...footerFor(CC.bg), flash,
+    };
+  }
+  // 暗卡：主题可能给出与 cardDark 同色的 accent（如 celadon-paper），保证关键词可读。
+  let keyColor = accent;
+  if (contrast(accent, CC.bg) < 2.0) {
+    const soft = CC.ink; // cardDarkInk：同主题里的最高对比色
+    keyColor = contrast(THEME.colors.accentSoft, CC.bg) >= 2 ? THEME.colors.accentSoft : soft;
+  }
+  return {
+    bgTop: CC.bg,
+    firstColor: withAlpha(CC.ink, 0.92),
+    keyColor,
+    echo: CC.echo,
+    underline: null,
+    streakRgb: accentRgb,
+    speedLine: withAlpha(keyColor, 0.55),
+    glowRgb: parseColor(keyColor).slice(0, 3),
+    ...footerFor(CC.bg), flash,
+  };
+})();
 
 // ---------- pre-rendered text layers (blur 16px once, never per frame) ----------
 function textLayer(text, { size, weight, color, blur = 0, y = H / 2, align = 'center', x = W / 2, maxW = W - 2 * 96 }) {
@@ -57,9 +213,8 @@ function textLayer(text, { size, weight, color, blur = 0, y = H / 2, align = 'ce
 }
 
 function makeLayers() {
-  const dark = CARD.layout >= 2;
-  const firstColor = CARD.layout === 0 ? '#0e0e0d' : (dark ? 'rgba(245,240,232,0.92)' : '#0e0e0d');
-  const keyColor = CARD.layout === 0 ? '#0e0e0d' : (dark ? CARD.color : '#0e0e0d');
+  const firstColor = PAL.firstColor;
+  const keyColor = PAL.keyColor;
   const firstY = H / 2 - 116;
   const keyY = H / 2 + 60;
   const layers = [];
@@ -79,41 +234,37 @@ function makeLayers() {
 // is rasterized with a fallback font (or nothing) and stays blank forever.
 let ASSETS = makeLayers();
 
-function hexToRgb(hex) {
-  const h = hex.replace('#', '');
-  const v = h.length === 3 ? h.split('').map((c) => c + c).join('') : h;
-  return [parseInt(v.slice(0, 2), 16), parseInt(v.slice(2, 4), 16), parseInt(v.slice(4, 6), 16)];
-}
-const [AC_R, AC_G, AC_B] = hexToRgb(CARD.color);
-const AC = (a = 1) => `rgba(${AC_R},${AC_G},${AC_B},${a})`;
-
 // ---------- backgrounds ----------
 function drawBackground() {
-  const dark = CARD.layout >= 2;
   if (CARD.layout === 0) {
     const g = ctx.createLinearGradient(0, 0, W, H);
-    g.addColorStop(0, CARD.color);
-    g.addColorStop(1, `rgba(${AC_R * 0.82 | 0},${AC_G * 0.82 | 0},${AC_B * 0.82 | 0},1)`);
+    g.addColorStop(0, PAL.bgTop);
+    g.addColorStop(1, PAL.bgBottom);
     ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
     // 纸纹/网格
-    ctx.strokeStyle = 'rgba(0,0,0,0.06)'; ctx.lineWidth = 1;
-    for (let x = 0; x < W; x += 72) { ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, H); ctx.stroke(); }
-    for (let y = 0; y < H; y += 72) { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke(); }
+    if (PAL.grid) {
+      ctx.strokeStyle = PAL.grid; ctx.lineWidth = 1;
+      for (let x = 0; x < W; x += 72) { ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, H); ctx.stroke(); }
+      for (let y = 0; y < H; y += 72) { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke(); }
+    }
   } else if (CARD.layout === 1) {
-    ctx.fillStyle = '#f4efe6'; ctx.fillRect(0, 0, W, H);
+    ctx.fillStyle = PAL.bgTop; ctx.fillRect(0, 0, W, H);
     // 细网格 + 纸纹
-    ctx.strokeStyle = 'rgba(20,20,20,0.045)'; ctx.lineWidth = 1;
-    for (let x = 0; x < W; x += 60) { ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, H); ctx.stroke(); }
-    for (let y = 0; y < H; y += 60) { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke(); }
+    if (PAL.grid) {
+      ctx.strokeStyle = PAL.grid; ctx.lineWidth = 1;
+      for (let x = 0; x < W; x += 60) { ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, H); ctx.stroke(); }
+      for (let y = 0; y < H; y += 60) { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke(); }
+    }
   } else {
-    ctx.fillStyle = '#0e0e0d'; ctx.fillRect(0, 0, W, H);
+    ctx.fillStyle = PAL.bgTop; ctx.fillRect(0, 0, W, H);
     // streak lines
+    const [sr, sg, sb] = PAL.streakRgb;
     ctx.save();
     ctx.translate(W / 2, H / 2);
     for (let i = 0; i < 34; i++) {
       const a = (i / 34) * Math.PI * 2 + 0.3;
       const len = 460 + rnd.range(0, 520);
-      ctx.strokeStyle = AC(0.06 + rnd.next() * 0.10);
+      ctx.strokeStyle = `rgba(${sr},${sg},${sb},${0.06 + rnd.next() * 0.10})`;
       ctx.lineWidth = rnd.range(1, 3);
       ctx.beginPath();
       ctx.moveTo(Math.cos(a) * 120, Math.sin(a) * 120);
@@ -131,7 +282,7 @@ function drawEcho(t) {
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
   ctx.lineWidth = 3;
-  ctx.strokeStyle = CARD.layout === 1 ? 'rgba(20,20,20,0.07)' : 'rgba(255,255,255,0.07)';
+  ctx.strokeStyle = PAL.echo;
   ctx.strokeText(CARD.keyword, W / 2 + Math.sin(t * 1.1) * 70, H / 2 + 40);
   ctx.restore();
 }
@@ -153,7 +304,7 @@ function slam(localT) {
 }
 
 // ---------- speed lines burst ----------
-function drawSpeedLines(progress, amount = 26, color = AC(0.55)) {
+function drawSpeedLines(progress, amount = 26, color = PAL.speedLine) {
   if (progress <= 0 || progress >= 1) return;
   const t = ease.outCubic(progress);
   ctx.save();
@@ -176,20 +327,16 @@ function drawSpeedLines(progress, amount = 26, color = AC(0.55)) {
 
 function drawGlow(alpha) {
   if (alpha <= 0.001) return;
+  const [gr, gg, gb] = PAL.glowRgb;
   const g = ctx.createRadialGradient(W / 2, H / 2, 40, W / 2, H / 2, 900);
-  g.addColorStop(0, AC(0.26 * alpha));
-  g.addColorStop(1, AC(0));
+  g.addColorStop(0, `rgba(${gr},${gg},${gb},${0.26 * alpha})`);
+  g.addColorStop(1, `rgba(${gr},${gg},${gb},0)`);
   ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
 }
 
 function drawUnderline(t) {
-  if (CARD.layout === 0) {
-    ctx.fillStyle = 'rgba(14,14,13,0.9)';
-  } else if (CARD.layout === 1) {
-    ctx.fillStyle = AC(1);
-  } else {
-    return;
-  }
+  if (!PAL.underline) return;
+  ctx.fillStyle = PAL.underline;
   // keyword underline: width from 0 -> 72% of keyword width, starting at second beat
   const local = clamp((t - 0.5) / 0.22);
   if (local <= 0) return;
@@ -234,29 +381,29 @@ window.renderFrame = (u) => {
 
   const s1 = slam(t);
   drawLayer(ASSETS.layers[0], s1);
-  drawSpeedLines(t < 0.14 ? t / 0.14 : 0, 22);
+  drawSpeedLines(t < 0.14 ? t / 0.14 : 0, 22, PAL.speedLine);
 
   const s2 = slam(t - 0.5);
   drawLayer(ASSETS.layers[1], s2);
-  drawSpeedLines(t >= 0.5 && t < 0.64 ? (t - 0.5) / 0.14 : 0, 30);
+  drawSpeedLines(t >= 0.5 && t < 0.64 ? (t - 0.5) / 0.14 : 0, 30, PAL.speedLine);
   drawUnderline(t);
 
   // footer chrome
-  ctx.fillStyle = CARD.layout === 1 ? 'rgba(20,20,20,0.5)' : 'rgba(245,240,232,0.5)';
+  ctx.fillStyle = PAL.footerStyle;
   ctx.font = '500 22px "JetBrains Mono", monospace';
   ctx.textAlign = 'right';
   ctx.fillText(`STYLE ${String(CARD.index).padStart(2, '0')} / ${CARD.total}`, 1824, 1016);
   ctx.textAlign = 'left';
-  ctx.fillStyle = CARD.layout === 1 ? 'rgba(20,20,20,0.35)' : 'rgba(245,240,232,0.35)';
+  ctx.fillStyle = PAL.footerBrand;
   ctx.font = '500 20px "JetBrains Mono", monospace';
   ctx.fillText(CARD.brand, 96, 1016);
   ctx.restore();
 
-  // opening white flash (card cut impact)
+  // opening flash (card cut impact)
   if (t < 0.09) {
     ctx.save();
     ctx.globalAlpha = 0.85 * (1 - t / 0.09);
-    ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, W, H);
+    ctx.fillStyle = PAL.flash; ctx.fillRect(0, 0, W, H);
     ctx.restore();
   }
 };

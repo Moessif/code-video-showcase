@@ -123,4 +123,29 @@ t=1.00  硬切到风格段（风格段第 1 帧即卡点冲击）
 - 右上品牌水印 `{{BRAND}}`，字号 20–24 px，透明度 0.35–0.5；
 - 赛博/代码段允许更多 HUD（FRAME / SYS / SIGNAL / TC），但整体透明度不超过 0.6，不能抢主视觉。
 
+> 主题化后：胶囊、倒计时、品牌水印的颜色改由 `chrome(theme)` 提供（位置、字号、透明度不变），详见第 8 节。
+
 **禁止**：底部字幕条、黄色大标题、低分辨率贴纸、与风格无关的装饰 emoji。
+
+---
+
+## 8. 主题化大字卡
+
+大字卡的配色不再写死，默认从主题派生；页面入口：`templates/big-card.html?theme=aqua-morandi`。`?theme=` 也接受别名（如 `?theme=aqua`、`?theme=claude`、`?theme=珊瑚`，由 `templates/themes.js` 的 `getTheme()` 统一解析），另可用 `?t=`；**不传 = `coral-noir`，与旧版视觉逐值一致**。
+
+`cardColors(theme, layout)` 返回 7 个字段，直接喂给渲染函数：
+
+| 字段 | 含义 | layout 0 强调底 | layout 1 纸底 | layout 2/3 暗卡 |
+|---|---|---|---|---|
+| `bg` | 卡片底色 | `accent` | `paper` | `cardDark` |
+| `ink` | 第一行/正文 | `accentInk` | `paperInk` | `cardDarkInk` |
+| `sub` | 次要信息（角标/HUD/下划线垫色） | ink@55% | ink@52% | cardDarkInk@46% |
+| `keyword` | 关键词主字 | `accentInk` | `accent` | `accent` |
+| `echo` | 描边回声大字 | ink@7% | ink@6% | cardDarkInk@7% |
+| `grid` | 细线网格/速度线 | ink@5% | ink@4.5% | cardDarkInk@5% |
+| `sheen` | 斜向高光/纸面光泽 | `cardSheen` | 白@18% | `cardSheen` |
+
+- **明暗节奏不能丢**：浅色主题（`claude-light` / `aqua-morandi` / `celadon-paper` / `blueprint-stone`）的 layout 2/3 仍用 `cardDark` 深色卡，保持「强调底 → 纸底 → 深底 → 深底」的循环，否则整片会发飘。
+- **字体固定**：中文关键词永远 Noto Sans SC 900（第一行 700），不随主题换字体；字号、砸入、回声字规则仍按本文件第 1–4 节。
+- 速度线、径向光晕、关键词下划线、`STYLE 0X / 11` 都从 `keyword` / `sub` / `accent` 派生，不要写死 `#d97757`。
+- 主题数据的唯一来源是 `templates/themes.js`；8 套主题的完整说明见 `references/themes.md`（§7「大字卡：主题怎么落到 4 个版式上」、§9「覆盖主色」）。

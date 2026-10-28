@@ -20,6 +20,7 @@ import {
   createSegment, applyImpact2D, drawFlash, drawCapsuleLabel, drawCountdown, drawStamp,
   loadFonts, rng, TAU,
 } from './common.js';
+import { themeFromURL, chrome, drawThemeBackground, drawGlassPanel, hexToRgba } from './themes.js';
 
 const W = 1920, H = 1080;
 const canvas = document.getElementById('c');
@@ -28,6 +29,7 @@ const ctx = canvas.getContext('2d');
 // ---------- segment config ----------
 // 正常预览:  http://127.0.0.1:4600/segments/01.html
 // 片段模式:  ?seg=1&t0=0.35&speed=1.4&dur=3   (渲染器自动加)
+// 主题:      ?theme=aqua-morandi / claude / 珊瑚 …（不传 = 旧版默认画面）
 const seg = createSegment({ duration: 3.0 });
 window.DURATION = seg.duration;
 
@@ -40,9 +42,118 @@ const STARS = Array.from({ length: 140 }, () => ({
 
 const BRAND = '{{BRAND}}';
 
-// ---------- scene ----------
+// ---------- theme ----------
+// 不传 ?theme= → 走旧版画面（与改动前逐像素一致）；传了就由 themes.js 驱动背景/HUD/内容配色。
+const p = new URLSearchParams(location.search);
+const HAS_THEME = p.has('theme');
+const THEME = themeFromURL(location.search);
+const HUD = HAS_THEME ? chrome(THEME) : null;
+
+const PLACEHOLDER_TITLE = '风格段标题';
+const PLACEHOLDER_SUB = '替换 drawScene() 开始做真正的画面';
+
+// ---------- themed helpers ----------
+function radialGlow(cx, cy, radius, color, alpha) {
+  const g = ctx.createRadialGradient(cx, cy, 0, cx, cy, radius);
+  g.addColorStop(0, hexToRgba(color, alpha));
+  g.addColorStop(0.6, hexToRgba(color, alpha * 0.4));
+  g.addColorStop(1, hexToRgba(color, 0));
+  ctx.fillStyle = g;
+  ctx.fillRect(cx - radius, cy - radius, radius * 2, radius * 2);
+}
+
+function roundRect(x, y, w, h, r) {
+  const rr = Math.min(r, w / 2, h / 2);
+  ctx.beginPath();
+  ctx.moveTo(x + rr, y);
+  ctx.arcTo(x + w, y, x + w, y + h, rr);
+  ctx.arcTo(x + w, y + h, x, y + h, rr);
+  ctx.arcTo(x, y + h, x, y, rr);
+  ctx.arcTo(x, y, x + w, y, rr);
+  ctx.closePath();
+}
+
+// 主题演示内容：背景 = drawThemeBackground；玻璃主题画一块液态玻璃信息卡（淡绿/淡粉柔光可见）。
+function drawThemedScene(t, u) {
+  const c = THEME.colors;
+  const m = THEME.material || {};
+  const isGlass = !!m.glass;
+  const accent = c.accent;
+  const tintA = (m.tints && m.tints[0]) || c.accentSoft;
+  const tintB = (m.tints && m.tints[1]) || c.accentSoft;
+  const cx = W / 2, cy = H * 0.52;
+
+  drawThemeBackground(ctx, THEME, W, H, t);
+
+  if (isGlass) {
+    // 信息卡：1 块液态玻璃 + 卡后淡绿/淡粉柔光
+    const pw = 1060, ph = 470, px = (W - pw) / 2, py = H * 0.5 - ph / 2 - 8;
+    radialGlow(px + 90, py - 40, 430, tintA, 0.5);
+    radialGlow(px + pw - 130, py + ph + 20, 460, tintB, 0.46);
+    radialGlow(cx, cy, 720, accent, 0.18);
+    drawGlassPanel(ctx, THEME, { x: px, y: py, w: pw, h: ph, r: 42 });
+
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillStyle = hexToRgba(c.ink, 0.5);
+    ctx.font = '500 22px "JetBrains Mono", monospace';
+    ctx.fillText(`LIQUID GLASS · ${String(THEME.nameEn || THEME.id).toUpperCase()}`, cx, py + 74);
+
+    ctx.fillStyle = c.ink;
+    ctx.font = '900 116px "Noto Sans SC", sans-serif';
+    ctx.fillText(PLACEHOLDER_TITLE, cx, py + ph * 0.42);
+
+    ctx.fillStyle = accent;
+    ctx.font = '500 32px "Noto Sans SC", sans-serif';
+    ctx.fillText('半透明白 · 1px 高光边 · 淡绿/淡粉柔光只从玻璃里透出来', cx, py + ph * 0.655);
+
+    // 两块主题色片：证明淡绿 / 淡粉确实来自主题数据
+    const pillW = 168, pillH = 54, gap = 24;
+    const x0 = cx - pillW - gap / 2;
+    const y0 = py + ph - 100;
+    for (const [x, fill, label] of [[x0, tintA, '淡绿'], [x0 + pillW + gap, tintB, '淡粉']]) {
+      roundRect(x, y0, pillW, pillH, pillH / 2);
+      ctx.fillStyle = hexToRgba(fill, 0.78);
+      ctx.fill();
+      ctx.lineWidth = 1.2;
+      ctx.strokeStyle = 'rgba(255,255,255,0.85)';
+      ctx.stroke();
+      ctx.fillStyle = c.ink;
+      ctx.font = '600 24px "Noto Sans SC", sans-serif';
+      ctx.fillText(label, x + pillW / 2, y0 + pillH / 2 + 1);
+    }
+  } else {
+    // 其他主题：材质背景 + 主题强调色圆环/柔光 + 主题色文字，不塞玻璃。
+    const glowColor = THEME.mode === 'dark' ? accent : (c.accentSoft || accent);
+    radialGlow(cx, cy, 640, glowColor, THEME.mode === 'dark' ? 0.34 : 0.4);
+
+    const r = 230 + 14 * Math.sin(t * 2.1);
+    ctx.strokeStyle = hexToRgba(accent, 0.9);
+    ctx.lineWidth = 4;
+    ctx.beginPath();
+    ctx.arc(cx, cy, r, t * 0.9, t * 0.9 + Math.PI * 1.5);
+    ctx.stroke();
+
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillStyle = c.ink;
+    ctx.font = '900 160px "Noto Sans SC", sans-serif';
+    ctx.fillText(PLACEHOLDER_TITLE, cx, cy - 20);
+
+    ctx.fillStyle = accent;
+    ctx.font = '500 40px "Noto Sans SC", sans-serif';
+    ctx.fillText(PLACEHOLDER_SUB, cx, cy + 150);
+  }
+
+  // standard chrome（胶囊 / 倒计时 / 水印全部用主题 HUD 规格）
+  drawCapsuleLabel(ctx, 1, '示例风格', '分类', HUD.capsule);
+  drawCountdown(ctx, u, seg.duration, HUD.countdown);
+  drawStamp(ctx, BRAND, { y: 72, size: 22, ...HUD.stamp });
+}
+
+// ---------- scene (legacy default, ?theme= 未传时与旧版逐像素一致) ----------
 // 替换成你的风格场景。t = 场景时间（秒，已按 t0/speed 映射），u = 片段本地时间
-function drawScene(t, u) {
+function drawLegacyScene(t, u) {
   // background
   const bg = ctx.createLinearGradient(0, 0, 0, H);
   bg.addColorStop(0, '#071026');
@@ -76,17 +187,22 @@ function drawScene(t, u) {
   ctx.font = '900 160px "Noto Sans SC", sans-serif';
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
-  ctx.fillText('风格段标题', cx, cy - 20);
+  ctx.fillText(PLACEHOLDER_TITLE, cx, cy - 20);
 
   ctx.fillStyle = '#d97757';
   ctx.font = '500 40px "Noto Sans SC", sans-serif';
-  ctx.fillText('替换 drawScene() 开始做真正的画面', cx, cy + 150);
+  ctx.fillText(PLACEHOLDER_SUB, cx, cy + 150);
   // === end demo content ===
 
   // standard chrome
   drawCapsuleLabel(ctx, 1, '示例风格', '分类');
   drawCountdown(ctx, u, seg.duration);
   drawStamp(ctx, BRAND, { y: 72, size: 22 });
+}
+
+function drawScene(t, u) {
+  if (HAS_THEME) drawThemedScene(t, u);
+  else drawLegacyScene(t, u);
 }
 
 // ---------- render frame ----------

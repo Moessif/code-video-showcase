@@ -4,9 +4,9 @@ description: |
   用纯代码（HTML/Canvas/SVG/Three.js 逐帧渲染 + Python numpy/scipy 合成配乐 + FFmpeg 合成）制作 30–90 秒卡点风格展示视频的完整技能。
   适用于：复刻/仿制《Opus 5.5 视频风格展示》、DeepSeek V4.1-Flash 61s 风格样片、多风格切换卡点视频、纯代码视频、程序化视频、
   HTML/Canvas/Three.js 视频、逐帧渲染 + 节拍同步、风格展示短片；要求不使用任何视频/图像/音乐生成模型。
-  包含：剪辑结构公式、11 种风格配方、大字卡系统、120BPM 配乐合成、Playwright 渲染管线、质检清单与可运行模板。
+  包含：调用前置需求采集与主题选择、8 套主题配色 × 8 种材质、剪辑结构公式、11 种风格配方、大字卡系统、120BPM 配乐合成、Playwright 渲染管线、质检清单与可运行模板。
   当用户提到「卡点视频」「风格展示视频」「纯代码做视频」「类似 Opus 5.5 / DeepSeek 风格展示」「逐帧渲染」「用代码做视频」
-  「HTML Canvas 视频」「程序化视频」时必须触发。
+  「HTML Canvas 视频」「程序化视频」「主题配色」「换配色」「配色主题」时必须触发。
 license: MIT
 metadata:
   domain: video-production
@@ -25,6 +25,7 @@ allowed-tools: Bash, Read, Write, Edit, Glob, Grep
 **适用**
 - 30–90 秒内快速切换多种美术风格的「风格展示 / 能力展示 / 产品宣传」短片；
 - 强节拍（120 BPM）、大字卡 + 风格段交替、结尾升华的卡点结构；
+- 同一套内容需要不同品牌气质（8 套主题：珊瑚暗夜 / 橙光白 / 水蓝白·莫兰迪 / 琥珀黑金 / 蓝图纸 / 石墨信号 / 青瓷白 / 绯墨剧场）；
 - 用户明确要求纯代码、可复现、逐帧确定性渲染（同一 t 必出同一帧）。
 
 **不适用**
@@ -42,7 +43,7 @@ allowed-tools: Bash, Read, Write, Edit, Glob, Grep
 | 音频 | 48 kHz 立体声 AAC 192 kbps |
 | 视频 | H.264 High，yuv420p，libx264，2-pass 约 3.4 Mbps（成片约 26 MB） |
 | 节拍 | 120 BPM：1 拍 = 0.5 s，1 小节 = 2 s |
-| 品牌色 | `#d97757`（珊瑚色）；底色 `#0e0e0d` |
+| 主题配色 | 8 选 1，默认 `coral-noir`（原版：珊瑚 `#d97757` + 深底 `#0e0e0d`）；角色 token 与选择流程见 §5、`references/intake.md` |
 | 字体 | 全部 OFL：Noto Sans/Serif CJK SC、Ma Shan Zheng、Long Cang、ZCOOL KuaiLe、ZCOOL QingKe HuangYou、Press Start 2P、JetBrains Mono、Inter、Orbitron、Playfair Display |
 | 字幕 | 不要底部字幕；信息都做成画面内的胶囊/HUD/注释 |
 | 确定性 | 画面是 `t` 的纯函数，禁止 CSS transition/animation、rAF、Date.now、Math.random |
@@ -60,15 +61,15 @@ window.__bootError = null;             // 初始化失败时写入错误字符�
 
 ## 2. 十阶段工作流
 
-1. **需求定稿**：主题、品牌名（占位 `{{BRAND}}`）、时长、风格数量 N、每风格一句标题、结尾 CTA。
+1. **需求采集 + 主题锁定**（先做，不要先写代码）：先读 `references/intake.md`；默认按 61s / 横屏 1920×1080 / 11 段 / 珊瑚暗夜 / 120BPM 电子起一版，**最多 2 轮**收齐信息——必问 4 项（题材、渠道/画幅、品牌名 `{{BRAND}}`、结尾 CTA），时长/风格数 N/主题/配乐给默认或按用户主动提调整。把 8 套主题预览图发给用户选（`theme-three-up.jpg` → `theme-contact-sheet.jpg` → 单主题图），锁定主题 id 后把全部答案写成项目根 `brief.json`（模板见 intake.md），后续所有页面用 `?theme=<id>` 透传。主题未锁定前不渲染成片。
 2. **写剪辑表**：用第 3 节公式算出每一段 `[start,end,type,style,t0,speed]`，先落成 JSON/Markdown 常量，后面所有脚本都读它。
 3. **环境准备**：Node/Playwright/Chromium/FFmpeg/numpy+scipy/本地字体；参考 `references/render-pipeline.md` 的跨平台方案（WSL 下 Playwright CDN 慢时用 Chrome for Testing + `executablePath`）。
-4. **工程骨架**：`common.js`（与 HTML 同目录）、`templates/segment.html`、`templates/big-card.html`、`templates/render-segment.mjs`、`templates/concat-and-encode.sh`、`templates/synth_audio.py`（渲染器内置静态服务器，无需另写）。
+4. **工程骨架**：`common.js` + `themes.js`（与 HTML 同目录）、`templates/theme-board.html`（主题预览）、`templates/segment.html`、`templates/big-card.html`、`templates/render-segment.mjs`、`templates/concat-and-encode.sh`、`templates/synth_audio.py`（渲染器内置静态服务器，无需另写）。
 5. **逐段实现（外循环 11 次）**：先写场景 → 渲染 5–6 张静帧拼接触表检查构图与字体 → 再整段渲染 → `ffprobe` 核帧数。
 6. **开场**：逐字打字 + 代码列上滚 + 粒子爆炸 + 闪白，8 s。
 7. **大字卡**：4 套版式轮换，2 拍/张；砸入、速度线、回声字、`STYLE 0X / 11`。
 8. **八连闪 + 结尾**（可选）：8×0.25 s 的微海报，接着 6 s 电影感收尾。
-9. **配乐合成**：120 BPM、A 小调、与剪辑表共用同一组时间常数；生成 WAV 后先检查频谱图与卡点对齐，再做「高频克制」听感自检（§7）。
+9. **配乐合成**：120 BPM、A 小调、与剪辑表共用同一组时间常数；生成 WAV 后先检查频谱图与卡点对齐，再做「高频克制」听感自检（§8）。
 10. **合成与质检**：分段 mp4 → concat → 混音 → 2-pass → 抽帧接触表 + 频谱图 + 人工看片；输出 `成片 + 封面帧 + 参数说明`。
 
 **每段闭环（必须）**：
@@ -151,9 +152,56 @@ Three.js 片段：`renderer` 必须 `{ preserveDrawingBuffer: true }`；启动�
 
 ---
 
-## 5. 大字卡系统（1 s / 2 拍）
+## 5. 主题系统（8 套配色 × 8 种材质）
+
+主题不是换三个颜色，而是**角色色板 + 材质 + HUD 规格 + 点缀色**四层一起换。数据唯一来源 `templates/themes.js`，完整规范（材质画法、token 阈值、推荐矩阵、加主题步骤）见 `references/themes.md`。
+
+| # | id | 名称 | 明暗 | 主材质 | 一句话 |
+|---|---|---|---|---|---|
+| 01 | `coral-noir` | 珊瑚暗夜 | dark | 胶片颗粒 | 默认，原版逐值一致 |
+| 02 | `claude-light` | 橙光白 | light | 纸面柔光 | 暖纸 + 陶土橙，品牌/知识 |
+| 03 | `aqua-morandi` | 水蓝白 · 莫兰迪 | light | 液态玻璃 · 柔光 | 雾面水色 + 淡绿/淡粉，品牌/生活方式 |
+| 04 | `amber-noir` | 琥珀黑金 | dark | 金属烫金 | 近黑 + 旧金，高端/电影感 |
+| 05 | `blueprint-stone` | 蓝图纸 | light | 蓝图网格 | 石色纸 + 钴蓝，工程/数据 |
+| 06 | `graphite-signal` | 石墨信号 | dark | 哑光工业 | 石墨灰 + 安全橙，开发者/硬件 |
+| 07 | `celadon-paper` | 青瓷白 | light | 水墨晕染 | 单色青 + 宋体，东方/文化 |
+| 08 | `crimson-theater` | 绯墨剧场 | dark | 舞台聚光 | 近黑 + 绯红，时尚/艺术 |
+
+默认 `coral-noir` 与旧版逐值一致：**不传 `theme` 时老项目行为完全不变**。模板按 URL 选主题，也接受中英文别名：
+
+```text
+/segments/01.html?theme=aqua-morandi
+/segments/big-card.html?theme=水蓝白&layout=1      # 别名同样有效
+```
+
+```js
+// 页面里读取主题（big-card.html / segment.html 已内置）
+const theme = themeFromURL(location.search);        // ?theme=xxx / ?t=xxx → 主题对象
+drawThemeBackground(ctx, theme, W, H, t);           // 底色 + 材质 + 颗粒（确定性）
+const hud = chrome(theme);                          // 胶囊/倒计时/水印配色
+drawCapsuleLabel(ctx, seg.index, name, category, hud.capsule);
+const c = cardColors(theme, layout);                // 大字卡 4 版式：{ field, bg, ink, sub, keyword, echo, grid, sheen }
+drawGlassPanel(ctx, theme, { x, y, w, h });         // 仅 glass 主题的信息面板
+```
+
+**铁律**
+
+- 浅色主题的胶囊/倒计时/水印必须用 `chrome(theme)`（深墨实体胶囊 + 浅字）；照搬原版半透明黑胶囊会在纸上变成脏补丁。
+- 每套主题（含浅色）都有 `cardDark`：大字卡 layout 2/3 仍是深色卡，整片才有明暗节奏。
+- 大字卡字体固定 Noto Sans SC 900（卡是节拍器）；主题 `type` 的字体只用于片头/结尾/风格段。
+- 风格段主色按主题 `accents` 替换；青瓷白保持单色青，橙光白禁止渐变光球，水蓝白柔光/玻璃是主角但只做局部。
+- 用户只给品牌色时，用 `accentOverride` 改 4 个值并校验对比度，不要自创第 9 套主题（见 `references/themes.md` §9）。
+- 改完主题必须 `node scripts/theme-audit.mjs --strict` 全绿（当前 8 套全通过）。
+
+调性与禁忌、按内容类型选主题的矩阵见 `references/themes.md`；预览图在 `assets/theme-previews/`（单主题 8 张 + 联系表 + 三拼对比）。
+
+---
+
+## 6. 大字卡系统（1 s / 2 拍）
 
 4 套版式轮换（样片实测顺序：强调色底 → 米白底 → 黑底 → 黑底；也可按任务书 `i%4` 自定义）：
+
+> 下表颜色是默认主题 `coral-noir` 的实际值；换主题后底/字/关键词来自 `cardColors(theme, layout)`，版式结构不变（见 §5）。
 
 | 版式 | 底 | 字 | 关键词 |
 |---|---|---|---|
@@ -170,7 +218,7 @@ Three.js 片段：`renderer` 必须 `{ preserveDrawingBuffer: true }`；启动�
 
 ---
 
-## 6. 风格展示配方（每段 3 s / 6 拍）
+## 7. 风格展示配方（每段 3 s / 6 拍）
 
 11 种风格是「视觉美术 + 技术实现 + 音色」三件套，完整参数见 **`references/style-recipes.md`**。
 速查：
@@ -189,11 +237,11 @@ Three.js 片段：`renderer` 必须 `{ preserveDrawingBuffer: true }`；启动�
 | 10 | Three.js 三维 | Lathe/TorusKnot + PhysicalMaterial | 粘土影棚、玻璃球、金属球 | 钟声琶音 + 弹跳 |
 | 11 | 竖屏短视频 | Canvas 手机壳 + 弹出动画 | 9:16、步骤卡、评论/点赞 | 808 + 超级锯齿 + trap 镲 |
 
-**每段必须有的视觉锚点**：左上胶囊标签（珊瑚编号 + 风格名）、右下 3 秒倒计时/帧计数、1–2 个风格内小标签、标题或主视觉在 6 拍内完成一次完整叙事。不要底部字幕。
+**每段必须有的视觉锚点**：左上胶囊标签（主题化编号，默认主题为珊瑚 + 风格名）、右下 3 秒倒计时/帧计数、1–2 个风格内小标签、标题或主视觉在 6 拍内完成一次完整叙事。不要底部字幕。
 
 ---
 
-## 7. 配乐合成（120 BPM，A 小调，纯 numpy/scipy）
+## 8. 配乐合成（120 BPM，A 小调，纯 numpy/scipy）
 
 - 音色：kick（正弦扫频）、snare、clap、hat、crash、sub boom、噪声 riser、反向镲、whoosh、拨弦、FM 电钢、FM 钟声、超级锯齿、808、方波/三角波、笛子；
 - 和弦（每段前 4 拍 / 后 2 拍）：Am/F、C/G、F/G、C/F、Am/G、Am/Em、Dm/E、C/G、Dm/G、F/G、Am/F；
@@ -209,7 +257,7 @@ Three.js 片段：`renderer` 必须 `{ preserveDrawingBuffer: true }`；启动�
 
 ---
 
-## 8. 渲染管线
+## 9. 渲染管线
 
 1. 本地静态服务器：`render-segment.mjs` 内置同源服务器（服务 `--root` 目录，默认 cwd）；字体/KaTeX/Three 全部同源，禁止 `file://`。
 2. `render-segment.mjs`：把 `--t0/--speed/--duration` 拼成 `?seg=1&t0=&speed=&dur=` 附加到相对路径页面 URL → 启动无头 Chromium → `goto(url)` → 等 `document.fonts.ready` 与 `window.__ready`（或 `window.__bootError`）→ 逐帧
@@ -227,7 +275,7 @@ Three.js 片段：`renderer` 必须 `{ preserveDrawingBuffer: true }`；启动�
 
 ---
 
-## 9. 质检清单（必须全绿）
+## 10. 质检清单（必须全绿）
 
 **画面**
 - [ ] 浏览器 console 无错误、无 404（favicon 也要处理）；
@@ -237,6 +285,15 @@ Three.js 片段：`renderer` 必须 `{ preserveDrawingBuffer: true }`；启动�
 - [ ] 不用逐帧 `ctx.filter blur` / 大量 shadowBlur（模糊层预渲染再交叉淡化）；
 - [ ] 镜头 transform 下不依赖 `getBoundingClientRect`（先缓存坐标）；
 - [ ] 1920×1080 @1x，`preserveDrawingBuffer: true`，WebGL 用 SwiftShader。
+
+**主题**
+- [ ] `node scripts/theme-audit.mjs --strict` 全绿；
+- [ ] 浅色主题（02/03/05/07）的胶囊/倒计时/水印是深墨实体，不是半透明黑；
+- [ ] 大字卡 4 版式在所选主题下明暗交替成立（layout 2/3 仍是深卡）；
+- [ ] 水蓝白：玻璃面板可见、淡绿/淡粉只从柔光与高光里透出、无脏灰；
+- [ ] 青瓷白画面里没有第二个彩色；蓝图纸/石墨没有柔光或投影；橙光白没有渐变光球；
+- [ ] 默认主题「不传 theme」与旧版逐像素一致（与基线做 PSNR/像素差对比）；
+- [ ] 风格段没有被主题压成同一色，各段识别度仍在。
 
 **音频**
 - [ ] 频谱图检查每个卡点：鼓点与剪辑表时间误差 < 30 ms；
@@ -254,7 +311,7 @@ Three.js 片段：`renderer` 必须 `{ preserveDrawingBuffer: true }`；启动�
 
 ---
 
-## 10. 文件地图
+## 11. 文件地图
 
 ```
 code-video-showcase/
@@ -265,12 +322,16 @@ code-video-showcase/
 ├─ references/
 │  ├─ original-brief.txt                 ← 参考样片的原始任务书（可直接改品牌复用）
 │  ├─ reference-film-analysis.md         ← 61s 样片的实测拆解（切点/画面/音频/偏差）
-│  ├─ style-recipes.md                   ← 11 种风格的美术+技术+音色配方
+│  ├─ intake.md                          ← 调用前置：8 项需求采集、BRIEF.json、主题推荐与锁定
+│  ├─ themes.md                          ← 8 套主题的调性/材质/token/HUD/推荐矩阵/加主题
+│  ├─ style-recipes.md                   ← 11 种风格的美术+技术+音色配方（含主题换色规则）
 │  ├─ big-card-and-typography.md         ← 大字卡 4 版式、字体/字号/砸入参数
 │  ├─ audio-recipes.md                   ← 120BPM 编曲、音色合成公式、混音链
 │  └─ render-pipeline.md                 ← Playwright/FFmpeg/跨平台环境与命令
 ├─ templates/
 │  ├─ common.js                          ← 缓动/种子随机/noise/片段模式/卡点冲击
+│  ├─ themes.js                          ← 8 套主题数据 + 材质/卡片/HUD API（唯一数据源）
+│  ├─ theme-board.html                   ← 单主题预览板（?theme=<id>，1920×1080）
 │  ├─ segment.html                       ← 风格段 HTML 骨架（Canvas + Three 可扩展）
 │  ├─ big-card.html                      ← 大字卡骨架（4 版式 + 砸入 + 回声字）
 │  ├─ render-segment.mjs                 ← 逐帧渲染 → ffmpeg 管道（内置静态服务器）
@@ -278,8 +339,11 @@ code-video-showcase/
 │  └─ synth_audio.py                     ← numpy/scipy 音色库 + 编排骨架
 ├─ scripts/
 │  ├─ analyze-reference.sh               ← 任意参考片 → 接触表/切点/频谱/音频分析
+│  ├─ theme-preview.mjs                  ← 批量渲染 8 套主题预览板 + 联系表 + 三拼对比
+│  ├─ theme-audit.mjs                    ← 主题对比度审计（--strict 可进 CI）
 │  └─ qa-check.sh                        ← 分段 MP4 质检（编码/尺寸/帧数）
 └─ assets/                               ← 样片接触表、频谱、切点、配色数据、模板截图
+   └─ theme-previews/                    ← 交付用主题预览图（01–08、联系表、三拼）
 ```
 
 ### 模板实测记录
@@ -289,7 +353,7 @@ code-video-showcase/
 
 ---
 
-## 11. 参考样片拆解摘要（实测）
+## 12. 参考样片拆解摘要（实测）
 
 - 成片：61.013 s（视频 61.000 / 1830 帧）、1920×1080、30 fps、H.264 + AAC 48 kHz stereo、26.9 MB、~3.53 Mbps 总码率（视频流 3.32 Mbps + 音频 197 kbps）；样片把品牌换成了 `DeepSeek V4.1-Flash`，其余结构/技巧与任务书一致。
 - 镜头：60 个切点；开场 0–8 s 打字 6 行；8–52 s 每 4 s 一轮（1 s 卡 + 3 s 风格）；53–55 s 八连闪；55–61 s 结尾。
@@ -300,19 +364,22 @@ code-video-showcase/
 
 ---
 
-## 12. 快速启动
+## 13. 快速启动
 
 ```bash
-# 1) 复制模板到新项目（把 common.js 与 HTML 放同一目录，如 segments/）
+# 0) 先按 references/intake.md 采集 8 项信息，用 theme-three-up.jpg 锁定主题 → BRIEF.json
+#    再复制模板到新项目（common.js / themes.js 与 HTML 放同一目录，如 segments/）
 cp -r templates/* <project>/
-# 2) 渲染一个片段（渲染器自带同源静态服务器，无需另起服务）
-node render-segment.mjs --page /segments/01.html --out out/01.mp4 --duration 3
+# 1) 渲染一个片段（渲染器自带同源静态服务器，无需另起服务）；?theme= 选主题
+node render-segment.mjs --page "/segments/01.html?theme=aqua-morandi" --out out/01.mp4 --duration 3
 #    按剪辑表给风格段传场景偏移/速度（自动拼成 ?seg=1&t0=&speed=&dur=）：
-node render-segment.mjs --page /segments/01.html --out out/09.mp4 --duration 3 --t0 0.35 --speed 1.4
-# 3) 先出静帧接触表（不编码）
-node render-segment.mjs --page /segments/01.html --still 0.2,0.8,1.4,2.0,2.6 --outdir out/stills
+node render-segment.mjs --page "/segments/01.html?theme=coral-noir" --out out/09.mp4 --duration 3 --t0 0.35 --speed 1.4
+# 2) 先出静帧接触表（不编码）
+node render-segment.mjs --page "/segments/01.html?theme=claude-light" --still 0.2,0.8,1.4,2.0,2.6 --outdir out/stills
+# 3) 生成/更新 8 套主题预览图（需 <project> 内已装 playwright；也可直接用仓库 assets/theme-previews/）
+node scripts/theme-preview.mjs --root <project>
 # 4) 合成
 ./concat-and-encode.sh segments.txt audio.wav out/final.mp4
 ```
 
-**写任务书时直接复制 `references/original-brief.txt`，替换品牌词、风格清单与文案即可**；结构公式、技术管线、QA 无需改。
+**写任务书时直接复制 `references/original-brief.txt`，替换品牌词、风格清单与文案即可**；主题按 `references/intake.md` 锁定，结构公式、技术管线、QA 无需改。

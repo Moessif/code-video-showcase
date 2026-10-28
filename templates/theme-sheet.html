@@ -1,0 +1,310 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>Theme sheet · 主题预览拼版</title>
+<link rel="stylesheet" href="/shared/fonts.css">
+<style>
+  html, body { margin: 0; padding: 0; background: #000; overflow: hidden; }
+  canvas { display: block; }
+</style>
+</head>
+<body>
+<canvas id="stage" width="1920" height="1080"></canvas>
+<script type="module">
+import { THEMES, THEME_IDS } from './themes.js';
+
+/* 主题预览拼版页：把 theme-board.html 渲染出的 JPG 排成联系表 / 三拼。
+ * 用法：theme-sheet.html?kind=contact&ids=a,b,c,d  （图片在 ./thumbs/<id>.jpg）
+ *      theme-sheet.html?kind=three&ids=a,b,c
+ * 1920×1080，纯静态，无随机、无时间依赖。 */
+
+const W = 1920, H = 1080;
+const SANS = '"Noto Sans SC", "Inter", system-ui, sans-serif';
+const MONO = '"JetBrains Mono", "Noto Sans SC", ui-monospace, monospace';
+
+const canvas = document.getElementById('stage');
+const ctx = canvas.getContext('2d', { alpha: false });
+
+const q = new URLSearchParams(location.search);
+const KIND = q.get('kind') === 'three' ? 'three' : 'contact';
+const IDS = (q.get('ids') || THEME_IDS.join(','))
+  .split(',')
+  .map((s) => s.trim())
+  .filter((id) => THEMES[id]);
+
+const BG = '#101113';
+const PAGE = '#f4f4f5';
+const MUTED = '#9a9ba0';
+const DIM = '#71727a';
+const HAIR = 'rgba(255,255,255,0.10)';
+
+window.DURATION = 1.0;
+window.__bootError = null;
+
+/* ---------- 字体 / 图片 ---------- */
+async function loadFonts() {
+  const jobs = [
+    document.fonts.load('700 46px "Noto Sans SC"'),
+    document.fonts.load('500 20px "Noto Sans SC"'),
+    document.fonts.load('400 15px "Noto Sans SC"'),
+    document.fonts.load('500 13px "JetBrains Mono"'),
+    document.fonts.load('400 13px "JetBrains Mono"'),
+  ];
+  await Promise.all(jobs).catch(() => {});
+  await document.fonts.ready;
+}
+
+function loadImage(id) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => (img.decode ? img.decode().then(() => resolve(img), () => resolve(img)) : resolve(img));
+    img.onerror = () => reject(new Error(`thumbnail not found: ./thumbs/${id}.jpg`));
+    img.src = `./thumbs/${id}.jpg`;
+  });
+}
+
+/* ---------- 小工具 ---------- */
+function setFont(weight, size, family) { ctx.font = `${weight} ${size}px ${family}`; }
+
+function spaced(text, x, y, { weight = 500, size = 14, family = MONO, color = MUTED, spacing = 2, align = 'left' } = {}) {
+  setFont(weight, size, family);
+  const chars = Array.from(String(text));
+  const widths = chars.map((ch) => ctx.measureText(ch).width);
+  const total = widths.reduce((a, b) => a + b, 0) + Math.max(0, chars.length - 1) * spacing;
+  let px = align === 'right' ? x - total : align === 'center' ? x - total / 2 : x;
+  ctx.save();
+  ctx.fillStyle = color;
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'middle';
+  for (let i = 0; i < chars.length; i++) {
+    if (chars[i] !== ' ') ctx.fillText(chars[i], px, y);
+    px += widths[i] + spacing;
+  }
+  ctx.restore();
+  return total;
+}
+
+function text(str, x, y, { weight = 500, size = 18, family = SANS, color = PAGE, align = 'left' } = {}) {
+  setFont(weight, size, family);
+  ctx.fillStyle = color;
+  ctx.textAlign = align;
+  ctx.textBaseline = 'middle';
+  ctx.fillText(str, x, y);
+}
+
+function fitSize(str, weight, family, maxW, size, min = 12, step = 1) {
+  let s = size;
+  while (s > min) {
+    setFont(weight, s, family);
+    if (ctx.measureText(str).width <= maxW) break;
+    s -= step;
+  }
+  return s;
+}
+
+let seed = 20261028;
+function rnd() {
+  seed = (seed * 1664525 + 1013904223) >>> 0;
+  return seed / 4294967296;
+}
+
+function backdrop() {
+  ctx.fillStyle = BG;
+  ctx.fillRect(0, 0, W, H);
+
+  const top = ctx.createLinearGradient(0, 0, 0, H * 0.7);
+  top.addColorStop(0, 'rgba(255,255,255,0.045)');
+  top.addColorStop(1, 'rgba(255,255,255,0)');
+  ctx.fillStyle = top;
+  ctx.fillRect(0, 0, W, H);
+
+  const vig = ctx.createRadialGradient(W * 0.5, H * 0.42, H * 0.3, W * 0.5, H * 0.5, H * 0.98);
+  vig.addColorStop(0, 'rgba(0,0,0,0)');
+  vig.addColorStop(1, 'rgba(0,0,0,0.5)');
+  ctx.fillStyle = vig;
+  ctx.fillRect(0, 0, W, H);
+
+  // 固定的细颗粒（确定性伪随机），让纯色背景不空
+  ctx.fillStyle = 'rgba(255,255,255,0.028)';
+  for (let i = 0; i < 2600; i++) {
+    ctx.fillRect((rnd() * W) | 0, (rnd() * H) | 0, 1, 1);
+  }
+}
+
+/* ---------- 联系表 ---------- */
+function drawContact(imgs) {
+  const M = 84;
+  const GAP = 20;
+  const COLS = 4;
+  const cellW = (W - M * 2 - GAP * (COLS - 1)) / COLS;
+  const cellH = (cellW * 9) / 16;
+  const labelH = 46;
+  const rowGap = 22;
+  const gridTop = 232;
+
+  spaced('CODE-VIDEO-SHOWCASE  /  THEME SYSTEM V1', M, 88, { size: 15, spacing: 2.4, color: MUTED });
+  spaced(`${String(IDS.length).padStart(2, '0')} THEMES  ·  1920 × 1080  ·  STATIC PREVIEW`, W - M, 88, {
+    size: 15, spacing: 2.2, color: MUTED, align: 'right',
+  });
+  text('八种气质 · 一套版式', M, 154, { weight: 700, size: 46 });
+  spaced('THEME PREVIEWS  ·  01–08', W - M, 154, { size: 15, spacing: 2.4, color: DIM, align: 'right' });
+
+  ctx.fillStyle = HAIR;
+  ctx.fillRect(M, 198, W - M * 2, 1);
+
+  IDS.forEach((id, i) => {
+    const th = THEMES[id];
+    const col = i % COLS;
+    const row = (i / COLS) | 0;
+    const x = M + col * (cellW + GAP);
+    const y = gridTop + row * (cellH + labelH + rowGap);
+
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(x, y, cellW, cellH);
+    ctx.clip();
+    ctx.drawImage(imgs[i], x, y, cellW, cellH);
+    ctx.restore();
+
+    ctx.lineWidth = 1;
+    ctx.strokeStyle = HAIR;
+    ctx.strokeRect(x + 0.5, y + 0.5, cellW - 1, cellH - 1);
+
+    const num = String(THEME_IDS.indexOf(id) + 1).padStart(2, '0');
+    spaced(num, x, y + cellH + 21, { size: 12, spacing: 1.8, color: DIM });
+    text(th.name, x + 34, y + cellH + 21, { weight: 600, size: 20 });
+    spaced(th.nameEn.toUpperCase(), x + cellW, y + cellH + 21, {
+      size: 10.5, spacing: 1.5, color: DIM, align: 'right',
+    });
+  });
+
+  spaced(
+    '每张预览 = 主题海报 + 规格板：8 个角色 token · 4 个点缀色 · 材质说明 · A/B/C 三种大字卡 · HUD 实物',
+    M, 872, { size: 14, spacing: 0.8, color: MUTED },
+  );
+  spaced('EIGHT THEMES  ·  ONE DESIGN SYSTEM', M, 940, {
+    weight: 500, size: 30, spacing: 3, color: 'rgba(255,255,255,0.10)',
+  });
+
+  ctx.fillStyle = HAIR;
+  ctx.fillRect(M, 1012, W - M * 2, 1);
+  spaced('GENERATED FROM templates/themes.js  ·  templates/theme-board.html', M, 1040, {
+    size: 12.5, spacing: 1.6, color: DIM,
+  });
+  spaced('PREVIEW BOARD  /  8 OF 8', W - M, 1040, { size: 12.5, spacing: 1.6, color: DIM, align: 'right' });
+}
+
+/* ---------- 三拼 ---------- */
+function drawThreeUp(imgs) {
+  const M = 84;
+  const GAP = 28;
+  const COLS = 3;
+  const cellW = (W - M * 2 - GAP * (COLS - 1)) / COLS;
+  const cellH = (cellW * 9) / 16;
+  const gridTop = 216;
+
+  spaced('THEME SYSTEM  /  THREE-UP', M, 84, { size: 15, spacing: 2.4, color: MUTED });
+  spaced('01 CORAL NOIR  ·  02 CLAUDE LIGHT  ·  03 AQUA MORANDI', W - M, 84, {
+    size: 15, spacing: 2.2, color: MUTED, align: 'right',
+  });
+  text('同一套版式，三种气质', M, 148, { weight: 700, size: 44 });
+  spaced('DEFAULT  ·  PAPER  ·  GLASS', W - M, 148, { size: 15, spacing: 2.4, color: DIM, align: 'right' });
+
+  ctx.fillStyle = HAIR;
+  ctx.fillRect(M, 188, W - M * 2, 1);
+
+  IDS.forEach((id, i) => {
+    const th = THEMES[id];
+    const x = M + i * (cellW + GAP);
+    const y = gridTop;
+
+    // 预览图
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(x, y, cellW, cellH);
+    ctx.clip();
+    ctx.drawImage(imgs[i], x, y, cellW, cellH);
+    ctx.restore();
+    ctx.lineWidth = 1;
+    ctx.strokeStyle = HAIR;
+    ctx.strokeRect(x + 0.5, y + 0.5, cellW - 1, cellH - 1);
+
+    // 编号 + 中文名 + 英文名
+    const num = String(THEME_IDS.indexOf(id) + 1).padStart(2, '0');
+    const nameY = y + cellH + 44;
+    spaced(num, x, nameY, { size: 12, spacing: 1.8, color: DIM });
+    const nameSize = fitSize(th.name, 600, SANS, cellW - 130, 27, 18);
+    text(th.name, x + 36, nameY, { weight: 600, size: nameSize });
+    spaced(th.nameEn.toUpperCase(), x + cellW, nameY, {
+      size: 11, spacing: 1.6, color: DIM, align: 'right',
+    });
+
+    const tagSize = fitSize(th.tagline, 400, SANS, cellW, 17, 12);
+    text(th.tagline, x, nameY + 40, { weight: 400, size: tagSize, color: MUTED });
+
+    ctx.fillStyle = HAIR;
+    ctx.fillRect(x, nameY + 66, cellW, 1);
+
+    // 规格行
+    const specRows = [
+      ['材质', th.material.name],
+      ['排印', th.type.display === th.type.accent ? th.type.display : `${th.type.display} · ${th.type.accent}`],
+      ['适用', th.useFor],
+    ];
+    specRows.forEach(([label, value], r) => {
+      const ry = nameY + 94 + r * 32;
+      spaced(label, x, ry, { size: 11, spacing: 1.6, color: DIM });
+      const vs = fitSize(value, 500, SANS, cellW - 76, 14.5, 10);
+      text(value, x + 76, ry, { weight: 500, size: vs, color: '#c9cace' });
+    });
+
+    // 4 个点缀色实样
+    const chipY = nameY + 94 + 3 * 32 + 18;
+    const chipGap = 10;
+    const chipW = (cellW - chipGap * 3) / 4;
+    th.accents.slice(0, 4).forEach((acc, a) => {
+      const ax = x + a * (chipW + chipGap);
+      ctx.fillStyle = acc.hex;
+      ctx.fillRect(ax, chipY, chipW, 14);
+      spaced(acc.name, ax, chipY + 30, { size: 10.5, spacing: 0.6, color: DIM });
+    });
+  });
+
+  // 底部的大字系统标语
+  spaced('SAME LAYOUT  ·  SAME COMPONENTS  ·  DIFFERENT TOKENS', M, 940, {
+    weight: 500, size: 30, spacing: 3, color: 'rgba(255,255,255,0.10)',
+  });
+  ctx.fillStyle = HAIR;
+  ctx.fillRect(M, 1012, W - M * 2, 1);
+  spaced('三套主视觉来自同一套组件与 token，只换字体、材质与色板', M, 1040, {
+    size: 12.5, spacing: 0.8, color: DIM,
+  });
+  spaced('PREVIEW BOARD  /  3-UP', W - M, 1040, { size: 12.5, spacing: 1.6, color: DIM, align: 'right' });
+}
+
+/* ---------- 主流程 ---------- */
+window.renderFrame = () => {};
+
+async function main() {
+  try {
+    if (!IDS.length) throw new Error('no valid theme ids in ?ids=');
+    const imgs = await Promise.all(IDS.map(loadImage));
+    await loadFonts();
+
+    window.renderFrame = () => {
+      backdrop();
+      if (KIND === 'three') drawThreeUp(imgs);
+      else drawContact(imgs);
+    };
+    window.renderFrame(0.4);
+    window.__ready = true;
+  } catch (err) {
+    window.__bootError = String((err && err.stack) || err);
+  }
+}
+
+main();
+</script>
+</body>
+</html>

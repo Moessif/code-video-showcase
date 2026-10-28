@@ -1,0 +1,577 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<link rel="stylesheet" href="/shared/fonts.css">
+<title>theme board</title>
+<style>
+  html, body { margin: 0; padding: 0; background: #000; overflow: hidden; }
+  #stage { position: relative; width: 1920px; height: 1080px; overflow: hidden; }
+  canvas#c { position: absolute; inset: 0; width: 1920px; height: 1080px; display: block; }
+</style>
+</head>
+<body>
+<div id="stage"><canvas id="c" width="1920" height="1080"></canvas></div>
+
+<script type="module">
+/*
+ * theme-board.html — 主题选择预览板（1920×1080 静帧海报 + 规格板）
+ * ?theme=<id> 切换主题；不传 = coral-noir。
+ *
+ * 这是一张「海报 + 规格板」而不是调色板调试图：
+ *   左侧 = 主视觉（主题序号 / 中文名 / 英文名 / tagline / useFor / A·B·C 大字卡小样 / HUD 实物）
+ *   右侧 = 规格板（8 个角色 token / 4 个点缀色 / 材质名 + 说明 / 对比度审计）
+ *   底部 = 8 套主题名字轨（当前高亮）——一眼看出这是 8 选 1 的设计系统
+ *
+ * 所有颜色都来自 themes.js 的 token（或 token 的 alpha/混色），不硬编码任何主题色。
+ * 渲染契约：window.DURATION=1.0；window.renderFrame(t)；__ready；无随机/时间副作用。
+ */
+import {
+  THEMES, THEME_IDS, themeFromURL, paletteRows, auditTheme, chrome, cardColors,
+  drawThemeBackground, drawGlassPanel, loadFontsFor, hexToRgba, mix, contrastRatio,
+} from './themes.js';
+
+const W = 1920, H = 1080;
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+window.DURATION = 1.0;
+
+const theme = themeFromURL(location.search);
+const c = theme.colors;
+const m = theme.material;
+const hud = chrome(theme);
+const NUM = String(THEME_IDS.indexOf(theme.id) + 1).padStart(2, '0');
+const TOTAL = String(THEME_IDS.length).padStart(2, '0');
+
+/* ---------- type ---------- */
+const SANS = '"Noto Sans SC", "Inter", sans-serif';
+const MONO = '"JetBrains Mono", "Noto Sans SC", monospace';
+const SERIF = '"Noto Serif SC", "Noto Sans SC", serif';
+const PLAYFAIR = '"Playfair Display", "Noto Serif SC", serif';
+const displaySpec = (theme.type && theme.type.display) || '';
+const CN = displaySpec.includes('Noto Serif SC') ? SERIF : SANS;
+const CN_WEIGHT = displaySpec.includes('Noto Serif SC') ? 700 : 900;
+const PLAYFAIR_DISPLAY = displaySpec.includes('Playfair Display');
+
+/* ---------- layout ---------- */
+const M = 96;                      // outer margin
+const RIGHT = W - M;               // 1824
+const LEFT = M;                    // 96
+const PANEL = { x: 1168, y: 150, w: 656, h: 720, r: 30 };
+const LEFT_R = PANEL.x - 48;       // 1120
+
+/* ---------- canvas helpers ---------- */
+function rr(x, y, w, h, r) {
+  const q = Math.max(0, Math.min(r, w / 2, h / 2));
+  ctx.beginPath();
+  ctx.moveTo(x + q, y);
+  ctx.arcTo(x + w, y, x + w, y + h, q);
+  ctx.arcTo(x + w, y + h, x, y + h, q);
+  ctx.arcTo(x, y + h, x, y, q);
+  ctx.arcTo(x, y, x + w, y, q);
+  ctx.closePath();
+}
+
+function radialBlob(cx, cy, radius, color, alpha) {
+  if (!(radius > 0) || !(alpha > 0)) return;
+  const g = ctx.createRadialGradient(cx, cy, 0, cx, cy, radius);
+  g.addColorStop(0, hexToRgba(color, alpha));
+  g.addColorStop(0.55, hexToRgba(color, alpha * 0.42));
+  g.addColorStop(1, hexToRgba(color, 0));
+  ctx.fillStyle = g;
+  ctx.fillRect(cx - radius, cy - radius, radius * 2, radius * 2);
+}
+
+function setFont(weight, size, family) {
+  ctx.font = `${weight} ${size}px ${family}`;
+}
+
+/** 手工字距：中文/等宽英文都用它（canvas letterSpacing 依赖浏览器版本，不用）。 */
+function drawSpaced(text, x, y, { weight = 500, size = 15, family = MONO, color = c.muted, spacing = 0, align = 'left', baseline = 'middle' } = {}) {
+  setFont(weight, size, family);
+  const chars = Array.from(String(text));
+  const widths = chars.map((ch) => ctx.measureText(ch).width);
+  const gapCount = Math.max(0, chars.length - 1);
+  const totalW = widths.reduce((a, b) => a + b, 0) + gapCount * spacing;
+  let px = align === 'right' ? x - totalW : align === 'center' ? x - totalW / 2 : x;
+  ctx.save();
+  ctx.fillStyle = color;
+  ctx.textAlign = 'left';
+  ctx.textBaseline = baseline;
+  for (let i = 0; i < chars.length; i++) {
+    if (chars[i] !== ' ') ctx.fillText(chars[i], px, y);
+    px += widths[i] + spacing;
+  }
+  ctx.restore();
+  return totalW;
+}
+
+function fitSize(text, weight, family, maxW, size, min = 18, step = 2) {
+  let s = size;
+  while (s > min) {
+    setFont(weight, s, family);
+    if (ctx.measureText(text).width <= maxW) break;
+    s -= step;
+  }
+  return s;
+}
+
+function wrapText(text, maxW, weight, size, family) {
+  setFont(weight, size, family);
+  const lines = [];
+  let cur = '';
+  for (const ch of Array.from(String(text))) {
+    if (ch === '\n') { if (cur) lines.push(cur); cur = ''; continue; }
+    const test = cur + ch;
+    if (cur && ctx.measureText(test).width > maxW) { lines.push(cur); cur = ch; }
+    else cur = test;
+  }
+  if (cur) lines.push(cur);
+  return lines;
+}
+
+function fillText(text, x, y, { weight = 400, size = 16, family = SANS, color = c.ink, align = 'left' } = {}) {
+  setFont(weight, size, family);
+  ctx.fillStyle = color;
+  ctx.textAlign = align;
+  ctx.textBaseline = 'middle';
+  ctx.fillText(text, x, y);
+}
+
+function drawCapsule(x, y, h, { number, label, font, padX = 26, numberColor, textColor, bg, border }) {
+  ctx.save();
+  setFont(0, 0, '');
+  ctx.font = font;
+  ctx.textBaseline = 'middle';
+  ctx.textAlign = 'left';
+  const wNum = ctx.measureText(number).width;
+  const wLabel = ctx.measureText(label).width;
+  const w = padX * 2 + wNum + 14 + wLabel;
+  const r = h / 2;
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.arcTo(x + w, y, x + w, y + h, r);
+  ctx.arcTo(x + w, y + h, x, y + h, r);
+  ctx.arcTo(x, y + h, x, y, r);
+  ctx.arcTo(x, y, x + w, y, r);
+  ctx.closePath();
+  ctx.fillStyle = bg;
+  ctx.fill();
+  ctx.lineWidth = 1.5;
+  ctx.strokeStyle = border;
+  ctx.stroke();
+  ctx.fillStyle = numberColor;
+  ctx.fillText(number, x + padX, y + h / 2 + 1);
+  ctx.fillStyle = textColor;
+  ctx.fillText(label, x + padX + wNum + 14, y + h / 2 + 1);
+  ctx.restore();
+}
+
+/* ---------- 1. background / material ---------- */
+function drawBackdrop(t) {
+  drawThemeBackground(ctx, theme, W, H, t);
+  // 液态玻璃主题：在信息板后面补两团淡绿/淡粉雾光，让玻璃的「透」看得出来
+  if (m.glass && Array.isArray(m.tints) && m.tints.length) {
+    const P = PANEL;
+    radialBlob(P.x + P.w * 0.2, P.y + P.h * 0.24, 330, m.tints[0], 0.5);
+    radialBlob(P.x + P.w * 0.86, P.y + P.h * 0.68, 380, m.tints[1] || m.tints[0], 0.42);
+    radialBlob(P.x + P.w * 0.42, P.y + P.h * 0.98, 300, m.tints[2] || m.tints[0], 0.3);
+  }
+}
+
+/* ---------- 2. ghost index（背景大字序号） ---------- */
+function drawGhostIndex() {
+  ctx.save();
+  const size = 122;
+  setFont(900, size, SANS);
+  ctx.textAlign = 'right';
+  ctx.textBaseline = 'middle';
+  ctx.lineWidth = 3;
+  ctx.strokeStyle = hexToRgba(c.accent, 0.36);
+  ctx.strokeText(NUM, LEFT_R, 206);
+  ctx.restore();
+}
+
+/* ---------- 3. top meta ---------- */
+function drawHeader() {
+  const y = 88;
+  const w1 = drawSpaced('THEME', LEFT, y, { size: 16, spacing: 3, color: c.muted });
+  const w2 = drawSpaced(NUM, LEFT + w1 + 14, y, { size: 16, spacing: 3, color: c.accent });
+  drawSpaced(`/ ${TOTAL}`, LEFT + w1 + 14 + w2 + 12, y, { size: 16, spacing: 3, color: c.muted });
+
+  const meta = `${theme.nameEn.toUpperCase()}  ·  ${theme.mode.toUpperCase()}  ·  ${m.kind.toUpperCase()}`;
+  drawSpaced(meta, RIGHT, y, { size: 14, spacing: 2.2, color: c.muted, align: 'right' });
+}
+
+/* ---------- 4. main title block ---------- */
+function drawTitleBlock() {
+  // overline：accent 粗短线 + 一句话定位（粗于 4px 才是图形元素）
+  ctx.fillStyle = c.accent;
+  ctx.fillRect(LEFT, 190, 30, 5);
+  drawSpaced('主题系统 · 一套版式 / 八种气质', LEFT + 46, 193, { size: 15, spacing: 1.5, color: c.muted });
+
+  // 中文名
+  const cnSize = fitSize(theme.name, CN_WEIGHT, CN, LEFT_R - LEFT, 112, 72);
+  setFont(CN_WEIGHT, cnSize, CN);
+  ctx.fillStyle = c.ink;
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(theme.name, LEFT, 302);
+
+  // 英文名（衬线主题用 Playfair 斜体，其余等宽拉开字距）
+  if (PLAYFAIR_DISPLAY) {
+    setFont('italic 500', 44, PLAYFAIR);
+    ctx.fillStyle = c.muted;
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(theme.nameEn, LEFT, 376);
+  } else {
+    drawSpaced(theme.nameEn.toUpperCase(), LEFT, 376, { size: 24, spacing: 6, color: c.muted });
+  }
+
+  // tagline
+  const tagSize = fitSize(theme.tagline, 500, SANS, LEFT_R - LEFT, 34, 26);
+  fillText(theme.tagline, LEFT, 436, { weight: 500, size: tagSize, color: c.ink });
+
+  // 适用场景
+  drawSpaced('适用场景', LEFT, 490, { size: 14, spacing: 1.5, color: c.muted });
+  const useSize = fitSize(theme.useFor, 500, SANS, LEFT_R - LEFT - 100, 19, 15);
+  fillText(theme.useFor, LEFT + 96, 490, { weight: 500, size: useSize, color: c.ink });
+}
+
+/* ---------- 5. A/B/C mini cards ---------- */
+function keywordOn(card, bgOverride) {
+  // 强调色压暗卡：celadon（同色）/crimson/blueprint 会读不出来，退到 accentSoft，最低退到卡上的字色。
+  const bg = bgOverride || card.bg;
+  if (contrastRatio(card.keyword, bg) >= 3) return card.keyword;
+  if (contrastRatio(c.accentSoft, bg) >= 3) return c.accentSoft;
+  return card.ink;
+}
+
+function drawMiniCard(spec, x, y, w, h) {
+  const card = cardColors(theme, spec.layout);
+  const ink = card.ink;
+  const blendsIntoPage = contrastRatio(card.bg, c.bg) < 1.1;
+  // celadon 这类「强调色 == 暗卡」的单色主题：C 卡会被渲染成和 A 卡同一块色，
+  // 往 accentSoft 漂一步，保持同一套 token 但三种色场一眼可辨。
+  const darkDuplicatesAccent = spec.layout === 2 && contrastRatio(card.bg, c.accent) < 1.1;
+  const fieldBg = darkDuplicatesAccent ? mix(card.bg, c.accentSoft, 0.32) : card.bg;
+
+  // 色场 + 网格 + sheen（全部 token 派生）
+  ctx.save();
+  rr(x, y, w, h, 16);
+  ctx.fillStyle = fieldBg;
+  ctx.fill();
+  ctx.clip();
+  ctx.strokeStyle = card.grid;
+  ctx.lineWidth = 1;
+  for (let gx = x; gx <= x + w; gx += 72) {
+    ctx.beginPath(); ctx.moveTo(gx, y); ctx.lineTo(gx, y + h); ctx.stroke();
+  }
+  for (let gy = y; gy <= y + h; gy += 72) {
+    ctx.beginPath(); ctx.moveTo(x, gy); ctx.lineTo(x + w, gy); ctx.stroke();
+  }
+  if (card.sheen) {
+    const g = ctx.createLinearGradient(x, y, x + w, y + h);
+    g.addColorStop(0, card.sheen);
+    g.addColorStop(0.6, 'rgba(255,255,255,0)');
+    ctx.fillStyle = g;
+    ctx.fillRect(x, y, w, h);
+  }
+  if (darkDuplicatesAccent) {
+    radialBlob(x + w * 0.78, y + h * 0.24, 190, c.accentSoft, 0.32);
+  }
+  ctx.restore();
+
+  // 和页面底色同色的卡片（如暗色主题的 C 卡）需要一条极淡的边才能看出边界
+  if (blendsIntoPage) {
+    ctx.lineWidth = 1.2;
+    ctx.strokeStyle = hexToRgba(ink, 0.22);
+    rr(x + 0.6, y + 0.6, w - 1.2, h - 1.2, 16);
+    ctx.stroke();
+  }
+
+  // 小字 + 大字
+  const smallColor = hexToRgba(ink, 0.8);
+  fillText(spec.small, x + 26, y + 60, { weight: 500, size: 20, family: SANS, color: smallColor });
+  const bigColor = spec.keyword ? keywordOn(card, fieldBg) : ink;
+  const bigSize = fitSize(spec.big, CN_WEIGHT, CN, w - 52, 58, 38);
+  setFont(CN_WEIGHT, bigSize, CN);
+  ctx.fillStyle = bigColor;
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(spec.big, x + 24, y + 128);
+
+  if (spec.underline) {
+    setFont(CN_WEIGHT, bigSize, CN);
+    const bw = Math.min(w - 48, ctx.measureText(spec.big).width);
+    ctx.fillStyle = card.keyword;
+    ctx.fillRect(x + 24, y + 166, bw, 7);
+  }
+
+  drawSpaced(spec.tag, x + 26, y + h - 25, { size: 11.5, spacing: 1.2, color: hexToRgba(ink, darkDuplicatesAccent ? 0.85 : 0.62) });
+}
+
+function drawMiniCards() {
+  drawSpaced('大字卡 · 三种底 / CARD FIELDS', LEFT, 540, { size: 14, spacing: 1.5, color: c.muted });
+  drawSpaced('324 × 220', LEFT_R, 540, { size: 13, spacing: 1.5, color: c.muted, align: 'right' });
+
+  const gap = 26;
+  const w = (LEFT_R - LEFT - gap * 2) / 3;
+  const y = 556, h = 220;
+  const specs = [
+    { layout: 0, small: '想做', big: '视频？', tag: 'A 强调底' },
+    { layout: 1, small: '把复杂', big: '讲清楚', tag: 'B 纸底', underline: true },
+    { layout: 2, small: '还有', big: '更多？', tag: 'C 暗卡', keyword: true },
+  ];
+  specs.forEach((spec, i) => drawMiniCard(spec, LEFT + i * (w + gap), y, w, h));
+}
+
+/* ---------- 6. HUD 实物 ---------- */
+function drawHud() {
+  drawSpaced('HUD 实物 · 胶囊 / 倒计时 / 水印', LEFT, 812, { size: 14, spacing: 1.5, color: c.muted });
+
+  const cap = hud.capsule;
+  drawCapsule(LEFT, 834, 54, {
+    number: '01',
+    label: '扁平插画 · 科普',
+    font: `600 24px ${SANS}`,
+    padX: 24,
+    numberColor: cap.numberColor,
+    textColor: cap.textColor,
+    bg: cap.bg,
+    border: cap.border,
+  });
+
+  drawSpaced('STYLE 01 / 11', LEFT_R, 828, { size: 17, spacing: 2, color: hud.stamp.color, align: 'right' });
+  setFont(400, 34, MONO);
+  ctx.fillStyle = hud.countdown.color;
+  ctx.textAlign = 'right';
+  ctx.textBaseline = 'middle';
+  ctx.fillText('00:03', LEFT_R, 876);
+}
+
+/* ---------- 7. right spec panel ---------- */
+const ROLE_ORDER = ['bg', 'ink', 'accent', 'paper', 'cardDark', 'surface', 'muted', 'accentSoft'];
+
+function drawSpecPanel() {
+  const P = PANEL;
+  const panelInk = c.ink;
+  const panelMut = mix(c.muted, c.ink, 0.3);
+  const surfaceForSwatch = m.glass ? c.paper : c.surface;
+
+  if (m.glass) {
+    drawGlassPanel(ctx, theme, { x: P.x, y: P.y, w: P.w, h: P.h, r: P.r, alpha: 1 });
+    // 玻璃内部的淡绿/淡粉雾光：clip 后以 multiply 薄薄叠一层，才看得出「透」而不是一块白卡
+    ctx.save();
+    rr(P.x, P.y, P.w, P.h, P.r);
+    ctx.clip();
+    ctx.globalCompositeOperation = 'multiply';
+    const tints = (m.tints && m.tints.length) ? m.tints : [c.accentSoft, c.accent];
+    const blobs = [
+      { cx: P.x + P.w * 0.26, cy: P.y + P.h * 0.32, r: 300, color: tints[0], a: 0.5 },
+      { cx: P.x + P.w * 0.84, cy: P.y + P.h * 0.62, r: 340, color: tints[1] || tints[0], a: 0.42 },
+      { cx: P.x + P.w * 0.5, cy: P.y + P.h * 0.98, r: 380, color: tints[2] || tints[0], a: 0.3 },
+    ];
+    blobs.forEach((b) => {
+      const g = ctx.createRadialGradient(b.cx, b.cy, 0, b.cx, b.cy, b.r);
+      g.addColorStop(0, hexToRgba(b.color, b.a));
+      g.addColorStop(1, hexToRgba(b.color, 0));
+      ctx.fillStyle = g;
+      ctx.fillRect(P.x, P.y, P.w, P.h);
+    });
+    ctx.restore();
+  } else {
+    ctx.save();
+    rr(P.x, P.y, P.w, P.h, P.r);
+    ctx.fillStyle = hexToRgba(c.surface, theme.mode === 'dark' ? 0.96 : 0.84);
+    ctx.fill();
+    ctx.clip();
+    const sheen = ctx.createLinearGradient(P.x, P.y, P.x, P.y + P.h * 0.55);
+    sheen.addColorStop(0, hexToRgba(c.paper, 0.06));
+    sheen.addColorStop(1, hexToRgba(c.paper, 0));
+    ctx.fillStyle = sheen;
+    ctx.fillRect(P.x, P.y, P.w, P.h);
+    ctx.restore();
+    // 暗色主题 surface 与底色只差一步明度：给一条极淡的边，避免规格板糊进背景
+    if (contrastRatio(c.surface, c.bg) < 1.22) {
+      ctx.save();
+      ctx.lineWidth = 1.2;
+      ctx.strokeStyle = hexToRgba(c.ink, 0.16);
+      rr(P.x + 0.6, P.y + 0.6, P.w - 1.2, P.h - 1.2, P.r);
+      ctx.stroke();
+      ctx.restore();
+    }
+  }
+
+  const pad = 38;
+  const x0 = P.x + pad;
+  const w = P.w - pad * 2;
+
+  // header
+  drawSpaced('ROLE PALETTE', x0, P.y + 52, { size: 14, spacing: 2.5, color: panelMut });
+  drawSpaced(`${String(ROLE_ORDER.length).padStart(2, '0')} ROLES`, x0 + w, P.y + 52, { size: 13, spacing: 2, color: panelMut, align: 'right' });
+
+  // 8 role swatches (2 × 4)
+  const rows = paletteRows(theme);
+  const picked = ROLE_ORDER.map((role) => rows.find((r) => r.role === role)).filter(Boolean);
+  const rowH = 62, colW = 290, startY = P.y + 86;
+  picked.forEach((row, i) => {
+    const col = i % 2;
+    const ri = (i / 2) | 0;
+    const x = x0 + col * colW;
+    const y = startY + ri * rowH;
+    const sw = 32;
+    rr(x, y - sw / 2, sw, sw, 8);
+    ctx.fillStyle = row.hex;
+    ctx.fill();
+    if (contrastRatio(row.hex, surfaceForSwatch) < 1.18) {
+      ctx.lineWidth = 1;
+      ctx.strokeStyle = hexToRgba(panelInk, 0.26);
+      rr(x + 0.5, y - sw / 2 + 0.5, sw - 1, sw - 1, 8);
+      ctx.stroke();
+    }
+    fillText(row.label, x + 46, y - 8, { weight: 600, size: 18, color: panelInk });
+    drawSpaced(row.hex.toUpperCase(), x + 46, y + 13, { size: 12.5, spacing: 0.6, color: panelMut });
+  });
+
+  // accents
+  const accHeadY = P.y + 342;
+  drawSpaced('ACCENTS / 点缀色', x0, accHeadY, { size: 14, spacing: 2, color: panelMut });
+  drawSpaced('04', x0 + w, accHeadY, { size: 13, spacing: 2, color: panelMut, align: 'right' });
+  const chipW = 136;
+  const chipGap = (w - 4 * chipW) / 3;
+  theme.accents.slice(0, 4).forEach((a, i) => {
+    const x = x0 + i * (chipW + chipGap);
+    const y = P.y + 360;
+    rr(x, y, chipW, 38, 7);
+    ctx.fillStyle = a.hex;
+    ctx.fill();
+    if (contrastRatio(a.hex, surfaceForSwatch) < 1.18) {
+      ctx.lineWidth = 1;
+      ctx.strokeStyle = hexToRgba(panelInk, 0.26);
+      rr(x + 0.5, y + 0.5, chipW - 1, 37, 7);
+      ctx.stroke();
+    }
+    fillText(a.name, x, y + 58, { weight: 500, size: 14, color: panelMut });
+  });
+
+  // material
+  const matY = P.y + 470;
+  drawSpaced('MATERIAL / 材质', x0, matY, { size: 14, spacing: 2, color: panelMut });
+  fillText(m.name, x0, matY + 36, { weight: 700, size: 24, color: panelInk });
+  const noteLines = wrapText(m.note, w, 400, 15.5, SANS).slice(0, 3);
+  noteLines.forEach((line, i) => {
+    fillText(line, x0, matY + 72 + i * 26, { weight: 400, size: 15.5, color: panelMut });
+  });
+
+  // type spec（补齐材质与对比度之间的空白，也给下游一个排印口径）
+  const typeY = matY + 72 + (noteLines.length - 1) * 26 + 40;
+  drawSpaced('TYPE / 排印', x0, typeY, { size: 14, spacing: 2, color: panelMut });
+  const typeVal = theme.type.display === theme.type.accent
+    ? theme.type.display
+    : `${theme.type.display} · ${theme.type.accent}`;
+  drawSpaced(typeVal, x0 + 126, typeY, {
+    size: 12.5, spacing: 0.4, color: panelMut,
+  });
+
+  // contrast audit（规格板自己的可信度）
+  const audit = auditTheme(theme);
+  const pass = audit.filter((a) => a.pass).length;
+  const inkBg = audit.find((a) => a.pair === 'ink / bg');
+  const auditY = P.y + P.h - 56;
+  ctx.fillStyle = c.accent;
+  ctx.fillRect(x0, auditY - 4, 7, 7);
+  drawSpaced(
+    `CONTRAST AUDIT ${pass}/${audit.length} PASS  ·  INK/BG ${inkBg ? inkBg.ratio.toFixed(1) : '-'}:1`,
+    x0 + 18, auditY,
+    { size: 12.5, spacing: 1.1, color: panelMut },
+  );
+}
+
+/* ---------- 8. bottom theme rail ---------- */
+function drawRail() {
+  const gap = 12;
+  const n = THEME_IDS.length;
+  const w = (RIGHT - LEFT - gap * (n - 1)) / n;
+  const h = 60;
+  const y = 934;
+  THEME_IDS.forEach((id, i) => {
+    const th = THEMES[id];
+    const x = LEFT + i * (w + gap);
+    const active = id === theme.id;
+    rr(x, y, w, h, 10);
+    ctx.fillStyle = active ? c.accent : hexToRgba(c.surface, 0.85);
+    ctx.fill();
+    if (active) {
+      ctx.fillStyle = c.accentInk;
+    } else {
+      ctx.fillStyle = c.muted;
+    }
+    setFont(active ? 600 : 500, 16, SANS);
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(th.name, x + w / 2, y + h / 2 + 1);
+  });
+}
+
+/* ---------- 9. footer ---------- */
+function drawFooter() {
+  const y = 1036;
+  drawSpaced('CODE-VIDEO-SHOWCASE / THEME SYSTEM v1', LEFT, y, { size: 13, spacing: 2, color: c.muted });
+  drawSpaced(`1920 × 1080 · STATIC PREVIEW · ${NUM}/${TOTAL}`, RIGHT, y, { size: 13, spacing: 2, color: c.muted, align: 'right' });
+}
+
+/* ---------- frame ---------- */
+function draw(t) {
+  ctx.save();
+  drawBackdrop(t);
+  drawGhostIndex();
+  drawHeader();
+  drawTitleBlock();
+  drawMiniCards();
+  drawHud();
+  drawSpecPanel();
+  drawRail();
+  drawFooter();
+  ctx.restore();
+}
+
+window.renderFrame = (u) => {
+  const t = Math.max(0, Math.min(1, Number(u) || 0));
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.clearRect(0, 0, W, H);
+  draw(t);
+};
+
+/* ---------- boot ---------- */
+async function loadFonts(families) {
+  if (typeof document === 'undefined' || !document.fonts) return;
+  const rows = paletteRows(theme);
+  const sample = [
+    theme.name, theme.nameEn, theme.tagline, theme.useFor,
+    m.name, m.note,
+    ...rows.map((r) => r.label), ...theme.accents.map((a) => a.name),
+    'ABCDEFGHIJKLMNOPQRSTUVWXYZ abcdefghijklmnopqrstuvwxyz 0123456789 /·×—',
+    '主题系统 一套版式 八种气质 适用场景 大字卡 三种底 强调 纸面 暗卡 HUD 实物 胶囊 倒计时 水印',
+    '底色 主字 强调 纸面 暗卡 表面 次要字 浅强调 点缀色 材质 对比度审计',
+  ].join(' ');
+  for (const family of families) {
+    for (const weight of [400, 500, 600, 700, 900]) {
+      try { await document.fonts.load(`${weight} 64px "${family}"`, sample); } catch (e) { /* ignore */ }
+    }
+  }
+  await document.fonts.ready;
+}
+
+window.__ready = false;
+window.__bootError = null;
+(async () => {
+  const families = Array.from(new Set([...(loadFontsFor(theme) || []), 'Noto Sans SC', 'JetBrains Mono']));
+  await loadFonts(families);
+  window.renderFrame(0.4);
+  window.__ready = true;
+})().catch((e) => { window.__bootError = String((e && e.stack) || e); });
+</script>
+</body>
+</html>
