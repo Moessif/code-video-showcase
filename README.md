@@ -20,6 +20,10 @@ An Agent Skill for producing 30–90 s "style showcase" films: an 8 s opening, e
 
 **Changelog / 更新历史**：[CHANGELOG.md](CHANGELOG.md) · [GitHub Releases](https://github.com/Moessif/code-video-showcase/releases)
 
+> **Credits / 致谢**：This skill started from a prompt by the creator **Mixx.ftr** — this repository is an independent engineering reconstruction and extension of that prompt into runnable templates, themes and a deterministic render pipeline.
+>
+> 本技能最初起源于创作者 **Mixx.ftr** 的提示词，仓库是在其基础上做的工程化整理与扩展（模板、主题系统、预览与渲染管线）。
+
 ## Preview
 
 > **There is no finished demo video in this repository**, and the reference sample file is not distributed. The previews are analysis artifacts of the 61 s reference showcase the skill was reverse-engineered from, plus a placeholder still rendered from the shipped big-card template.
@@ -343,6 +347,7 @@ Released under the **MIT License** — see [LICENSE](LICENSE).
 Credits and provenance:
 
 - The structure, timing and visual grammar come from a frame-by-frame analysis of a 61 s reference style-showcase video. The analysis is documented in `references/reference-film-analysis.md`, with evidence in `assets/`.
+- **Original prompt credit:** the seed prompt behind this skill came from the creator **Mixx.ftr**; the templates, theme system, preview tooling, render pipeline and QA checklist in this repository are an independent engineering extension built on top of it.
 - The production brief that this skill operationalizes is included verbatim as `references/original-brief.txt`.
 - No third-party code or media assets are bundled. All artwork is meant to be drawn at runtime; the soundtrack is synthesized.
 - Fonts are **not** bundled — download OFL-licensed font files yourself and serve them locally.
@@ -514,6 +519,7 @@ python3 synth_audio.py --out audio/demo.wav
 以 **MIT License** 发布，详见 [LICENSE](LICENSE)。
 
 - 方法、时间结构与视觉语法来自对一支 61 秒参考样片的逐帧拆解，分析见 `references/reference-film-analysis.md`，证据图在 `assets/`。
+- **原始提示词致谢：** 本技能的起点是创作者 **Mixx.ftr** 的提示词；仓库中的模板、主题系统、预览工具、渲染管线与质检是在其基础上独立完成的工程化扩展。
 - 驱动整个技能的原始任务书完整保留在 `references/original-brief.txt`，可改品牌直接复用。
 - 仓库不包含任何第三方代码或媒体素材；画面在运行时绘制，配乐实时合成。
 - 字体不随仓库分发，请自行下载 OFL 字体并在本地提供服务。
