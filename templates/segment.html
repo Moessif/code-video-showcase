@@ -21,6 +21,7 @@ import {
   loadFonts, rng, TAU,
 } from './common.js';
 import { themeFromURL, chrome, drawThemeBackground, drawGlassPanel, hexToRgba } from './themes.js';
+import { createEditBridge, mergePatches } from './edit-bridge.mjs';
 
 const W = 1920, H = 1080;
 const canvas = document.getElementById('c');
@@ -51,6 +52,239 @@ const HUD = HAS_THEME ? chrome(THEME) : null;
 
 const PLACEHOLDER_TITLE = '风格段标题';
 const PLACEHOLDER_SUB = '替换 drawScene() 开始做真正的画面';
+const IS_GLASS = HAS_THEME && !!(THEME.material && THEME.material.glass);
+const TC = HAS_THEME ? THEME.colors : null;
+
+// ---------- spec（D3 编辑契约的唯一真相） ----------
+// patches 为空 → 所有字段回退到本页默认值，渲染结果与改动前一致。
+const SPEC = {
+  specVersion: 1,
+  kind: 'segment',
+  meta: { name: 'segment', brand: BRAND },
+  params: {
+    hud: { capsule: '示例风格', category: '分类', countdown: null, stamp: BRAND },
+    title: { text: PLACEHOLDER_TITLE, sub: PLACEHOLDER_SUB },
+  },
+  patches: [],
+};
+
+// 本页默认值（主题/旧版各自一套），__inspect 的 props 报的是实际生效值。
+const DEF = {
+  capsuleColor: HAS_THEME ? HUD.capsule.numberColor : '#d97757',
+  countdownColor: HAS_THEME ? HUD.countdown.color : 'rgba(245,240,232,0.72)',
+  countdownSize: 34,
+  stampColor: HAS_THEME ? HUD.stamp.color : 'rgba(245,240,232,0.42)',
+  stampSize: 22,
+  titleColor: HAS_THEME ? TC.ink : '#f5f0e8',
+  titleSize: IS_GLASS ? 116 : 160,
+  subColor: HAS_THEME ? TC.accent : '#d97757',
+  subSize: IS_GLASS ? 32 : 40,
+  subText: IS_GLASS ? '半透明白 · 1px 高光边 · 淡绿/淡粉柔光只从玻璃里透出来' : PLACEHOLDER_SUB,
+};
+
+const SCHEMA = {
+  capsule: {
+    text: { type: 'text', label: '标签', maxLength: 12 },
+    category: { type: 'text', label: '分类', maxLength: 8 },
+    color: { type: 'color', label: '编号颜色' },
+  },
+  countdown: {
+    text: { type: 'text', label: '倒计时文案', maxLength: 8 },
+    color: { type: 'color', label: '颜色' },
+    size: { type: 'size', label: '字号', min: 16, max: 80, step: 1 },
+  },
+  stamp: {
+    text: { type: 'text', label: '水印', maxLength: 24 },
+    color: { type: 'color', label: '颜色' },
+    size: { type: 'size', label: '字号', min: 10, max: 48, step: 1 },
+  },
+  title: {
+    text: { type: 'text', label: '主标题', maxLength: 24 },
+    color: { type: 'color', label: '标题颜色' },
+    size: { type: 'size', label: '字号', min: 40, max: 240, step: 2 },
+  },
+  sub: {
+    text: { type: 'text', label: '副标题', maxLength: 60 },
+    color: { type: 'color', label: '副标题颜色' },
+    size: { type: 'size', label: '字号', min: 16, max: 96, step: 1 },
+  },
+};
+
+function numberOr(v, lo, hi, d) {
+  const n = Number(v);
+  return Number.isFinite(n) ? Math.min(hi, Math.max(lo, n)) : d;
+}
+function textOr(v, d, max) {
+  return v == null ? d : String(v).slice(0, max);
+}
+function colorOr(v, d) {
+  return typeof v === 'string' && v ? v : d;
+}
+
+/** SPEC + patches → 本帧实际生效的参数。 */
+function eff() {
+  const P = SPEC.patches;
+  const hud = mergePatches(P, 'hud', null, {});
+  const cap = mergePatches(P, 'hud', 'hud.capsule', {});
+  const cd = mergePatches(P, 'hud', 'hud.countdown', {});
+  const st = mergePatches(P, 'hud', 'hud.stamp', {});
+  const ti = mergePatches(P, 'title', 'title.main', {});
+  const su = mergePatches(P, 'title', 'title.sub', {});
+  return {
+    capsule: {
+      text: textOr(cap.text ?? hud.capsule, '示例风格', 12),
+      category: textOr(cap.category ?? hud.category, '分类', 8),
+      color: colorOr(cap.color ?? hud.capsuleColor, DEF.capsuleColor),
+    },
+    countdown: {
+      text: cd.text ?? hud.countdown ?? null,          // null = 按 u 自动计算
+      color: colorOr(cd.color ?? hud.countdownColor, DEF.countdownColor),
+      size: numberOr(cd.size ?? hud.countdownSize, 16, 80, DEF.countdownSize),
+    },
+    stamp: {
+      text: textOr(st.text ?? hud.stamp, BRAND, 24),
+      color: colorOr(st.color ?? hud.stampColor, DEF.stampColor),
+      size: numberOr(st.size ?? hud.stampSize, 10, 48, DEF.stampSize),
+    },
+    title: {
+      text: textOr(ti.text ?? hud.title, PLACEHOLDER_TITLE, 24),
+      color: colorOr(ti.color ?? hud.titleColor, DEF.titleColor),
+      size: numberOr(ti.size ?? hud.titleSize, 40, 240, DEF.titleSize),
+    },
+    sub: {
+      text: textOr(su.text ?? hud.sub, DEF.subText, 60),
+      color: colorOr(su.color ?? hud.subColor, DEF.subColor),
+      size: numberOr(su.size ?? hud.subSize, 16, 96, DEF.subSize),
+    },
+  };
+}
+
+// ---------- hit map helpers（D3：只登记矩形，不额外绘制像素） ----------
+function fontSizeOf(font) {
+  const m = String(font).match(/(\d+(?:\.\d+)?)px/);
+  return m ? parseFloat(m[1]) : 40;
+}
+
+/** 当前 ctx 变换下的设计坐标矩形（已包含 applyImpact2D 的缩放/抖动）。 */
+function rectFromCtx(x, y, w, h) {
+  const t = (typeof ctx.getTransform === 'function') ? ctx.getTransform() : null;
+  if (!t) return [x, y, w, h];
+  const p1 = t.transformPoint(new DOMPoint(x, y));
+  const p2 = t.transformPoint(new DOMPoint(x + w, y + h));
+  return [Math.min(p1.x, p2.x), Math.min(p1.y, p2.y), Math.abs(p2.x - p1.x), Math.abs(p2.y - p1.y)];
+}
+
+/** fillText 之后调用：用同一 font/transform 量出文本矩形并登记。 */
+function addTextHit(id, role, text, x, y, opt) {
+  const size = opt.size || fontSizeOf(ctx.font);
+  const w = ctx.measureText(text).width;
+  let x0 = x;
+  const align = opt.align || 'center';
+  if (align === 'right' || align === 'end') x0 = x - w;
+  else if (align === 'center') x0 = x - w / 2;
+  const y0 = y - size * (opt.baseline === 'alphabetic' ? 0.82 : 0.5);
+  bridge.add({
+    id, role,
+    rect: rectFromCtx(x0, y0, w, size),
+    props: { text, color: opt.color, size },
+    schema: opt.schema,
+  });
+}
+
+function addCapsuleHit(E, opts) {
+  const { x = 96, y = 72, h = 58, padX = 26, font = '600 26px "Noto Sans SC", sans-serif' } = opts;
+  const num = '01';
+  const label = E.category ? `${E.text} · ${E.category}` : E.text;
+  ctx.save();
+  ctx.font = font;
+  const w = padX * 2 + ctx.measureText(num).width + 14 + ctx.measureText(label).width;
+  ctx.restore();
+  bridge.add({
+    id: 'hud.capsule', role: 'hud',
+    rect: rectFromCtx(x, y, w, h),
+    props: { text: E.text, category: E.category, color: opts.numberColor ?? DEF.capsuleColor },
+    schema: SCHEMA.capsule,
+  });
+}
+
+function addCountdownHit(text, opts) {
+  const { x = 1824, y = 1016, size = DEF.countdownSize, font = 'JetBrains Mono, monospace' } = opts;
+  ctx.save();
+  ctx.font = `${size}px ${font}`;
+  const w = ctx.measureText(text).width;
+  ctx.restore();
+  bridge.add({
+    id: 'hud.countdown', role: 'hud',
+    rect: rectFromCtx(x - w, y - size * 0.82, w, size),
+    props: { text, color: opts.color ?? DEF.countdownColor, size },
+    schema: SCHEMA.countdown,
+  });
+}
+
+function addStampHit(text, opts) {
+  const { x = 1824, y = 72, size = DEF.stampSize, align = 'right', font = 'JetBrains Mono, monospace' } = opts;
+  ctx.save();
+  ctx.font = `${size}px ${font}`;
+  const w = ctx.measureText(text).width;
+  ctx.restore();
+  const x0 = align === 'right' ? x - w : (align === 'center' ? x - w / 2 : x);
+  bridge.add({
+    id: 'hud.stamp', role: 'hud',
+    rect: rectFromCtx(x0, y - size / 2, w, size),
+    props: { text, color: opts.color ?? DEF.stampColor, size },
+    schema: SCHEMA.stamp,
+  });
+}
+
+/** 倒计时文本（与 common.js drawCountdown 完全一致）。 */
+function countdownText(u) {
+  const remain = Math.max(0, Math.ceil(seg.duration - u - 0.001));
+  return `00:0${Math.min(9, remain)}`;
+}
+
+/** 有 patch 覆盖 text 时按同一套参数自绘，否则走 common.js 原函数（保证默认路径逐像素不变）。 */
+function drawCountdownMaybe(u, E, opts) {
+  if (E.text == null) {
+    drawCountdown(ctx, u, seg.duration, opts);
+    return countdownText(u);
+  }
+  const { x = 1824, y = 1016, size = DEF.countdownSize, color = DEF.countdownColor, font = 'JetBrains Mono, monospace' } = opts;
+  const text = String(E.text).slice(0, 8);
+  ctx.save();
+  ctx.font = `${size}px ${font}`;
+  ctx.fillStyle = color;
+  ctx.textAlign = 'right';
+  ctx.textBaseline = 'alphabetic';
+  ctx.fillText(text, x, y);
+  ctx.restore();
+  return text;
+}
+
+/** 标准 chrome：胶囊 / 倒计时 / 水印。默认参数与 common.js 缺省值逐值一致。 */
+function drawChrome(u, E) {
+  const capBase = HAS_THEME ? { ...HUD.capsule } : {};
+  const capOpts = E.capsule.color ? { ...capBase, numberColor: E.capsule.color } : capBase;
+  drawCapsuleLabel(ctx, 1, E.capsule.text, E.capsule.category, capOpts);
+  addCapsuleHit(E.capsule, capOpts);
+
+  const cdBase = HAS_THEME ? { ...HUD.countdown } : {};
+  const cdOpts = {
+    ...cdBase,
+    ...(E.countdown.color ? { color: E.countdown.color } : {}),
+    ...(E.countdown.size != null ? { size: E.countdown.size } : {}),
+  };
+  const cdText = drawCountdownMaybe(u, E.countdown, cdOpts);
+  addCountdownHit(cdText, cdOpts);
+
+  const stBase = HAS_THEME ? { y: 72, size: 22, ...HUD.stamp } : { y: 72, size: 22 };
+  const stOpts = {
+    ...stBase,
+    ...(E.stamp.color ? { color: E.stamp.color } : {}),
+    ...(E.stamp.size != null ? { size: E.stamp.size } : {}),
+  };
+  drawStamp(ctx, E.stamp.text, stOpts);
+  addStampHit(E.stamp.text, stOpts);
+}
 
 // ---------- themed helpers ----------
 function radialGlow(cx, cy, radius, color, alpha) {
@@ -75,6 +309,7 @@ function roundRect(x, y, w, h, r) {
 
 // 主题演示内容：背景 = drawThemeBackground；玻璃主题画一块液态玻璃信息卡（淡绿/淡粉柔光可见）。
 function drawThemedScene(t, u) {
+  const E = eff();
   const c = THEME.colors;
   const m = THEME.material || {};
   const isGlass = !!m.glass;
@@ -99,13 +334,17 @@ function drawThemedScene(t, u) {
     ctx.font = '500 22px "JetBrains Mono", monospace';
     ctx.fillText(`LIQUID GLASS · ${String(THEME.nameEn || THEME.id).toUpperCase()}`, cx, py + 74);
 
-    ctx.fillStyle = c.ink;
-    ctx.font = '900 116px "Noto Sans SC", sans-serif';
-    ctx.fillText(PLACEHOLDER_TITLE, cx, py + ph * 0.42);
+    ctx.fillStyle = E.title.color;
+    ctx.font = `900 ${E.title.size}px "Noto Sans SC", sans-serif`;
+    const titleY = py + ph * 0.42;
+    ctx.fillText(E.title.text, cx, titleY);
+    addTextHit('title.main', 'title', E.title.text, cx, titleY, { color: E.title.color, size: E.title.size, schema: SCHEMA.title });
 
-    ctx.fillStyle = accent;
-    ctx.font = '500 32px "Noto Sans SC", sans-serif';
-    ctx.fillText('半透明白 · 1px 高光边 · 淡绿/淡粉柔光只从玻璃里透出来', cx, py + ph * 0.655);
+    ctx.fillStyle = E.sub.color;
+    ctx.font = `500 ${E.sub.size}px "Noto Sans SC", sans-serif`;
+    const subY = py + ph * 0.655;
+    ctx.fillText(E.sub.text, cx, subY);
+    addTextHit('title.sub', 'title', E.sub.text, cx, subY, { color: E.sub.color, size: E.sub.size, schema: SCHEMA.sub });
 
     // 两块主题色片：证明淡绿 / 淡粉确实来自主题数据
     const pillW = 168, pillH = 54, gap = 24;
@@ -136,24 +375,27 @@ function drawThemedScene(t, u) {
 
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.fillStyle = c.ink;
-    ctx.font = '900 160px "Noto Sans SC", sans-serif';
-    ctx.fillText(PLACEHOLDER_TITLE, cx, cy - 20);
+    ctx.fillStyle = E.title.color;
+    ctx.font = `900 ${E.title.size}px "Noto Sans SC", sans-serif`;
+    const titleY = cy - 20;
+    ctx.fillText(E.title.text, cx, titleY);
+    addTextHit('title.main', 'title', E.title.text, cx, titleY, { color: E.title.color, size: E.title.size, schema: SCHEMA.title });
 
-    ctx.fillStyle = accent;
-    ctx.font = '500 40px "Noto Sans SC", sans-serif';
-    ctx.fillText(PLACEHOLDER_SUB, cx, cy + 150);
+    ctx.fillStyle = E.sub.color;
+    ctx.font = `500 ${E.sub.size}px "Noto Sans SC", sans-serif`;
+    const subY = cy + 150;
+    ctx.fillText(E.sub.text, cx, subY);
+    addTextHit('title.sub', 'title', E.sub.text, cx, subY, { color: E.sub.color, size: E.sub.size, schema: SCHEMA.sub });
   }
 
-  // standard chrome（胶囊 / 倒计时 / 水印全部用主题 HUD 规格）
-  drawCapsuleLabel(ctx, 1, '示例风格', '分类', HUD.capsule);
-  drawCountdown(ctx, u, seg.duration, HUD.countdown);
-  drawStamp(ctx, BRAND, { y: 72, size: 22, ...HUD.stamp });
+  // standard chrome（胶囊 / 倒计时 / 水印）
+  drawChrome(u, E);
 }
 
 // ---------- scene (legacy default, ?theme= 未传时与旧版逐像素一致) ----------
 // 替换成你的风格场景。t = 场景时间（秒，已按 t0/speed 映射），u = 片段本地时间
 function drawLegacyScene(t, u) {
+  const E = eff();
   // background
   const bg = ctx.createLinearGradient(0, 0, 0, H);
   bg.addColorStop(0, '#071026');
@@ -183,21 +425,23 @@ function drawLegacyScene(t, u) {
   ctx.lineWidth = 4;
   ctx.beginPath(); ctx.arc(cx, cy, r, t * 0.9, t * 0.9 + Math.PI * 1.5); ctx.stroke();
 
-  ctx.fillStyle = '#f5f0e8';
-  ctx.font = '900 160px "Noto Sans SC", sans-serif';
+  ctx.fillStyle = E.title.color;
+  ctx.font = `900 ${E.title.size}px "Noto Sans SC", sans-serif`;
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
-  ctx.fillText(PLACEHOLDER_TITLE, cx, cy - 20);
+  const titleY = cy - 20;
+  ctx.fillText(E.title.text, cx, titleY);
+  addTextHit('title.main', 'title', E.title.text, cx, titleY, { color: E.title.color, size: E.title.size, schema: SCHEMA.title });
 
-  ctx.fillStyle = '#d97757';
-  ctx.font = '500 40px "Noto Sans SC", sans-serif';
-  ctx.fillText(PLACEHOLDER_SUB, cx, cy + 150);
+  ctx.fillStyle = E.sub.color;
+  ctx.font = `500 ${E.sub.size}px "Noto Sans SC", sans-serif`;
+  const subY = cy + 150;
+  ctx.fillText(E.sub.text, cx, subY);
+  addTextHit('title.sub', 'title', E.sub.text, cx, subY, { color: E.sub.color, size: E.sub.size, schema: SCHEMA.sub });
   // === end demo content ===
 
   // standard chrome
-  drawCapsuleLabel(ctx, 1, '示例风格', '分类');
-  drawCountdown(ctx, u, seg.duration);
-  drawStamp(ctx, BRAND, { y: 72, size: 22 });
+  drawChrome(u, E);
 }
 
 function drawScene(t, u) {
@@ -207,7 +451,10 @@ function drawScene(t, u) {
 
 // ---------- render frame ----------
 window.renderFrame = (u) => {
-  const { t, fx } = seg.sample(u);
+  const sample = seg.sample(u);
+  const { t, fx } = sample;
+  bridge.setTime(sample.u);
+  bridge.begin();
   ctx.setTransform(1, 0, 0, 1, 0, 0);
   ctx.clearRect(0, 0, W, H);
   ctx.save();
@@ -216,6 +463,15 @@ window.renderFrame = (u) => {
   ctx.restore();
   drawFlash(ctx, fx.flash, W, H);
 };
+
+// ---------- edit contract（D3） ----------
+const bridge = createEditBridge({
+  getSpec: () => SPEC,
+  setPatch: (patches) => { SPEC.patches = patches; },
+  renderAt: (t) => window.renderFrame(t),
+  canvas,
+});
+bridge.install();
 
 // ---------- readiness ----------
 window.__ready = false;

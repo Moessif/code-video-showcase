@@ -24,6 +24,47 @@ An Agent Skill for producing 30–90 s "style showcase" films: an 8 s opening, e
 >
 > 本技能最初起源于创作者 **Mixx.ftr** 的提示词，仓库是在其基础上做的工程化整理与扩展（模板、主题系统、预览与渲染管线）。
 
+## Compiler pipeline (v2.1)
+
+v2.1 turns the skill into a **video compiler**: `spec.json` is the single source of truth, `plan.json` is a build plan with a content hash per segment, and recompiles only re-render what changed.
+
+```text
+spec.json (IR) → spec-lint → plan.json (per-segment hash) → render-farm (cache) → master.mp4 → qa
+```
+
+```bash
+# validate / plan / compile a project
+node scripts/spec-lint.mjs --spec fixtures/mini-41s/spec.json --root .
+node templates/plan.mjs  --spec fixtures/mini-41s/spec.json --root . --print
+node scripts/compile.mjs --spec fixtures/mini-41s/spec.json --root . --no-qa --concurrency 4
+```
+
+| Piece | File |
+|---|---|
+| IR schema | `schema/project.spec.schema.json` |
+| normalize / validate / migrate (`timeline v1` → spec) | `templates/spec.mjs` |
+| spec → plan + `segmentHash` | `templates/plan.mjs` |
+| content-addressed cache | `<outDir>/.cache/<hash>.mp4` (`render-farm --cache`) |
+| one-command build | `scripts/compile.mjs` |
+| gates (pages / theme / APCA) | `scripts/spec-lint.mjs` |
+
+**Surfaces** (each is a zero-dependency static app, `node app/<name>/serve.mjs`):
+
+| Surface | Port | Purpose |
+|---|---|---|
+| `app/wizard/` | 5181 | 8 presets + 7 cards → valid `spec.json` |
+| `app/canvas/` | 5182 | scrub + click-to-inspect + live patch |
+| `app/script/` | 5183 | storyboard table editing with overflow checks |
+| `app/versions/` | 5184 | localStorage version tree + side-by-side diff |
+
+**Ingest** (optional, from real footage):
+
+```bash
+node ingest/cli.mjs --input <file-or-dir> --target 60 --out out/ingest
+```
+
+Measured on this machine (Windows 10, 41 s fixture, 1230 frames, 1080p30): cold compile `9m34s` at concurrency 4 (Chrome startup contention; one transient CDP timeout), **warm recompile `3.9s` with 23/23 cache hits**, QA 10 pass / 1 warn (no audio) / 0 fail. Cold-start browser cost is the current bottleneck; browser reuse is the next optimization.
+
 ## Preview
 
 > **There is no finished demo video in this repository**, and the reference sample file is not distributed. The previews are analysis artifacts of the 61 s reference showcase the skill was reverse-engineered from, plus a placeholder still rendered from the shipped big-card template.

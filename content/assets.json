@@ -1,0 +1,34 @@
+[
+  {
+    "id": "01-coral-noir-987e1cc4",
+    "kind": "image",
+    "path": "assets/theme-previews/01-coral-noir.jpg",
+    "hash": "987e1cc41e3144a7b8d8313995057181e61cfc7d005a1b7824e0541d55c6ec14",
+    "meta": {
+      "ext": "jpg",
+      "bytes": 526815,
+      "width": 1920,
+      "height": 1080,
+      "duration": 0.04,
+      "fps": 25,
+      "codec": "mjpeg",
+      "format": "image2"
+    }
+  },
+  {
+    "id": "09-cyber-neon-f0e1d8d1",
+    "kind": "image",
+    "path": "assets/theme-previews/09-cyber-neon.jpg",
+    "hash": "f0e1d8d17860352e5dc9257d08d0be2ccfb4e3a009be7fa561bd7d4d34384393",
+    "meta": {
+      "ext": "jpg",
+      "bytes": 491851,
+      "width": 1920,
+      "height": 1080,
+      "duration": 0.04,
+      "fps": 25,
+      "codec": "mjpeg",
+      "format": "image2"
+    }
+  }
+]

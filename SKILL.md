@@ -20,6 +20,23 @@ allowed-tools: Bash, Read, Write, Edit, Glob, Grep
 > 目标：不调用任何视频/图像/音乐生成模型，用**代码**逐帧画出画面、用 **numpy/scipy** 合成配乐，最后 FFmpeg 合成 MP4。
 > 参考样片：61.0s / 1920×1080 / 30fps / 1830 帧 / 120 BPM / H.264+AAC，见 `assets/contact-1fps.jpg` 与 `references/reference-film-analysis.md`。
 
+## 0.5 编译器入口（v2.1，新项目优先）
+
+新项目不再从 timeline.json 起步，而是从 `project.spec.json`（IR）起步：
+
+```bash
+node scripts/spec-lint.mjs --spec project.spec.json --root .   # 页面/主题/APCA/结构
+node templates/plan.mjs  --spec project.spec.json --root . --print
+node scripts/compile.mjs --spec project.spec.json --root . --concurrency 4
+```
+
+- **spec 是唯一真相**：文字、画风、主题、时长、剧本都改 spec；不要手改 `plan.json` 或段 mp4。
+- **增量**：每段带 `segmentHash`；`render-farm` 先查 `<outDir>/.cache/<hash>.mp4`。改一段只重渲一段。
+- **入口**：`app/wizard/`（5181，8 预设 + 七张卡）、`app/canvas/`（5182，圈选改参数）、`app/script/`（5183，剧本表）、`app/versions/`（5184，版本树）。
+- **旧项目**：timeline v1 仍完全可用，`spec.mjs` 可自动迁移。
+- **实拍素材**：`node ingest/cli.mjs --input <file|dir> --target 60 --out out/ingest` 产出 EDL + spec 草稿；选段质量是启发式，需人工审。
+- **禁止**：让 LLM 直接生成 HTML/CSS/JS，或绕过 spec 直接改像素。模型只填枚举与文案。
+
 ## 0. 适用与不适用
 
 **适用**

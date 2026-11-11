@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>版本树 · code-video-showcase</title>
+  <link rel="stylesheet" href="./style.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <span class="dot" aria-hidden="true"></span>
+      <span>版本树</span>
+      <span class="tag">C2-07</span>
+    </div>
+    <div class="stats" id="current-stats" aria-live="polite">加载中…</div>
+  </header>
+
+  <section class="toolbar">
+    <input id="version-name" class="name-input" type="text" placeholder="版本名称（可选）" maxlength="60">
+    <button id="btn-save" type="button" class="primary">保存当前 spec</button>
+    <button id="btn-import" type="button" class="ghost">导入 .json</button>
+    <input id="file-input" type="file" accept="application/json,.json" hidden>
+    <button id="btn-sample" type="button" class="ghost">载入示例</button>
+    <button id="btn-download" type="button" class="ghost">下载当前</button>
+    <span class="status" id="status" aria-live="polite"></span>
+  </section>
+
+  <main class="layout">
+    <section class="left">
+      <section class="panel">
+        <h2>当前编辑缓冲区 <span class="hash mono" id="current-hash"></span></h2>
+        <textarea id="current-json" class="json-edit" spellcheck="false" aria-label="当前 spec JSON"></textarea>
+        <div class="row-actions">
+          <button id="btn-apply" type="button">应用 JSON</button>
+          <span class="hint" id="apply-hint">修改后点「应用 JSON」，或直接「保存当前 spec」。</span>
+        </div>
+      </section>
+
+      <section class="panel grow">
+        <h2>版本 <span class="badge" id="version-count">0</span>
+          <span class="hint inline" id="select-hint">勾选两个版本并排 diff</span>
+        </h2>
+        <div class="empty" id="empty" hidden>
+          <p>还没有版本。先「保存当前 spec」，或从文件导入。</p>
+          <div class="empty-actions">
+            <button type="button" data-action="save">保存当前 spec</button>
+            <button type="button" class="ghost" data-action="import">导入 .json</button>
+            <button type="button" class="ghost" data-action="sample">载入示例 spec</button>
+          </div>
+        </div>
+        <ul class="version-list" id="version-list"></ul>
+      </section>
+    </section>
+
+    <section class="panel diff-panel">
+      <h2>并排 diff <span class="hash mono" id="diff-label"></span></h2>
+      <div class="diff-empty" id="diff-empty">选中两个版本后在这里对比；左旧右新。</div>
+      <div class="diff-scroll" id="diff-scroll" hidden>
+        <table class="diff-table">
+          <thead>
+            <tr>
+              <th class="diff-side" id="diff-left-title">旧版本</th>
+              <th class="diff-side" id="diff-right-title">新版本</th>
+            </tr>
+          </thead>
+          <tbody id="diff-body"></tbody>
+        </table>
+      </div>
+    </section>
+  </main>
+
+  <div class="toast" id="toast" hidden></div>
+
+  <script type="module" src="./app.js"></script>
+</body>
+</html>

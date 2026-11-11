@@ -1,0 +1,94 @@
+{
+  "version": 1,
+  "note": "8 组首屏推荐预设。只露这 8 组；其余枚举通过「我自己调」展开。每条都可直接生成合法 spec v1。",
+  "presets": [
+    {
+      "id": "promo-cyber-pixel",
+      "name": "宣传片 · 赛博像素",
+      "kind": "promo",
+      "style": "cyber-pixel",
+      "theme": "cyber-neon",
+      "duration": 30,
+      "aspect": "16:9",
+      "mood": "electronic",
+      "description": "高对比霓虹、像素抖动与扫描线的造势片，适合新品预热与活动开场。"
+    },
+    {
+      "id": "launch-coral-noir",
+      "name": "产品发布 · 珊瑚暗夜",
+      "kind": "launch",
+      "style": "minimal",
+      "theme": "coral-noir",
+      "duration": 41,
+      "aspect": "16:9",
+      "mood": "restrained",
+      "description": "暗场大字 + 单一主视觉，发布会的克制与仪式感，41 秒标准结构。"
+    },
+    {
+      "id": "knowledge-paper-journal",
+      "name": "知识科普 · 纸页",
+      "kind": "knowledge",
+      "style": "flat",
+      "theme": "paper-journal",
+      "duration": 41,
+      "aspect": "16:9",
+      "mood": "restrained",
+      "description": "纸面底色、扁平插画与清楚的层次，适合讲清一个概念或原理。"
+    },
+    {
+      "id": "ecommerce-aqua-morandi",
+      "name": "电商竖屏 · 莫兰迪",
+      "kind": "ecommerce",
+      "style": "vertical",
+      "theme": "aqua-morandi",
+      "duration": 15,
+      "aspect": "9:16",
+      "mood": "upbeat",
+      "description": "15 秒竖屏带货节奏，柔和莫兰迪色不抢商品，适合抖音/小红书。"
+    },
+    {
+      "id": "brand-celadon",
+      "name": "品牌故事 · 青瓷",
+      "kind": "brand-story",
+      "style": "ink-wash",
+      "theme": "celadon-paper",
+      "duration": 60,
+      "aspect": "16:9",
+      "mood": "guofeng",
+      "description": "青瓷纸面与水墨晕染，留白多、语速慢，适合讲品牌来历与价值观。"
+    },
+    {
+      "id": "data-blueprint-stone",
+      "name": "数据报告 · 蓝图",
+      "kind": "data-report",
+      "style": "data-viz",
+      "theme": "blueprint-stone",
+      "duration": 30,
+      "aspect": "16:9",
+      "mood": "electronic",
+      "description": "工程蓝图网格 + 条形竞速，适合季度复盘、增长数据与投研摘要。"
+    },
+    {
+      "id": "hiring-graphite-signal",
+      "name": "招聘 · 石墨信号",
+      "kind": "recruiting",
+      "style": "whiteboard",
+      "theme": "graphite-signal",
+      "duration": 30,
+      "aspect": "16:9",
+      "mood": "upbeat",
+      "description": "工业哑光底 + 手绘标注，把岗位、团队与福利画成一张白板。"
+    },
+    {
+      "id": "annual-amber-noir",
+      "name": "年度片 · 琥珀",
+      "kind": "annual",
+      "style": "three-d",
+      "theme": "amber-noir",
+      "duration": 60,
+      "aspect": "16:9",
+      "mood": "epic",
+      "description": "黑金材质与 3D 质感，60 秒回顾全年节点，适合年会与年度总结。"
+    }
+  ]
+}

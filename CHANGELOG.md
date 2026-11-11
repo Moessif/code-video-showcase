@@ -3,6 +3,30 @@
 本项目的版本更新记录。版本号遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)，格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
 每个版本同时发布在 [GitHub Releases](https://github.com/Moessif/code-video-showcase/releases)。
 
+## [v2.1.0] - 2026-11-11 — 编译器（spec IR / 段哈希 / 增量编译 / 画布圈选 / 入口）
+
+### 新增
+- **spec IR v1**：`schema/project.spec.schema.json` + `templates/spec.mjs`（normalize / validate / migrate / script→rounds），timeline v1 可无损迁移。所有入口只产出 spec。
+- **plan 编译器**：`templates/plan.mjs` 在 timeline 帧对齐之上为每段生成 `segmentHash = sha256(plan/engine/page/frames/t0/speed/theme/brand/assets/patches)`，并输出 spec 摘要与 warnings。
+- **内容寻址缓存**：`render-farm --cache`，命中 `<outDir>/.cache/<hash>.mp4` 直接复用；实测 23/23 命中时整片重编译 3.9 s。
+- **一键编译**：`scripts/compile.mjs` = lint → plan → render → concat → qa；无音轨时走 video-only concat。
+- **spec 闸门**：`scripts/spec-lint.mjs` 校验页面存在性、主题真实性、APCA（HUD/大字按实用阈值），并输出 JSON 报告。
+- **入口**：`app/wizard/`（8 预设 + 七张卡 + 实时 spec + 下载）、`scripts/nl2spec.mjs`（确定性规则 NL→spec，20 条语料回归）、`content/presets.json`、`content/combos.json`（13×12 兼容矩阵）。
+- **画布与编辑契约**：`templates/edit-bridge.mjs` + `__spec/__inspect/__patch`；big-card 注册 6 个节点（文案/关键词/强调色/版式/编号/品牌），segment 注册 5 个（主副标题/HUD/倒计时/水印）。`app/canvas/` 支持 scrub、点选、schema 面板、patch 导出。44 条契约测试。
+- **剧本与版本**：`app/script/` 表格编辑（就地改、超长标红、实时 JSON）、`app/versions/` localStorage 版本树 + 并排 diff + 恢复；30 条模型测试。
+- **素材与批量**：`scripts/assets.mjs`（sha256 + ffprobe + 注册表）、`scripts/variants.mjs`（笛卡尔变体矩阵 + manifest）、`templates/reflow.mjs`（16:9→9:16/1:1 spec 级重排，非裁切）。
+- **素材摄取**：`ingest/` 提供 ffprobe、场景切分、静音检测、可选 ASR 适配、打分选段、EDL、`edlToScript` 生成合法 spec；22 条纯函数测试。
+- **第 12 套画风**：`templates/styles/cyber-pixel.js` + `templates/cyber-pixel.html`（量化/Bayer 抖动/扫描线/色差/CRT/辉光，全为 t 的纯函数）；`references/long-form.md` 41 s 单风格三幕编排规则。
+- **测试入口**：`npm run test:all`（138 条零依赖测试）、`test:browser`（契约 + 赛博像素确定性）、`dev:wizard|canvas|script|versions`。
+
+### 变更
+- 默认流程仍是 timeline v1；spec v1 为新增编译层，旧项目不传 spec 时行为不变。
+- `shared/fonts/`（32 MB 生成物）加入 `.gitignore`，由 `bash arm.sh` 重建。
+
+### 实测
+- 41 s fixture：1230 帧 / 1920×1080 / 30 fps；冷编译 9m34s@4（Chrome 启动争用 + 1 次瞬态 CDP 超时），缓存命中后重编译 3.9 s；QA 10 pass / 1 warn（无音轨）/ 0 fail。
+- 赛博像素：3 张静帧同 t 两次渲染 PNG sha256 完全一致；1 s 段 30 帧。
+
 ## [v2.0.0] - 2026-11-11 — Studio 升级（时间轴 / 零依赖渲染 / 并行 / 质检 / OKLCH）
 
 ### 新增

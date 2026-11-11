@@ -16,6 +16,7 @@
 <script type="module">
 import { loadFonts, clamp, ease, rng, mulberry32 } from './common.js';
 import { themeFromURL, cardColors, mix } from './themes.js';
+import { createEditBridge, mergePatches } from './edit-bridge.mjs';
 
 const W = 1920, H = 1080;
 const canvas = document.getElementById('c');
@@ -35,14 +36,34 @@ const CARD = {
 };
 
 const FONT = '"Noto Sans SC", "Inter", sans-serif';
-const rnd = rng(1200 + CARD.index * 37);
+let rnd = rng(1200 + CARD.index * 37);
 
 // ---------- theme ----------
 // 不传 ?theme= 时保留旧模板的默认路径（旧硬编码配色 + ?color= 强调色），保证逐像素不变。
 // 传 ?theme= 时颜色全部由 themes.js 的 cardColors(theme, layout) 驱动；角落 HUD 用卡片 ink 派生。
 const HAS_THEME = p.has('theme');
+const HAS_COLOR_PARAM = p.has('color');
 const THEME = themeFromURL(location.search);
-const CC = HAS_THEME ? cardColors(THEME, CARD.layout) : null;
+
+// ---------- spec（D3 编辑契约的唯一真相） ----------
+// 默认渲染不读 patches（空数组 → 全部回退到 URL 参数），所以补丁机制不改变现有画面。
+const SPEC = {
+  specVersion: 1,
+  kind: 'big-card',
+  meta: { name: 'big-card', brand: CARD.brand },
+  params: {
+    card: {
+      layout: CARD.layout,
+      index: CARD.index,
+      total: CARD.total,
+      color: CARD.color,
+      first: CARD.first,
+      keyword: CARD.keyword,
+      brand: CARD.brand,
+    },
+  },
+  patches: [],
+};
 
 // ---------- color helpers ----------
 function hexToRgb(hex) {
@@ -87,8 +108,10 @@ function contrast(a, b) {
 }
 
 // ---------- palette: legacy path = 旧模板的逐值常量；theme path = cardColors 派生 ----------
-const PAL = (() => {
-  const [AC_R, AC_G, AC_B] = hexToRgb(CARD.color);
+// 由 (layout, 强调色) 参数化：默认传 CARD.layout / CARD.color，结果与改动前逐值一致；
+// 编辑契约改颜色/版式时按新参数重算，重绘即可复现。
+function computePal(layout, colorHex, explicitColor = false) {
+  const [AC_R, AC_G, AC_B] = hexToRgb(colorHex);
   const AC = (a = 1) => `rgba(${AC_R},${AC_G},${AC_B},${a})`;
   const legacy = (extra) => Object.assign({
     bgTop: '#0e0e0d', bgBottom: null, grid: null,
@@ -97,9 +120,9 @@ const PAL = (() => {
   }, extra);
 
   if (!HAS_THEME) {
-    if (CARD.layout === 0) {
+    if (layout === 0) {
       return legacy({
-        bgTop: CARD.color,
+        bgTop: colorHex,
         bgBottom: `rgba(${AC_R * 0.82 | 0},${AC_G * 0.82 | 0},${AC_B * 0.82 | 0},1)`,
         grid: 'rgba(0,0,0,0.06)',
         firstColor: '#0e0e0d',
@@ -108,7 +131,7 @@ const PAL = (() => {
         underline: 'rgba(14,14,13,0.9)',
       });
     }
-    if (CARD.layout === 1) {
+    if (layout === 1) {
       return legacy({
         bgTop: '#f4efe6',
         grid: 'rgba(20,20,20,0.045)',
@@ -128,10 +151,11 @@ const PAL = (() => {
   }
 
   // theme path
-  const dark = CARD.layout >= 2;
-  // ?color= 仍可作为强调色覆盖（保持旧模板「逐卡换色」的用法），其余一律取自主题。
-  const accent = p.has('color')
-    ? CARD.color
+  const CC = cardColors(THEME, layout);
+  // ?color= 或编辑契约的 card.color patch 都可作为强调色覆盖（保持旧模板「逐卡换色」的用法），
+  // 其余一律取自主题。
+  const accent = (HAS_COLOR_PARAM || explicitColor)
+    ? colorHex
     : (CC.field === 'accent' ? CC.bg : CC.keyword);
   const accentRgb = parseColor(accent).slice(0, 3);
   // 角落 HUD 跟着卡片 ink 走（对比度兜底），不套主题的亮/暗 HUD 规格：
@@ -142,7 +166,7 @@ const PAL = (() => {
   };
   const flash = THEME.colors.flash;
 
-  if (CARD.layout === 0) {
+  if (layout === 0) {
     return {
       bgTop: accent,
       bgBottom: mixHex(accent, '#000000', 0.18),
@@ -157,7 +181,7 @@ const PAL = (() => {
       ...footerFor(accent), flash,
     };
   }
-  if (CARD.layout === 1) {
+  if (layout === 1) {
     // 纸底上强调色对比不足时（例如沿用旧 ?color= 的金色）退到 ink，保证大字可读。
     const paperKey = contrast(accent, CC.bg) >= 2.2 ? accent : CC.ink;
     return {
@@ -190,7 +214,7 @@ const PAL = (() => {
     glowRgb: parseColor(keyColor).slice(0, 3),
     ...footerFor(CC.bg), flash,
   };
-})();
+}
 
 // ---------- pre-rendered text layers (blur 16px once, never per frame) ----------
 function textLayer(text, { size, weight, color, blur = 0, y = H / 2, align = 'center', x = W / 2, maxW = W - 2 * 96 }) {
@@ -208,35 +232,103 @@ function textLayer(text, { size, weight, color, blur = 0, y = H / 2, align = 'ce
   g.textAlign = align;
   g.textBaseline = 'middle';
   g.fillText(text, x, y);
-  c.__fontSize = s;
+  c.__fontSize = s;                  // 实际字号（auto fit 后）
+  c.__textW = g.measureText(text).width;
+  c.__text = text;
+  c.__color = color;
   return c;
 }
 
-function makeLayers() {
-  const firstColor = PAL.firstColor;
-  const keyColor = PAL.keyColor;
+function makeLayers(S) {
+  const firstColor = S.first.color || PAL.firstColor;
+  const keyColor = S.keyword.color || PAL.keyColor;
   const firstY = H / 2 - 116;
   const keyY = H / 2 + 60;
   const layers = [];
   for (const [text, size, weight, color, y, align] of [
-    [CARD.first, 76, 700, firstColor, firstY, 'center'],
-    [CARD.keyword, 190, 900, keyColor, keyY, 'center'],
+    [S.first.text, S.first.size, 700, firstColor, firstY, 'center'],
+    [S.keyword.text, S.keyword.size, 900, keyColor, keyY, 'center'],
   ]) {
+    const sharp = textLayer(text, { size, weight, color, y, align });
     layers.push({
-      sharp: textLayer(text, { size, weight, color, y, align }),
+      sharp,
       blur: textLayer(text, { size, weight, color, blur: 16, y, align }),
       align,
+      y,
+      size: sharp.__fontSize,
+      text,
+      color,
     });
   }
   return { layers, firstColor, keyColor, keyY };
 }
+// ---------- effective params（SPEC + patches） ----------
+// 默认 patches 为空 → 每个字段都回退到 CARD，与旧模板完全相同。
+function effectiveState() {
+  const P = SPEC.patches;
+  const scope = mergePatches(P, 'card', null, {});
+  const fp = mergePatches(P, 'card', 'card.first', {});
+  const kp = mergePatches(P, 'card', 'card.keyword', {});
+  const cp = mergePatches(P, 'card', 'card.color', {});
+  const lp = mergePatches(P, 'card', 'card.layout', {});
+  const ip = mergePatches(P, 'card', 'card.index', {});
+  const bp = mergePatches(P, 'card', 'card.brand', {});
+
+  const num = (v, lo, hi, d) => {
+    const n = Number(v);
+    return Number.isFinite(n) ? Math.min(hi, Math.max(lo, n)) : d;
+  };
+  const int = (v, lo, hi, d) => Math.round(num(v, lo, hi, d));
+  const str = (v, d, max) => (v == null ? d : String(v).slice(0, max));
+  const pick = (v, d) => (typeof v === 'string' && v ? v : d);
+  const patchedColor = cp.color ?? scope.color;
+
+  return {
+    layout: int(lp.layout ?? scope.layout, 0, 3, CARD.layout),
+    index: int(ip.index ?? scope.index, 1, 99, CARD.index),
+    total: int(scope.total, 1, 99, CARD.total),
+    brand: str(bp.text ?? scope.brand, CARD.brand, 24),
+    color: pick(patchedColor, CARD.color),
+    // theme 路径下只有「显式指定」的颜色才覆盖主题强调色（与 ?color= 同义）
+    colorExplicit: typeof patchedColor === 'string' && patchedColor.length > 0,
+    first: {
+      text: str(fp.text ?? scope.first, CARD.first, 8),
+      size: num(fp.size, 24, 160, 76),
+      color: typeof fp.color === 'string' && fp.color ? fp.color : null,
+    },
+    keyword: {
+      text: str(kp.text ?? scope.keyword, CARD.keyword, 12),
+      size: num(kp.size, 40, 300, 190),
+      color: typeof kp.color === 'string' && kp.color ? kp.color : null,
+    },
+  };
+}
+
+let STATE = effectiveState();
+let STATE_KEY = JSON.stringify(STATE);
+let PAL = computePal(STATE.layout, STATE.color, STATE.colorExplicit);
+// 版式 2/3 的背景条纹用 rnd 的连续状态（旧模板行为）；只有 index 变了才重播种。
+let RND_INDEX = STATE.index;
+
 // Pre-rendered layers must be rebuilt AFTER fonts load, otherwise CJK canvas text
 // is rasterized with a fallback font (or nothing) and stays blank forever.
-let ASSETS = makeLayers();
+let ASSETS = makeLayers(STATE);
+
+function ensureState() {
+  const s = effectiveState();
+  const key = JSON.stringify(s);
+  if (key === STATE_KEY) return STATE;
+  STATE = s;
+  STATE_KEY = key;
+  if (s.index !== RND_INDEX) { rnd = rng(1200 + s.index * 37); RND_INDEX = s.index; }
+  PAL = computePal(s.layout, s.color, s.colorExplicit);
+  ASSETS = makeLayers(s);
+  return STATE;
+}
 
 // ---------- backgrounds ----------
 function drawBackground() {
-  if (CARD.layout === 0) {
+  if (STATE.layout === 0) {
     const g = ctx.createLinearGradient(0, 0, W, H);
     g.addColorStop(0, PAL.bgTop);
     g.addColorStop(1, PAL.bgBottom);
@@ -247,7 +339,7 @@ function drawBackground() {
       for (let x = 0; x < W; x += 72) { ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, H); ctx.stroke(); }
       for (let y = 0; y < H; y += 72) { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke(); }
     }
-  } else if (CARD.layout === 1) {
+  } else if (STATE.layout === 1) {
     ctx.fillStyle = PAL.bgTop; ctx.fillRect(0, 0, W, H);
     // 细网格 + 纸纹
     if (PAL.grid) {
@@ -283,7 +375,7 @@ function drawEcho(t) {
   ctx.textBaseline = 'middle';
   ctx.lineWidth = 3;
   ctx.strokeStyle = PAL.echo;
-  ctx.strokeText(CARD.keyword, W / 2 + Math.sin(t * 1.1) * 70, H / 2 + 40);
+  ctx.strokeText(STATE.keyword.text, W / 2 + Math.sin(t * 1.1) * 70, H / 2 + 40);
   ctx.restore();
 }
 
@@ -310,7 +402,7 @@ function drawSpeedLines(progress, amount = 26, color = PAL.speedLine) {
   ctx.save();
   ctx.translate(W / 2, H / 2 + 30);
   const n = amount;
-  const rr = mulberry32(900 + CARD.index);
+  const rr = mulberry32(900 + STATE.index);
   for (let i = 0; i < n; i++) {
     const a = (i / n) * Math.PI * 2 + rr() * 0.12;
     const len = (120 + rr() * 480) * (0.4 + t * 1.6);
@@ -361,8 +453,121 @@ function drawLayer(layer, slamInfo, dx = 0, dy = 0) {
   ctx.restore();
 }
 
+// ---------- hit map（D3 编辑契约：只登记矩形，不额外绘制像素） ----------
+// rect 一律是画布位图坐标；slam 缩放/位移与全局 shake 都折算进去，和实际绘制位置一致。
+const SCHEMA = {
+  first: {
+    text: { type: 'text', label: '首行文案', maxLength: 8 },
+    size: { type: 'size', label: '字号', min: 24, max: 160, step: 2 },
+    color: { type: 'color', label: '文字颜色' },
+  },
+  keyword: {
+    text: { type: 'text', label: '关键词', maxLength: 12 },
+    size: { type: 'size', label: '字号', min: 40, max: 300, step: 2 },
+    color: { type: 'color', label: '关键词颜色' },
+  },
+  accent: { color: { type: 'color', label: '强调色' } },
+  index: { index: { type: 'number', label: '编号', min: 1, max: 99, step: 1 } },
+  brand: { text: { type: 'text', label: '品牌', maxLength: 24 } },
+  layout: {
+    layout: {
+      type: 'enum', label: '版式',
+      options: [
+        { value: 0, label: '强调底' },
+        { value: 1, label: '纸底' },
+        { value: 2, label: '暗卡居中' },
+        { value: 3, label: '暗卡左' },
+      ],
+    },
+  },
+};
+
+function textWidth(text, font) {
+  ctx.save();
+  ctx.font = font;
+  const w = ctx.measureText(text).width;
+  ctx.restore();
+  return w;
+}
+
+function layerRect(layer) {
+  const w = layer.sharp.__textW || 0;
+  const h = layer.sharp.__fontSize || layer.size || 0;
+  return [W / 2 - w / 2, layer.y - h / 2, w, h];
+}
+
+// drawLayer 的变换：translate(W/2+dx, H/2+dy) · scale(s) · translate(-W/2,-H/2)
+function slamRect(rect, info, sx, sy) {
+  const s = info.scale;
+  return [
+    sx + W / 2 + info.dx + s * (rect[0] - W / 2),
+    sy + H / 2 + info.dy + s * (rect[1] - H / 2),
+    rect[2] * s,
+    rect[3] * s,
+  ];
+}
+
+function shiftRect(rect, sx, sy) {
+  return [rect[0] + sx, rect[1] + sy, rect[2], rect[3]];
+}
+
+function registerHits(S, view) {
+  const first = ASSETS.layers[0];
+  const key = ASSETS.layers[1];
+
+  // 强调色（关键词下划线带；暗卡没有下划线时仍是同一片可点区域）
+  bridge.add({
+    id: 'card.color', role: 'accent',
+    rect: shiftRect([W / 2 - 450, H / 2 + 166, 900, 30], view.sx, view.sy),
+    props: { color: S.color },
+    schema: SCHEMA.accent,
+  });
+
+  bridge.add({
+    id: 'card.first', role: 'headline',
+    rect: slamRect(layerRect(first), view.s1, view.sx, view.sy),
+    props: { text: S.first.text, size: first.size, color: first.color },
+    schema: SCHEMA.first,
+  });
+
+  bridge.add({
+    id: 'card.keyword', role: 'keyword',
+    rect: slamRect(layerRect(key), view.s2, view.sx, view.sy),
+    props: { text: S.keyword.text, size: key.size, color: key.color },
+    schema: SCHEMA.keyword,
+  });
+
+  const idxW = textWidth(view.footIndex, '500 22px "JetBrains Mono", monospace');
+  bridge.add({
+    id: 'card.index', role: 'meta',
+    rect: [1824 - idxW + view.sx, 1016 - 22 + view.sy, idxW, 22],
+    props: { index: S.index },
+    schema: SCHEMA.index,
+  });
+
+  const brandW = textWidth(S.brand, '500 20px "JetBrains Mono", monospace');
+  bridge.add({
+    id: 'card.brand', role: 'meta',
+    rect: [96 + view.sx, 1016 - 20 + view.sy, brandW, 20],
+    props: { text: S.brand },
+    schema: SCHEMA.brand,
+  });
+
+  // 版式没有独立可见控件：登记在左上角空白区（顶层，方便点选）
+  bridge.add({
+    id: 'card.layout', role: 'layout',
+    rect: [96 + view.sx, 56 + view.sy, 220, 48],
+    props: { layout: S.layout },
+    schema: SCHEMA.layout,
+  });
+}
+
 window.renderFrame = (u) => {
   const t = clamp(u, 0, 1);
+  bridge.setTime(t);
+  bridge.begin();
+  const S = ensureState();
+
   ctx.setTransform(1, 0, 0, 1, 0, 0);
   ctx.clearRect(0, 0, W, H);
 
@@ -389,14 +594,15 @@ window.renderFrame = (u) => {
   drawUnderline(t);
 
   // footer chrome
+  const footIndex = `STYLE ${String(S.index).padStart(2, '0')} / ${S.total}`;
   ctx.fillStyle = PAL.footerStyle;
   ctx.font = '500 22px "JetBrains Mono", monospace';
   ctx.textAlign = 'right';
-  ctx.fillText(`STYLE ${String(CARD.index).padStart(2, '0')} / ${CARD.total}`, 1824, 1016);
+  ctx.fillText(footIndex, 1824, 1016);
   ctx.textAlign = 'left';
   ctx.fillStyle = PAL.footerBrand;
   ctx.font = '500 20px "JetBrains Mono", monospace';
-  ctx.fillText(CARD.brand, 96, 1016);
+  ctx.fillText(S.brand, 96, 1016);
   ctx.restore();
 
   // opening flash (card cut impact)
@@ -406,12 +612,23 @@ window.renderFrame = (u) => {
     ctx.fillStyle = PAL.flash; ctx.fillRect(0, 0, W, H);
     ctx.restore();
   }
+
+  registerHits(S, { s1, s2, sx, sy, footIndex });
 };
+
+// ---------- edit contract（D3） ----------
+const bridge = createEditBridge({
+  getSpec: () => SPEC,
+  setPatch: (patches) => { SPEC.patches = patches; },
+  renderAt: (t) => window.renderFrame(t),
+  canvas,
+});
+bridge.install();
 
 window.__ready = false;
 (async () => {
   await loadFonts(['Noto Sans SC', 'Inter', 'JetBrains Mono', 'Orbitron']);
-  ASSETS = makeLayers();          // rebuild text canvases with the real fonts
+  ASSETS = makeLayers(STATE);     // rebuild text canvases with the real fonts
   window.renderFrame(0);
   window.__ready = true;
 })().catch((e) => { window.__bootError = String(e && e.stack || e); });

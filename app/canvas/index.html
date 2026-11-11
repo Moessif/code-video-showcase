@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>编辑画布 · code-video-showcase</title>
+<link rel="stylesheet" href="./style.css">
+</head>
+<body>
+<header class="topbar">
+  <div class="brand">编辑画布<span class="brand-sub">C2 · D3 edit contract</span></div>
+  <label class="field">页面
+    <select id="page">
+      <option value="big-card">big-card · 1.0s 大字卡</option>
+      <option value="segment">segment · 3.0s 风格段</option>
+    </select>
+  </label>
+  <label class="field">主题
+    <select id="theme"></select>
+  </label>
+  <button id="reload" class="ghost" title="重新加载 iframe">重载</button>
+  <span id="status" class="status">加载中…</span>
+</header>
+
+<main>
+  <section class="stage-col">
+    <div class="stage-wrap" id="stageWrap">
+      <iframe id="frame" title="1920x1080 preview" src="about:blank"></iframe>
+    </div>
+    <div class="transport">
+      <button id="play" class="primary">播放</button>
+      <input id="time" class="slider" type="range" min="0" max="1" step="0.001" value="0" aria-label="时间轴">
+      <input id="timeNum" class="num" type="number" min="0" step="0.001" value="0" aria-label="时间">
+      <span id="tLabel" class="mono">t = 0.000s</span>
+      <span id="durLabel" class="mono muted"></span>
+    </div>
+  </section>
+
+  <aside class="side">
+    <section id="inspector" class="card">
+      <p class="muted">未选中节点。点击画面里的可编辑区域。</p>
+    </section>
+    <section id="patches" class="card"></section>
+    <section class="card meta">
+      <h3>契约</h3>
+      <pre class="mono">__spec()            → spec 快照
+__inspect(x, y)     → { id, role, rect, props, schema }
+__patch(id, props)  → { id, props, diff }
+__hit               → 当前帧命中表（后注册优先）</pre>
+      <p class="muted">x / y 是画布位图坐标（1920×1080）。宿主已按 DPR 与 CSS 缩放换算。</p>
+    </section>
+  </aside>
+</main>
+
+<script type="module" src="./app.js"></script>
+</body>
+</html>
