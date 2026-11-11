@@ -4,6 +4,7 @@
   "description": "Pure-code, beat-synced showcase video skill: deterministic HTML/Canvas frames, synthesized score, FFmpeg assembly.",
   "type": "module",
   "license": "MIT",
+  "bin": { "cvs": "bin/cvs.mjs" },
   "engines": {
     "node": ">=20"
   },
@@ -18,7 +19,8 @@
     "fixture:lint": "node scripts/spec-lint.mjs --spec fixtures/mini-41s/spec.json --root .",
     "fixture:plan": "node templates/plan.mjs --spec fixtures/mini-41s/spec.json --root . --print",
     "fixture:compile": "node scripts/compile.mjs --spec fixtures/mini-41s/spec.json --root . --no-qa --concurrency 4",
-    "test:all": "node scripts/test-core.mjs && node scripts/test-nl2spec.mjs && node scripts/test-script.mjs && node scripts/test-assets.mjs && node scripts/test-variants.mjs && node scripts/test-reflow.mjs && node ingest/test-edl.mjs",
+    "test:all": "node scripts/test-core.mjs && node scripts/test-nl2spec.mjs && node scripts/test-script.mjs && node scripts/test-assets.mjs && node scripts/test-variants.mjs && node scripts/test-reflow.mjs && node scripts/test-from-reference.mjs && node ingest/test-edl.mjs",
+    "test:ref": "node scripts/test-from-reference.mjs",
     "test:wizard": "node scripts/test-nl2spec.mjs",
     "test:script": "node scripts/test-script.mjs",
     "test:assets": "node scripts/test-assets.mjs",

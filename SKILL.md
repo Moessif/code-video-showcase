@@ -32,7 +32,9 @@ node scripts/compile.mjs --spec project.spec.json --root . --concurrency 4
 
 - **spec 是唯一真相**：文字、画风、主题、时长、剧本都改 spec；不要手改 `plan.json` 或段 mp4。
 - **增量**：每段带 `segmentHash`；`render-farm` 先查 `<outDir>/.cache/<hash>.mp4`。改一段只重渲一段。
-- **入口**：`app/wizard/`（5181，8 预设 + 七张卡）、`app/canvas/`（5182，圈选改参数）、`app/script/`（5183，剧本表）、`app/versions/`（5184，版本树）。
+- **统一入口**：`node bin/cvs.mjs <new|ref|lint|plan|build|variant|ingest|wizard|canvas|script|versions|test>`。
+- **参考图**：`node bin/cvs.mjs ref poster.jpg --spec project.spec.json --out project.spec.json`（只提取色板/强调色/密度与 top-3 主题候选，不复制像素）。
+- **界面**：`app/wizard/`（5181，8 预设 + 七张卡）、`app/canvas/`（5182，圈选改参数）、`app/script/`（5183，剧本表）、`app/versions/`（5184，版本树）。
 - **旧项目**：timeline v1 仍完全可用，`spec.mjs` 可自动迁移。
 - **实拍素材**：`node ingest/cli.mjs --input <file|dir> --target 60 --out out/ingest` 产出 EDL + spec 草稿；选段质量是启发式，需人工审。
 - **禁止**：让 LLM 直接生成 HTML/CSS/JS，或绕过 spec 直接改像素。模型只填枚举与文案。

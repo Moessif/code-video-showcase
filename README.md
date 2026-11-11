@@ -37,7 +37,15 @@ spec.json (IR) → spec-lint → plan.json (per-segment hash) → render-farm (c
 node scripts/spec-lint.mjs --spec fixtures/mini-41s/spec.json --root .
 node templates/plan.mjs  --spec fixtures/mini-41s/spec.json --root . --print
 node scripts/compile.mjs --spec fixtures/mini-41s/spec.json --root . --no-qa --concurrency 4
+
+# unified CLI
+node bin/cvs.mjs new "赛博像素的宣传片，30秒竖屏" --out project.spec.json
+node bin/cvs.mjs ref poster.jpg --spec project.spec.json --out project.spec.json
+node bin/cvs.mjs lint project.spec.json --root .
+node bin/cvs.mjs build project.spec.json --concurrency 4
 ```
+
+`cvs ref` extracts a palette / accent / density from a reference image (deterministic 96×96 OKLab k-means, APCA-gated, top-3 theme candidates) and writes it into `look.theme` + `look.accentOverride` — it extracts statistics, never copies pixels.
 
 | Piece | File |
 |---|---|

@@ -1,0 +1,36 @@
+name: compiler
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  static:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install ffmpeg
+        run: sudo apt-get update && sudo apt-get install -y ffmpeg
+
+      - name: Install dependencies
+        run: npm ci --no-audit --no-fund || npm install --no-audit --no-fund
+
+      - name: Pure-Node test suites
+        run: npm run test:all
+
+      - name: Spec gates (pages / theme / APCA)
+        run: node scripts/spec-lint.mjs --spec fixtures/mini-41s/spec.json --root .
+
+      - name: Plan compiler
+        run: node templates/plan.mjs --spec fixtures/mini-41s/spec.json --root . --check
+
+      - name: CLI smoke
+        run: |
+          node bin/cvs.mjs new "赛博像素的宣传片，30秒竖屏" --out out/ci.spec.json
+          node bin/cvs.mjs lint out/ci.spec.json --root .
+          node bin/cvs.mjs plan out/ci.spec.json --root . --check
