@@ -32,8 +32,9 @@ node scripts/compile.mjs --spec project.spec.json --root . --concurrency 4
 
 - **spec 是唯一真相**：文字、画风、主题、时长、剧本都改 spec；不要手改 `plan.json` 或段 mp4。
 - **增量**：每段带 `segmentHash`；`render-farm` 先查 `<outDir>/.cache/<hash>.mp4`。改一段只重渲一段。
-- **统一入口**：`node bin/cvs.mjs <new|ref|lint|plan|build|variant|ingest|wizard|canvas|script|versions|test>`。
+- **统一入口**：`node bin/cvs.mjs <new|ref|lint|plan|build|variant|ingest|motion|wizard|canvas|script|versions|test>`。
 - **参考图**：`node bin/cvs.mjs ref poster.jpg --spec project.spec.json --out project.spec.json`（只提取色板/强调色/密度与 top-3 主题候选，不复制像素）。Wizard 也支持直接拖入参考图；结果写 `meta.reference`。
+- **动效档位**：`look.motion` 选 `calm|standard|dynamic|maximal`，不写就按「类型 × 画风」自动推导（赛博像素/故障→maximal，发布会/极简/水墨→calm，知识科普→standard）。`node bin/cvs.mjs motion matrix` 看推导表，`motion show <档位>` 看参数。换档位会改变画面并触发重渲染（档位进段哈希）；不写 / 写 `standard` 则与旧成片逐像素一致。
 - **界面**：`app/wizard/`（5181，8 预设 + 七张卡）、`app/canvas/`（5182，圈选改参数）、`app/script/`（5183，剧本表）、`app/versions/`（5184，版本树）。
 - **旧项目**：timeline v1 仍完全可用，`spec.mjs` 可自动迁移。
 - **多画幅**：页面按视口自适应（横 / 竖 / 方真重排，不是裁切）；`render-segment --width 1080 --height 1920`。16:9 输出位级不变。

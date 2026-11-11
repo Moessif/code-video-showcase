@@ -164,13 +164,16 @@ export function buildPlan(spec, { root = process.cwd(), outDir } = {}) {
   const st = { ...DEFAULT_STRUCTURE, ...(spec.structure || {}), flash: { ...DEFAULT_STRUCTURE.flash, ...(spec.structure?.flash || {}) } };
   const rounds = spec.rounds || [];
   const themeParams = meta.theme ? { theme: meta.theme } : {};
+  // 动效档位（v2.3）：与 theme 一样按页下发，页面自己按档位名展开参数。
+  // 没写 motion 时不传 → 页面回退 standard → 与 v2.2 逐像素一致。
+  const motionParams = meta.motion ? { mp: meta.motion } : {};
 
   // 1) nominal segments in order
   const nominal = [];
   const opening = spec.opening || {};
   nominal.push({
     id: '00-opening', kind: 'opening', index: 0, label: opening.name || 'opening',
-    page: query(opening.page || DEFAULT_PAGES.opening, themeParams),
+    page: query(opening.page || DEFAULT_PAGES.opening, { ...themeParams, ...motionParams }),
     duration: Number(st.opening),
   });
 
@@ -181,6 +184,7 @@ export function buildPlan(spec, { root = process.cwd(), outDir } = {}) {
     const card = r.card || {};
     const cardParams = {
       ...themeParams,
+      ...motionParams,
       layout: card.layout ?? i % 4,
       index: card.index ?? idx,
       total: card.total ?? totalRounds,
@@ -201,7 +205,7 @@ export function buildPlan(spec, { root = process.cwd(), outDir } = {}) {
     const style = r.style || {};
     nominal.push({
       id: `${rid}-style`, kind: 'style', index: idx, label: style.name || r.name || rid,
-      page: query(style.page, themeParams),
+      page: query(style.page, { ...themeParams, ...motionParams }),
       duration: Number(st.round) - Number(st.card),
       t0: Number(style.t0 ?? 0),
       speed: Number(style.speed ?? 1),
@@ -214,6 +218,7 @@ export function buildPlan(spec, { root = process.cwd(), outDir } = {}) {
     id: '99-more', kind: 'more', index: totalRounds + 1, label: more.name || '还有更多?',
     page: query(more.page || DEFAULT_PAGES.more, {
       ...themeParams,
+      ...motionParams,
       layout: more.layout ?? (totalRounds + 1) % 4,
       index: totalRounds + 1,
       total: totalRounds + 1,
@@ -235,6 +240,7 @@ export function buildPlan(spec, { root = process.cwd(), outDir } = {}) {
         id: `f${String(i + 1).padStart(2, '0')}`, kind: 'flash', index: i, label: `flash ${i + 1}/${flashCount}`,
         page: query(flash.page || DEFAULT_PAGES.flash, {
           ...themeParams,
+          ...motionParams,
           item: i,
           count: flashCount,
           ...(flash.params || {}),
@@ -248,7 +254,7 @@ export function buildPlan(spec, { root = process.cwd(), outDir } = {}) {
   const ending = spec.ending || {};
   nominal.push({
     id: '99-ending', kind: 'ending', index: nominal.length, label: ending.name || 'ending',
-    page: query(ending.page || DEFAULT_PAGES.ending, themeParams),
+    page: query(ending.page || DEFAULT_PAGES.ending, { ...themeParams, ...motionParams }),
     duration: Number(st.ending),
   });
 

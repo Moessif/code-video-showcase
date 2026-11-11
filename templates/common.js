@@ -24,27 +24,30 @@ export const smoothstep = (a, b, v) => {
 export const mapRange = (v, a, b, c, d) => lerp(c, d, clamp(invLerp(a, b, v)));
 
 // ---------- easing ----------
-const _outQuad = (t) => 1 - (1 - t) * (1 - t);
-const _inQuad = (t) => t * t;
-const _inCubic = (t) => t * t * t;
-const _outCubic = (t) => 1 - Math.pow(1 - t, 3);
-const _inOutCubic = (t) => (t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2);
-const _outExpo = (t) => (t >= 1 ? 1 : 1 - Math.pow(2, -10 * t));
-const _inExpo = (t) => (t <= 0 ? 0 : Math.pow(2, 10 * t - 10));
-const _outQuint = (t) => 1 - Math.pow(1 - t, 5);
-const _outBack = (t, s = 1.70158) => 1 + (s + 1) * Math.pow(t - 1, 3) + s * Math.pow(t - 1, 2);
-const _outElastic = (t) => {
-  if (t <= 0 || t >= 1) return t;
-  const c = (2 * Math.PI) / 3;
-  return Math.pow(2, -10 * t) * Math.sin((t * 10 - 0.75) * c) + 1;
-};
+// v2.3：唯一缓动来源是 templates/motion.js。
+// 之前 common.js 自己抄了一份，motion.js 又抄了一份，recipes/util.js 还是第三份。
+// motion.js 的 ease 与本文件原实现逐点数值相同（已用 77 个采样点比对过），
+// 所以改成 re-export 是零像素变化，但从此只有一处真值。
+import { ease as motionEase } from './motion.js';
+import { MOTION_PROFILES, motionParams, motionLevelFromQuery } from './motion-profile.mjs';
 
-export const ease = {
-  linear: (t) => t,
-  inQuad: _inQuad, outQuad: _outQuad, inCubic: _inCubic, outCubic: _outCubic,
-  inOutCubic: _inOutCubic, outExpo: _outExpo, inExpo: _inExpo, outQuint: _outQuint,
-  outBack: _outBack, outElastic: _outElastic,
-};
+export const ease = motionEase;
+
+// 内部快捷引用（行为与原来完全一致）
+const _outQuad = motionEase.outQuad;
+const _outCubic = motionEase.outCubic;
+
+/**
+ * 当前生效的动效档位参数（v2.3）。
+ *
+ * 优先级：显式传入 > URL 的 ?mp= > 'standard'。
+ * 未指定时返回 standard 档，其所有乘数都是 1 → 与 v2.2 逐像素一致。
+ */
+export function motionProfile(level) {
+  if (level != null && MOTION_PROFILES[level]) return motionParams(level);
+  const fromUrl = typeof location !== 'undefined' ? motionLevelFromQuery(location.search) : 'standard';
+  return motionParams(fromUrl);
+}
 
 // ---------- seeded randomness (replaces Math.random everywhere) ----------
 export function mulberry32(seed = 1) {
@@ -141,8 +144,8 @@ export function parseSegment(search = (typeof location !== 'undefined' ? locatio
 }
 
 /**
- * createSegment({duration=3, bpm=120})
- *  - reads ?seg&t0&speed&dur
+ * createSegment({duration=3, bpm=120, motion})
+ *  - reads ?seg&t0&speed&dur and ?mp=<motion level>（v2.3）
  *  - sample(u) -> { u, t, fx }
  *  - fx: { flash, scale, shakeX, shakeY, push } (multiply scale*push for drawing)
  * Impact overlay (u in [0,0.4]):
@@ -150,26 +153,33 @@ export function parseSegment(search = (typeof location !== 'undefined' ? locatio
  *    scale 1.13 -> 1 over 0.32 s (outCubic)
  *    shake 14 px decaying over 0.16 s
  *    then slow push 1 -> 1.05 across the clip
+ *
+ * v2.3：档位（motion profile）只作为**乘数**作用。standard 档的所有乘数是 1，
+ * 所以不传 ?mp= 时输出与 v2.2 逐像素一致（D11）。
  */
 export function createSegment(options = {}) {
   const params = parseSegment();
   const duration = params.enabled ? params.duration : (options.duration ?? 3);
   const t0 = params.enabled ? params.t0 : (options.t0 ?? 0);
   const speed = params.enabled ? params.speed : (options.speed ?? 1);
+  const profile = motionProfile(options.motion ?? options.mp);
 
   function sample(u) {
     u = clamp(u, 0, duration);
     const impactDur = 0.4;
-    const flash = u < 0.12 ? 0.85 * (1 - _outQuad(clamp(u / 0.12))) : 0;
-    const scale = 1.13 - 0.13 * _outCubic(clamp(u / 0.32));
-    const amp = u < 0.16 ? 14 * (1 - u / 0.16) : 0;
+    const flash = u < 0.12 ? 0.85 * profile.flash * (1 - _outQuad(clamp(u / 0.12))) : 0;
+    // 写成与 v2.2 原式同构的形式（1.13 - 0.13 * k * impact），
+    // 而不是 (1 + 0.13*impact) - ... —— 后者会产生最后一位的浮点差，
+    // 在 1× 缩放下也可能落到不同的亚像素上（D11：standard 必须逐位一致）。
+    const scale = 1.13 - 0.13 * profile.impact * _outCubic(clamp(u / 0.32));
+    const amp = u < 0.16 ? 14 * profile.shake * (1 - u / 0.16) : 0;
     const shakeX = amp * Math.sin(u * 220 + 1.7);
     const shakeY = amp * Math.cos(u * 170 + 0.4);
     const after = Math.max(0.0001, duration - impactDur);
-    const push = 1 + 0.05 * clamp((u - impactDur) / after);
+    const push = 1 + 0.05 * profile.push * clamp((u - impactDur) / after);
     return { u, t: t0 + u * speed, fx: { flash, scale, shakeX, shakeY, push } };
   }
-  return { duration, t0, speed, enabled: params.enabled, sample };
+  return { duration, t0, speed, enabled: params.enabled, profile, sample };
 }
 
 // Apply impact transform to a 2D context (assumes W/H = design size).

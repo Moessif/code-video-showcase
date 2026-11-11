@@ -19,6 +19,7 @@
 import fs from 'node:fs';
 
 import { normalizeSpec, validateSpec } from '../templates/spec.mjs';
+import { MOTION_LEVELS, deriveMotionProfile } from '../templates/motion-profile.mjs';
 
 // ── 冻结的枚举（与 schema / templates/themes.js 对齐）───────────────────────
 
@@ -58,6 +59,9 @@ export const THEME_IDS = [
 
 export const ASPECTS = ['16:9', '9:16', '1:1'];
 export const MOODS = ['electronic', 'restrained', 'epic', 'upbeat', 'guofeng'];
+
+/** 动效档位（v2.3）：与 templates/motion-profile.mjs 的档位表一致。 */
+export { MOTION_LEVELS };
 
 /**
  * 两套主题的默认 accentInk/accent 组合过不了 spec-lint 的 APCA 45 门槛。
@@ -516,6 +520,15 @@ export function nl2spec(text, overrides = {}) {
 
   const name = String(ov.name || `${KIND_LABEL[kind]} · ${STYLE_LABEL[style]}`).trim();
 
+  // 6.5) 动效档位（v2.3）：显式指定优先，否则按 kind × style 推导。
+  const motionOverride = takeEnum(ov.motion, MOTION_LEVELS, 'motion');
+  const motion = motionOverride || deriveMotionProfile({ kind, style });
+  if (motionOverride) {
+    notes.push(`motion:look.motion=${motion}（显式指定）`);
+  } else {
+    notes.push(`derived:motion=${motion}（由 kind=${kind} × style=${style} 推导）`);
+  }
+
   // 7) structure + rounds
   const fitted = fitStructure(duration, ov.rounds ? Number(ov.rounds) : undefined);
   const { width, height } = sizeFor(aspect);
@@ -539,6 +552,7 @@ export function nl2spec(text, overrides = {}) {
       style,
       theme,
       accentOverride: accent || (accentFix ? { accent: accentFix.accent, accentInk: accentFix.accentInk } : null),
+      motion,
     },
     audio: { mood, bpm, vo: null },
     structure: fitted.structure,
@@ -617,7 +631,13 @@ function fallbackSpec(raw, errors) {
       defaults: raw?.meta?.defaults || [],
     },
     format: { width, height, fps: 30, aspect: p.aspect || '16:9', duration: Number(p.duration) || 30 },
-    look: { mode: 'showcase', style: p.style || 'cyber-pixel', theme: p.theme || 'cyber-neon', accentOverride: null },
+    look: {
+      mode: 'showcase',
+      style: p.style || 'cyber-pixel',
+      theme: p.theme || 'cyber-neon',
+      accentOverride: null,
+      motion: deriveMotionProfile({ kind: p.kind || 'promo', style: p.style || 'cyber-pixel' }),
+    },
     audio: { mood: p.mood || 'electronic', bpm: MOOD_BPM[p.mood] || 120, vo: null },
     structure: fitted.structure,
     opening: { page: PAGES.segment, name: 'opening' },
@@ -676,13 +696,14 @@ function main() {
   --duration <sec>    覆盖时长
   --aspect <a>        ${ASPECTS.join('|')}
   --mood <m>          ${MOODS.join('|')}
+  --motion <level>    ${MOTION_LEVELS.join('|')}（动效档位，默认按 kind×style 推导）
   --name <name>       覆盖项目名
   --json              把 spec 打印到 stdout`);
     process.exit(flags.help ? 0 : 1);
   }
 
   const overrides = {};
-  for (const k of ['brand', 'accent', 'kind', 'style', 'theme', 'duration', 'aspect', 'mood', 'name', 'quality', 'preset', 'outDir', 'bpm', 'rounds']) {
+  for (const k of ['brand', 'accent', 'kind', 'style', 'theme', 'duration', 'aspect', 'mood', 'name', 'quality', 'preset', 'outDir', 'bpm', 'rounds', 'motion']) {
     if (flags[k] !== undefined && flags[k] !== true) overrides[k] = flags[k];
   }
 

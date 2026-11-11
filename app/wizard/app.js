@@ -79,12 +79,26 @@ const KIND_COPY = {
 
 const MOOD_BPM = { electronic: 120, restrained: 90, epic: 100, upbeat: 128, guofeng: 80 };
 
+/**
+ * 动效档位（v2.3）。
+ * 档位表住在 templates/motion-profile.mjs（与服务端共享同一份真值）；
+ * 模块没加载成功时退回 'standard'，不影响出片。
+ */
+const MOTION_FALLBACK = 'standard';
+function deriveMotionProfile({ kind, style }) {
+  if (motionApi && typeof motionApi.deriveMotionProfile === 'function') {
+    return motionApi.deriveMotionProfile({ kind, style });
+  }
+  return MOTION_FALLBACK;
+}
+
 const CTA_QUICK = ['立即预约', '立即下单', '预约体验', '关注不迷路', '投递简历', '了解更多', '获取完整报告', '明年见'];
 
 // ── 运行时数据 ─────────────────────────────────────────────────────────────
 
 let specApi = null;
 let refApi = null;
+let motionApi = null;
 let lastRef = null;
 let themesDoc = null;
 let schemaDoc = null;
@@ -113,6 +127,7 @@ const state = {
   accent: null,
   reference: null,
   cta: KIND_CTA.promo,
+  motion: 'auto',       // v2.3：'auto' = 按 kind × style 推导档位
 };
 
 // ── 通用工具 ───────────────────────────────────────────────────────────────
@@ -261,6 +276,10 @@ function buildSpec(s) {
       style: s.style,
       theme: s.theme,
       accentOverride: accent,
+      // v2.3：动效档位。s.motion 为 'auto' 时按 kind × style 推导。
+      motion: s.motion && s.motion !== 'auto'
+        ? s.motion
+        : deriveMotionProfile({ kind: s.kind, style: s.style }),
       ...(s.reference?.density ? { density: s.reference.density } : {}),
     },
     audio: { mood: s.mood, bpm: MOOD_BPM[s.mood] || 120, vo: null },
@@ -920,19 +939,21 @@ function bindEvents() {
 }
 
 async function boot() {
-  const [specLoaded, themesLoaded, refLoaded, schemaLoaded, presetsLoaded, combosLoaded] = await Promise.allSettled([
+  const [specLoaded, themesLoaded, refLoaded, schemaLoaded, presetsLoaded, combosLoaded, motionLoaded] = await Promise.allSettled([
     import('/templates/spec.mjs'),
     import('/templates/themes.js'),
     import('/scripts/ref-core.mjs'),
     fetchJson('/schema/project.spec.schema.json'),
     fetchJson('/content/presets.json'),
     fetchJson('/content/combos.json'),
+    import('/templates/motion-profile.mjs'),
   ]);
 
   if (specLoaded.status === 'fulfilled') specApi = specLoaded.value;
   if (themesLoaded.status === 'fulfilled') themesDoc = themesLoaded.value;
   if (refLoaded.status === 'fulfilled') refApi = refLoaded.value;
   if (schemaLoaded.status === 'fulfilled') schemaDoc = schemaLoaded.value;
+  if (motionLoaded.status === 'fulfilled') motionApi = motionLoaded.value;
 
   if (presetsLoaded.status !== 'fulfilled' || combosLoaded.status !== 'fulfilled') {
     const why = [presetsLoaded, combosLoaded]

@@ -3,6 +3,32 @@
 本项目的版本更新记录。版本号遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)，格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
 每个版本同时发布在 [GitHub Releases](https://github.com/Moessif/code-video-showcase/releases)。
 
+## [v2.3.0] - 2026-11-12 — 动效档位接入管线（motion profile → spec → plan → 页面）
+
+### 新增
+- **动效档位表** `templates/motion-profile.mjs`：4 档 `calm` / `standard` / `dynamic` / `maximal`，每档给出转场类型、主/次缓动、弹簧预设、stagger、动态文字模式、冲击/抖动/白闪/缓推倍率、颗粒与扫描线强度、模糊上限。档位是**乘数**，不是第二套实现。
+- **自动推导**：按「视频类型 kind × 画风 style」推导档位（style 特例 > kind 默认 > 回落 standard），显式 `look.motion` 永远优先。赛博像素/赛博故障 → maximal，发布会/极简/水墨 → calm，知识科普 → standard。
+- **传递管线**：`spec.look.motion` → `specToTimeline` 推导 → `meta.motion` → `buildPlan` → 每页 URL 的 `?mp=<level>`；页面按档位名自行展开参数（档位表改了旧 URL 也按新表解释）。
+- **质感层上线**：`motion.js` 的 `drawGrain` / `drawScanlines` / `drawPaperTexture` 首次被生产页面调用（`segment.html` / `big-card.html`），只由档位驱动。
+- **CLI**：`cvs motion list | show <level> | derive --kind --style | matrix`，可查档位与推导矩阵。
+- **测试**：`scripts/test-motion-profile.mjs`（29 条）覆盖档位表结构、推导规则、URL 往返、spec 校验、plan 传递、段哈希含档位、standard 逐位等价 v2.2、nl2spec 推导。
+
+### 变更
+- **缓动统一为一份真值**：`templates/motion.js` 是唯一实现。此前 `common.js`、`recipes/util.js` 各抄了一份 `ease`（三份数值逐点相同）；现在两者都改为 re-export。`common.js` 与 `motion.js` 的 `ease` 现在是**同一个对象**。
+- **spec**：`look.motion` 字段（`null` = 自动推导）；非法值报 `E_MOTION`。schema 同步。
+- **段哈希**：`segmentHash` 加入 `motion`，换档位必然重渲染（缓存不会错误复用）。
+- `createSegment` 的 `scale` 改写为与 v2.2 原式同构（`1.13 - 0.13 * impact * k`），避免最后一位浮点差。
+
+### 修复
+- `createSegment` 档位化后 `scale` 曾写成 `(1 + 0.13*impact) - ...`，与 v2.2 原式在最后一位不同（`1.1287850546264648` vs `...46`）。已改为同构写法，15005 个采样点逐位相同。
+
+### 实测
+- **零像素变化**：`segment.html` 与 `big-card.html` 的「无 query」与「`?mp=standard`」渲染 SHA-256 完全相同；D7 冻结基线仍成立（`test-reflow-pages` 51/51）；golden 9/9 静帧逐字节一致。
+- **档位生效**：4 档在同一页产生 4 个不同哈希。
+- **缓存正确性**：换档位后 5/5 段重渲染（`skipped=5`），缓存条目 5 → 10；同档位热编译 5/5 命中，1.62 s。
+- **端到端**：`maximal` 档 5.5 s / 165 帧 / 1920×1080 / 30fps 编译成功。
+- 测试：`npm run test:all` EXIT=0（新增 29 条）；画布 48、参考图上传 12、竖屏重排 51、配方 92、API 11 全部通过。
+
 ## [v2.2.0] - 2026-11-11 — 批渲染 / 竖屏重排 / 任务 API / 黄金回归 / 品牌包 / 配方 13–16
 
 ### 新增

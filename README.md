@@ -43,15 +43,20 @@ node bin/cvs.mjs new "赛博像素的宣传片，30秒竖屏" --out project.spec
 node bin/cvs.mjs ref poster.jpg --spec project.spec.json --out project.spec.json
 node bin/cvs.mjs lint project.spec.json --root .
 node bin/cvs.mjs build project.spec.json --concurrency 4
+node bin/cvs.mjs motion matrix      # motion profile table
 ```
 
 `cvs ref` extracts a palette / accent / density from a reference image (deterministic 96×96 OKLab k-means, APCA-gated, top-3 theme candidates) and writes it into `look.theme` + `look.accentOverride` — it extracts statistics, never copies pixels. The same core (`scripts/ref-core.mjs`) runs in the browser, so the wizard accepts a dragged image directly and records `meta.reference`.
+
+**Motion profiles** (`templates/motion-profile.mjs`) — `look.motion` picks one of `calm` / `standard` / `dynamic` / `maximal`; omit it and the compiler derives one from *video type × art style* (cyber-pixel → `maximal`, launch/minimal/ink-wash → `calm`, knowledge → `standard`). The level travels to every page as `?mp=<level>` and scales the transition, easing, stagger, impact, shake, flash, push and the grain/scanline/paper texture layers. `standard` reproduces the pre-v2.3 output **byte for byte**, so existing projects are unchanged.
 
 | Piece | File |
 |---|---|
 | IR schema | `schema/project.spec.schema.json` |
 | normalize / validate / migrate (`timeline v1` → spec) | `templates/spec.mjs` |
 | spec → plan + `segmentHash` | `templates/plan.mjs` |
+| motion profiles (levels + kind×style derivation) | `templates/motion-profile.mjs` |
+| easing / spring / CJK type / texture (single source) | `templates/motion.js` |
 | content-addressed cache | `<outDir>/.cache/<hash>.mp4` (`render-farm --cache`) |
 | one-command build | `scripts/compile.mjs` |
 | gates (pages / theme / APCA) | `scripts/spec-lint.mjs` |

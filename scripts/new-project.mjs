@@ -65,7 +65,8 @@ function copy(rel, destDir = OUT) {
 }
 
 // runtime browser modules go next to the segment HTML
-for (const f of ['common.js', 'motion.js', 'color.js', 'themes.js']) {
+// v2.3：common.js 会 import motion-profile.mjs（档位表），少复制一个页面就 404。
+for (const f of ['common.js', 'motion.js', 'motion-profile.mjs', 'color.js', 'themes.js']) {
   copy(path.join('templates', f), path.join(OUT, 'segments'));
   copy(path.join('templates', f), path.join(OUT, 'templates'));
 }

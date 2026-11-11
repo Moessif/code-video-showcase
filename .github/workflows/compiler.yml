@@ -35,6 +35,12 @@ jobs:
           node bin/cvs.mjs lint out/ci.spec.json --root .
           node bin/cvs.mjs plan out/ci.spec.json --root . --check
 
+      - name: Motion profile smoke
+        run: |
+          node bin/cvs.mjs motion list
+          node bin/cvs.mjs motion derive --kind promo --style cyber-pixel
+          node bin/cvs.mjs motion matrix
+
   golden:
     runs-on: ubuntu-latest
     steps:

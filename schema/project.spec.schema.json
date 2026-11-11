@@ -36,6 +36,13 @@
         "mode": { "enum": ["showcase", "single"] },
         "style": { "type": ["string", "null"] },
         "theme": { "type": "string" },
+        "motion": {
+          "oneOf": [
+            { "type": "null" },
+            { "type": "string", "enum": ["calm", "standard", "dynamic", "maximal"] }
+          ],
+          "description": "动效档位。null = 由 kind × style 自动推导（见 templates/motion-profile.mjs）。"
+        },
         "accentOverride": {
           "oneOf": [
             { "type": "null" },

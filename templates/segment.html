@@ -18,10 +18,11 @@
 <script type="module">
 import {
   createSegment, applyImpact2D, drawFlash, drawCapsuleLabel, drawCountdown, drawStamp,
-  loadFonts, rng, TAU,
+  loadFonts, rng, TAU, motionProfile,
 } from './common.js';
 import { themeFromURL, chrome, drawThemeBackground, drawGlassPanel, hexToRgba } from './themes.js';
 import { createEditBridge, mergePatches } from './edit-bridge.mjs';
+import { drawGrain, drawScanlines, drawPaperTexture } from './motion.js';
 
 // ---------- 画布 = 视口（D7：不再硬编码 1920×1080） ----------
 function viewportCanvasSize() {
@@ -515,6 +516,22 @@ function drawScene(t, u) {
   else drawLegacyScene(t, u);
 }
 
+// ---------- 质感层（v2.3） ----------
+// 颗粒 / 扫描线 / 纸纹，来自 templates/motion.js。
+// standard 档强度全为 0 → 一行都不画 → 与 v2.2 像素相同。
+const PROFILE = motionProfile();
+function drawTexture(t) {
+  if (PROFILE.texture === 'paper') {
+    drawPaperTexture(ctx, { W, H, alpha: PROFILE.grain, seed: 7, t });
+  }
+  if (PROFILE.grain > 0) {
+    drawGrain(ctx, { alpha: PROFILE.grain, seed: 3, t, W, H, blend: 'overlay' });
+  }
+  if (PROFILE.scanlines > 0) {
+    drawScanlines(ctx, { W, H, step: 4, alpha: PROFILE.scanlines, color: '#000000' });
+  }
+}
+
 // ---------- render frame ----------
 window.renderFrame = (u) => {
   const sample = seg.sample(u);
@@ -528,6 +545,7 @@ window.renderFrame = (u) => {
   drawScene(t, u);
   ctx.restore();
   drawFlash(ctx, fx.flash, W, H);
+  drawTexture(t);
 };
 
 // ---------- edit contract（D3） ----------

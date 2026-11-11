@@ -14,9 +14,10 @@
 <div id="stage"><canvas id="c" width="1920" height="1080"></canvas></div>
 
 <script type="module">
-import { loadFonts, clamp, ease, rng, mulberry32 } from './common.js';
+import { loadFonts, clamp, ease, rng, mulberry32, motionProfile } from './common.js';
 import { themeFromURL, cardColors, mix } from './themes.js';
 import { createEditBridge, mergePatches } from './edit-bridge.mjs';
+import { transitionParams, rateFunc, springs, drawGrain, drawScanlines, drawPaperTexture } from './motion.js';
 
 // ---------- 画布 = 视口（D7） ----------
 // 不再硬编码 1920×1080：取 window.innerWidth / innerHeight，取整、偶数、最小 320；
@@ -498,18 +499,40 @@ function drawEcho(t) {
 
 // ---------- slam motion ----------
 // returns {scale, blurT (0=blur 16, 1=sharp), alpha, dx, dy}
+//
+// v2.3：由动效档位驱动。standard 档的每一个数字都与 v2.2 原实现逐位相同
+// （scale 1.7→1、blurT=e、alpha=clamp(t/0.06)、dy=(1-e)*-18），所以
+// 不传 ?mp= 时像素不变；换档位则改变冲击幅度、缓动与过冲。
+const PROFILE = motionProfile();
+
 function slam(localT) {
   const d = 0.11;
-  if (localT < 0) return { scale: 1.7, blurT: 0, alpha: 0, dx: 0, dy: 0 };
+  const startScale = 1 + 0.7 * PROFILE.impact;   // standard: 1.7
+  if (localT < 0) return { scale: startScale, blurT: 0, alpha: 0, dx: 0, dy: 0 };
   const k = clamp(localT / d);
-  const e = ease.outExpo(k);
+  const e = rateFunc(PROFILE.ease)(k);
   return {
-    scale: 1.7 - 0.7 * e,
+    scale: startScale - (startScale - 1) * e,
     blurT: e,
     alpha: clamp(localT / 0.06),
     dx: 0,
-    dy: (1 - e) * -18,
+    dy: (1 - e) * -18 * PROFILE.impact,
   };
+}
+
+// ---------- 质感层（v2.3） ----------
+// 颗粒 / 扫描线 / 纸纹，来自 templates/motion.js 的质感函数。
+// standard 档三者强度都是 0 → 一行都不画 → 与 v2.2 像素相同。
+function drawTexture(t) {
+  if (PROFILE.texture === 'paper') {
+    drawPaperTexture(ctx, { W, H, alpha: PROFILE.grain, seed: 7, t });
+  }
+  if (PROFILE.grain > 0) {
+    drawGrain(ctx, { alpha: PROFILE.grain, seed: 3, t, W, H, blend: 'overlay' });
+  }
+  if (PROFILE.scanlines > 0) {
+    drawScanlines(ctx, { W, H, step: 4, alpha: PROFILE.scanlines, color: '#000000' });
+  }
 }
 
 // ---------- speed lines burst ----------
@@ -691,9 +714,10 @@ window.renderFrame = (u) => {
   ctx.clearRect(0, 0, W, H);
 
   // shake: slam 1 at t=0 (6px), slam 2 at t=0.5 (12px)
+  // v2.3：乘 PROFILE.shake（standard = 1 → 与 v2.2 逐位相同）。
   let shake = 0;
-  if (t < 0.16) shake = 6 * (1 - t / 0.16);
-  if (t >= 0.5 && t < 0.66) shake = 12 * (1 - (t - 0.5) / 0.16);
+  if (t < 0.16) shake = 6 * PROFILE.shake * (1 - t / 0.16);
+  if (t >= 0.5 && t < 0.66) shake = 12 * PROFILE.shake * (1 - (t - 0.5) / 0.16);
   const sx = shake * Math.sin(t * 240 + 1.3);
   const sy = shake * Math.cos(t * 190 + 0.2);
 
@@ -726,12 +750,17 @@ window.renderFrame = (u) => {
   ctx.restore();
 
   // opening flash (card cut impact)
+  // v2.3：乘 PROFILE.flash（standard = 1 → 与 v2.2 逐位相同）。
   if (t < 0.09) {
     ctx.save();
-    ctx.globalAlpha = 0.85 * (1 - t / 0.09);
+    ctx.globalAlpha = 0.85 * PROFILE.flash * (1 - t / 0.09);
     ctx.fillStyle = PAL.flash; ctx.fillRect(0, 0, W, H);
     ctx.restore();
   }
+
+  // 质感层（v2.3）：颗粒 / 扫描线 / 纸纹。
+  // standard 档三者的强度都是 0 → 完全不画 → 像素不变。
+  drawTexture(t);
 
   registerHits(S, { s1, s2, sx, sy, footIndex });
 };

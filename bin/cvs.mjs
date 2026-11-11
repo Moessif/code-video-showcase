@@ -45,6 +45,7 @@ const commands = {
   doctor:   (a) => node('scripts/doctor.mjs', a),
   brand:    (a) => node('scripts/brand.mjs', a),
   golden:   (a) => node('scripts/golden.mjs', a),
+  motion:   (a) => node('scripts/motion.mjs', a),
   api:      (a) => node('server/api.mjs', a),
   wizard:   () => node('app/wizard/serve.mjs', []),
   canvas:   () => node('app/canvas/serve.mjs', []),
@@ -62,6 +63,7 @@ const commands = {
       'scripts/test-ref-core.mjs',
       'scripts/test-from-reference.mjs',
       'scripts/test-brand.mjs',
+      'scripts/test-motion-profile.mjs',
       'ingest/test-edl.mjs',
     ];
     if (a.includes('--browser')) {
@@ -96,6 +98,7 @@ usage: cvs <command> [args]
   variant <spec> --axes <file> [--out d] cartesian variants + manifest
   ingest <file|dir> --target <sec>       footage -> EDL + spec draft
   brand apply|check|list                 brand kit apply / compliance check
+  motion list|show|derive|matrix         motion profile levels + kind×style derivation
   golden [--update|--selfcheck]          byte-exact still regression
   api [--port 5190]                      job-queue HTTP service
   wizard | canvas | script | versions | review    start a dev surface (5181-5185)

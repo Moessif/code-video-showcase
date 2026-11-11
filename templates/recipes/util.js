@@ -24,22 +24,10 @@ export const smooth = (t) => {
   return x * x * (3 - 2 * x);
 };
 
-export const ease = {
-  inQuad: (t) => t * t,
-  outQuad: (t) => 1 - (1 - t) * (1 - t),
-  inCubic: (t) => t * t * t,
-  outCubic: (t) => 1 - Math.pow(1 - t, 3),
-  inOutCubic: (t) => (t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2),
-  outQuint: (t) => 1 - Math.pow(1 - t, 5),
-  outExpo: (t) => (t >= 1 ? 1 : 1 - Math.pow(2, -10 * t)),
-  inExpo: (t) => (t <= 0 ? 0 : Math.pow(2, 10 * t - 10)),
-  outBack: (t, s = 1.70158) => 1 + (s + 1) * Math.pow(t - 1, 3) + s * Math.pow(t - 1, 2),
-  outElastic: (t) => {
-    if (t <= 0 || t >= 1) return t;
-    const c = (2 * Math.PI) / 3;
-    return Math.pow(2, -10 * t) * Math.sin((t * 10 - 0.75) * c) + 1;
-  },
-};
+// v2.3：缓动唯一真值是 templates/motion.js。
+// 本文件原先是第三份手抄副本；motion.js 的同名函数逐点数值相同，
+// 改成 re-export 是零像素变化。
+export { ease } from '../motion.js';
 
 /* ─────────────────────────────── 确定性哈希 ─────────────────────────────── */
 

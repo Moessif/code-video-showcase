@@ -73,6 +73,7 @@ const root = process.cwd();
 for (const [name, p, required] of [
   ['templates/common.js', 'templates/common.js', true],
   ['templates/motion.js', 'templates/motion.js', true],
+  ['templates/motion-profile.mjs', 'templates/motion-profile.mjs', true],
   ['templates/color.js', 'templates/color.js', true],
   ['templates/themes.js', 'templates/themes.js', true],
   ['shared/fonts.css', 'shared/fonts.css', true],

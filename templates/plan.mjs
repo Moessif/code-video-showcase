@@ -38,6 +38,7 @@ export function segmentHash(segment, meta, spec) {
     t0: segment.t0 ?? null,
     speed: segment.speed ?? null,
     theme: meta.theme || '',
+    motion: meta.motion || '',        // v2.3：动效档位进哈希，换档位必须重渲染
     brand: meta.brand || '',
     assets: assetHashes,
     patches: scopedPatches,
@@ -94,6 +95,7 @@ export function buildPlanFromSpec(input, opts = {}) {
     look: spec.look,
     format: spec.format,
     audio: spec.audio,
+    motion: plan.meta.motion || null,   // v2.3：实际生效的动效档位
     assets: (spec.assets || []).map((a) => ({ id: a.id, hash: a.hash || a.sha256 || null, kind: a.kind || null, path: a.path || null })),
     patches: spec.patches || [],
   };

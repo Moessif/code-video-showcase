@@ -11,6 +11,7 @@
  *   import { normalizeSpec, validateSpec, specToTimeline, specDuration } from './spec.mjs';
  */
 import { query } from './timeline.mjs';
+import { MOTION_LEVELS, deriveMotionProfile, motionQuery } from './motion-profile.mjs';
 
 export const SPEC_VERSION = 1;
 /** 引擎版本：任何会改变逐帧像素的实现变更都必须 +1（进入段哈希）。 */
@@ -40,7 +41,7 @@ const DEFAULTS = {
   specVersion: SPEC_VERSION,
   meta: { name: 'untitled', brand: '{{BRAND}}', cta: '', locale: 'zh-CN' },
   format: { width: 1920, height: 1080, fps: 30, aspect: '16:9', duration: null },
-  look: { mode: 'showcase', style: null, theme: 'coral-noir', accentOverride: null },
+  look: { mode: 'showcase', style: null, theme: 'coral-noir', accentOverride: null, motion: null },
   audio: { mood: 'electronic', bpm: 120, vo: null },
   structure: DEFAULT_STRUCTURE,
   opening: {},
@@ -91,7 +92,7 @@ export function migrateTimeline(raw) {
       aspect: aspectOf(w, h),
       duration: null,
     },
-    look: { mode: 'showcase', style: null, theme: raw.meta?.theme || 'coral-noir', accentOverride: null },
+    look: { mode: 'showcase', style: null, theme: raw.meta?.theme || 'coral-noir', accentOverride: null, motion: null },
     audio: { mood: 'electronic', bpm: Number(raw.meta?.bpm ?? 120), vo: null },
     structure: raw.structure || {},
     opening: raw.opening || {},
@@ -300,6 +301,9 @@ export function validateSpec(spec) {
   }
 
   if (!spec.look?.theme) err('E_THEME', 'look.theme', 'theme id is required');
+  if (spec.look?.motion != null && !MOTION_LEVELS.includes(spec.look.motion)) {
+    err('E_MOTION', 'look.motion', `motion must be one of ${MOTION_LEVELS.join('|')}, got ${spec.look.motion}`);
+  }
   if (spec.look?.accentOverride != null) {
     const a = spec.look.accentOverride;
     const bad = typeof a === 'string' ? !isHex(a) : !['accent', 'accentInk', 'accentSoft'].some((k) => isHex(a?.[k]));
@@ -335,10 +339,17 @@ export function validateSpec(spec) {
 
 /** spec → timeline v1（供 buildPlan 复用帧对齐逻辑） */
 export function specToTimeline(spec, { root, outDir } = {}) {
+  // 动效档位：显式写死就用它；没写就按 kind × style 推导。
+  // 推导结果会进 meta.motion → buildPlan 的 themeParams 邻居 → 每页 URL 的 ?mp=
+  const motion = MOTION_LEVELS.includes(spec.look?.motion)
+    ? spec.look.motion
+    : deriveMotionProfile({ kind: spec.meta?.kind, style: spec.look?.style });
+
   const meta = {
     title: spec.meta.name,
     brand: spec.meta.brand,
     theme: spec.look.theme,
+    motion,
     bpm: spec.audio.bpm,
     fps: spec.format.fps,
     width: spec.format.width,

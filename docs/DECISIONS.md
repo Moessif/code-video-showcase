@@ -88,3 +88,17 @@ window.__patch   = (id, props) => diff;   // 改内存 spec → renderFrame(curr
 - shard 是 0 基索引，合法值 `0/n .. n-1/n`；临时 plan 已按 shard 切好时，worker 一律用 `0/1`。
 - 段缓存 `<outDir>/.cache/<hash>.mp4` + `<hash>.json`；命中需帧数一致；`--resume` 与缓存可叠加。
 - 黄金回归有两种模式：`--update` 写基线（本地，字体/Chrome 绑定）；`--selfcheck` 同机双跑比对（CI 用，跨机哈希不作判据）。
+
+## D11 动效档位（v2.3 定稿）
+
+- **唯一真值**：`templates/motion.js` 是缓动/弹簧/排版/质感的唯一实现。v2.3 之前 `common.js`、`recipes/util.js` 各抄了一份 `ease`（三份数值逐点相同）；现在三者都改为从 `motion.js` re-export，**零像素变化**。
+- **档位表**：`templates/motion-profile.mjs` 提供 4 档 —— `calm` / `standard` / `dynamic` / `maximal`。档位是**乘数**，不是第二套实现。
+- **standard = v2.2 行为**：所有乘数为 1（impact/shake/flash/push = 1，grain/scanlines = 0，texture = none）。因此：
+  - 不传 `?mp=` → 页面回退 standard → 与 v2.2 **逐像素一致**；
+  - `?mp=standard` 与「无 query」的渲染哈希必须相同（已实测）；
+  - `createSegment` 的 `scale` 必须写成 `1.13 - 0.13 * impact * k`，不能写成 `(1 + 0.13*impact) - ...` —— 后者会产生最后一位的浮点差。
+- **传递路径**：`spec.look.motion` → `specToTimeline` 推导 → `meta.motion` → `buildPlan` 的 `motionParams` → 每页 URL 的 `?mp=<level>`。页面按档位名自行展开（档位表改了旧 URL 也按新表解释，不会两套参数各说各话）。
+- **推导规则**：`style` 特例 > `kind` 默认 > 回落 `standard`；显式 `look.motion` 永远优先。非法值报 `E_MOTION`（spec 校验）或被丢弃（nl2spec）。
+- **进哈希**：`motion` 进入 `segmentHash`，所以换档位必须重渲染，缓存不会错误复用（已实测：换档位后 5/5 段重渲染，缓存条目 5 → 10）。
+- **不动 16:9 基线**：D7 冻结哈希在 v2.3 仍然成立（`test-reflow-pages` 51/51、golden 9/9 逐字节一致）。
+
