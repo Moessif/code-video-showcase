@@ -269,3 +269,37 @@ export async function loadFonts(families, sample = 'ABCDEFG abcdefg 0123456789 �
   }
   await document.fonts.ready;
 }
+
+// ── v2: re-export the motion/colour toolkit so pages need one import ───────
+// motion.js and color.js are side-effect-free; re-exporting keeps existing
+// segment pages unchanged while new ones can use spring(), layoutCJK(), etc.
+export {
+  spring, springs, springSettle, rateFunc, stagger, track, transitionParams,
+  activeItem, quantize, splitGraphemes, layoutCJK, fitText, drawKineticText,
+  drawGrain, drawPaperTexture, drawScanlines, drawRGBSplit, drawBloom, drawHalation,
+  accentRamp,
+} from './motion.js';
+export {
+  parseColor, toOklch, toHex, toRgba, formatOklch, gamut, clampChroma,
+  withLightness, mixOklch, shade, ramp, readableInk, relativeLuminance,
+  contrastRatio, apcaLc, apcaAbs, apcaLevel, derivePalette, themeTokensToOklch,
+  oklchCssVars, auditApca,
+} from './color.js';
+
+/**
+ * Read renderer-provided variables. render-segment.mjs injects window.__vars
+ * (and a base64url ?vars= fallback for pages opened manually).
+ *   window.__vars = { brand: 'ACME', title: '...' }
+ */
+export function vars() {
+  if (typeof window === 'undefined') return {};
+  if (window.__vars && typeof window.__vars === 'object') return window.__vars;
+  try {
+    const p = new URLSearchParams(location.search).get('vars');
+    if (!p) return {};
+    const b64 = p.replace(/-/g, '+').replace(/_/g, '/');
+    const json = decodeURIComponent(escape(atob(b64)));
+    window.__vars = JSON.parse(json);
+    return window.__vars;
+  } catch { return {}; }
+}

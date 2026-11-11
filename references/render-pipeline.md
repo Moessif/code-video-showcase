@@ -2,6 +2,8 @@
 
 本文件是「怎么把 HTML 变成 MP4」的施工说明；代码模板在 `../templates/`。
 
+> **v2 速览**：`timeline.mjs` 生成 plan → `render-segment.mjs`（Playwright 或原生 CDP + canvas 取帧）→ `render-farm.mjs` 并行/续渲 → `concat-and-encode.sh` 平台预设 + loudnorm → `qa-video.mjs` / `qa-audio.py`。没有 Playwright 也能跑；`node scripts/doctor.mjs` 一键体检。完整字段见 `timeline-schema.md`、`qa.md`、`platform-presets.md`。
+
 ---
 
 ## 1. 环境清单
@@ -9,8 +11,8 @@
 | 组件 | 要求 | 备注 |
 |---|---|---|
 | Node.js | ≥ 20（推荐 24） | Playwright 脚本、静态服务器 |
-| npm 包 | `playwright`（含 playwright-core）、`katex` | 纯 JS，Windows/Linux 可共用同一 `node_modules` |
-| 浏览器 | Chromium（Playwright 自带）或 Chrome for Testing / Edge | 见第 5 节 |
+| npm 包 | **非必需**；`playwright`/`playwright-core` 可选（`katex` 仅公式页需要） | 原生 CDP 走 Node 内置 WebSocket |
+| 浏览器 | Chromium（Playwright 自带）或系统 Chrome / Edge / Chrome for Testing | 见第 5 节 |
 | FFmpeg | 带 libx264 + AAC + image2pipe | 推荐静态构建，含 ffprobe |
 | Python | ≥ 3.10 + numpy + scipy | 配乐合成、音频分析 |
 | 字体 | 全部 OFL、本地文件 | 见第 4 节 |
@@ -151,18 +153,22 @@ file 'out/01-card.mp4'
 ffmpeg -y -f concat -safe 0 -i segments.txt -c copy out/concat.mp4
 ```
 
-**混音 + 最终 2-pass**（约 3.4 Mbps；也可直接用 `templates/concat-and-encode.sh` 封装好的这两步）：
+**混音 + 最终编码**（v2 默认 CRF + maxrate；脚本已封装平台预设与两遍 loudnorm）：
 ```bash
-# pass 1（-f null - 跨平台；Windows 上不要写 /dev/null）
-ffmpeg -y -i out/concat.mp4 -i audio/mix.wav -c:v libx264 -preset slow -b:v 3400k \
-  -pass 1 -passlogfile out/passlog -an -f null -
-# pass 2
-ffmpeg -y -i out/concat.mp4 -i audio/mix.wav -c:v libx264 -preset slow -b:v 3400k \
-  -pass 2 -passlogfile out/passlog -pix_fmt yuv420p -c:a aac -b:a 192k \
-  -shortest -movflags +faststart -t 61 out/final.mp4
+bash templates/concat-and-encode.sh --platform master \
+  out/segments.txt audio/mix.wav out/final.mp4 61 30
 ```
-- 容器时长会比视频长十几毫秒（样片 +13 ms，AAC priming），用 `-t 61.0` 或 `-shortest` 截到 61.000；
-- 压完 `ffprobe` 复核：1920×1080、30/1、1830 帧、h264+aac。
+等价的单条 ffmpeg（母版，CRF 21 / maxrate 18M / −14 LUFS）：
+```bash
+ffmpeg -y -i out/concat.mp4 -i audio/mix.wav \
+  -vf "scale=1920:1080:force_original_aspect_ratio=decrease,pad=1920:1080:(ow-iw)/2:(oh-ih)/2,setsar=1,format=yuv420p" \
+  -r 30 -fps_mode cfr -c:v libx264 -preset slow -crf 21 -maxrate 18M -bufsize 36M \
+  -colorspace bt709 -color_primaries bt709 -color_trc bt709 -color_range tv \
+  -c:a aac -b:a 320k -ar 48000 -ac 2 -shortest -t 61 -movflags +faststart out/final.mp4
+```
+- 容器时长会比视频长十几毫秒（AAC priming），用 `-t 61.0` 或 `-shortest` 截到 61.000；
+- 压完 `ffprobe` 复核：1920×1080、30/1、1830 帧、h264+aac、bt709；
+- 平台硬码率/固定体积时才用 2-pass `-b:v`，CRF 在颗粒内容上通常更省。
 
 ---
 
@@ -192,3 +198,54 @@ ffmpeg -y -i out/concat.mp4 -i audio/mix.wav -c:v libx264 -preset slow -b:v 3400
 | 音画不同步 | 用了 `setTimeout`/音频事件而非时间表 | 所有事件从样本索引/时间表生成 |
 | 成片结尾多 13 ms | AAC priming | `-t 61` / `-shortest` |
 | 404 污染 console | favicon | server 返回 204 |
+
+---
+
+## 10. v2 管线（推荐默认）
+
+```bash
+node scripts/doctor.mjs
+node templates/timeline.mjs --spec timeline.json --out out/plan.json --concat out/segments.txt --print
+node templates/render-farm.mjs --plan out/plan.json --concurrency 4 --resume
+bash templates/concat-and-encode.sh --platform master out/segments.txt audio/mix.wav out/final.mp4 61 30
+node scripts/qa-video.mjs out/final.mp4 --plan out/plan.json
+python scripts/qa-audio.py audio/mix.wav --plan out/plan.json --strict
+```
+
+### 10.1 取帧路径
+
+| 条件 | 路径 | 说明 |
+|---|---|---|
+| 单 canvas 全屏、无 `[data-dom-overlay]` | `canvas.toDataURL()` | 页内 JPEG 编码，通常快 30–50% |
+| 多 canvas / DOM 叠加 / 页面设 `__capture='cdp'` | `Page.captureScreenshot` | 加 `optimizeForSpeed:true`、`clip` |
+| WebGL | canvas 路径要求 `preserveDrawingBuffer:true` | 否则读回黑帧，自动回退 CDP |
+
+### 10.2 浏览器分辨率
+
+1. 环境变量 `CHROME_EXE` / `--browser`；
+2. Linux 下 `~/.local/opt/chrome-for-testing/chrome-linux64/chrome`；
+3. Windows 下 Program Files/LocalAppData 的 Chrome/Edge；
+4. 最后才尝试 Playwright 自带浏览器。
+
+原生 CDP 启动参数已包含：`--headless=new --remote-debugging-port=0 --run-all-compositor-stages-before-draw --disable-frame-rate-limit --force-color-profile=srgb --enable-unsafe-swiftshader --use-angle=swiftshader`。
+
+### 10.3 颜色
+
+- 输入帧是全范围（JPEG/PNG `pc`），ffmpeg 里显式 `scale=in_range=pc:out_range=tv:out_color_matrix=bt709,format=yuv420p`；
+- 输出打 `-colorspace bt709 -color_primaries bt709 -color_trc bt709 -color_range tv`；
+- `-video_track_timescale 90000` 保证分段拼接时间基一致。
+
+### 10.4 关闭与清理
+
+- 每段结束调用 `server.closeAllConnections()`，避免 HTTP keep-alive 5 s 拖尾；
+- Chrome stderr 写临时文件而非管道，profile 交给 detached 进程删除；
+- `render-farm --resume` 用 ffprobe 帧数对账，坏段不会进入 concat。
+
+### 10.5 实测（Windows 10 / Chrome 141 / 1920×1080）
+
+| 场景 | 结果 |
+|---|---|
+| 30 帧（1 s）单段 | 渲染约 4.3 s（≈7 fps），进程收尾约 3 s |
+| 90 帧（3 s）单段 | 约 27 s |
+| 2 段并发 | 各自 ~6 s 渲染，总墙钟 ~12 s |
+| 61 s / 1830 帧（估算，并发 4） | 约 3–5 分钟 |

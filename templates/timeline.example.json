@@ -1,0 +1,103 @@
+{
+  "version": 1,
+  "meta": {
+    "title": "Pure-code style showcase",
+    "brand": "{{BRAND}}",
+    "theme": "coral-noir",
+    "bpm": 120,
+    "fps": 30,
+    "width": 1920,
+    "height": 1080,
+    "outDir": "out"
+  },
+  "structure": {
+    "opening": 8,
+    "round": 4,
+    "card": 1,
+    "ending": 6,
+    "moreCard": 1,
+    "flash": { "count": 8, "each": 0.25 }
+  },
+  "opening": { "page": "segments/00-opening.html" },
+  "rounds": [
+    {
+      "id": "r01",
+      "name": "扁平插画科普",
+      "card": { "layout": 0, "first": "想做", "keyword": "科普视频？", "color": "#ffcf5c" },
+      "style": { "page": "segments/01.html", "t0": 0.35, "speed": 1.4 }
+    },
+    {
+      "id": "r02",
+      "name": "数学动画",
+      "card": { "layout": 1, "first": "想做", "keyword": "知识讲解？", "color": "#58c4dd" },
+      "style": { "page": "segments/02.html", "t0": 0.5, "speed": 1.45 }
+    },
+    {
+      "id": "r03",
+      "name": "极简发布会",
+      "card": { "layout": 2, "first": "想开", "keyword": "产品发布会？", "color": "#a58bff" },
+      "style": { "page": "segments/03.html", "t0": 0, "speed": 1.0 }
+    },
+    {
+      "id": "r04",
+      "name": "手绘白板",
+      "card": { "layout": 3, "first": "想做", "keyword": "培训课件？", "color": "#e0674b" },
+      "style": { "page": "segments/04.html", "t0": 0.3, "speed": 1.4 }
+    },
+    {
+      "id": "r05",
+      "name": "赛博故障",
+      "card": { "layout": 0, "first": "想做", "keyword": "炫酷预告片？", "color": "#ff2bd6" },
+      "style": { "page": "segments/05.html", "t0": 0.8, "speed": 1.3 }
+    },
+    {
+      "id": "r06",
+      "name": "水墨国风",
+      "card": { "layout": 1, "first": "想拍", "keyword": "国风短片？", "color": "#e0513a" },
+      "style": { "page": "segments/06.html", "t0": 0.5, "speed": 1.35 }
+    },
+    {
+      "id": "r07",
+      "name": "数据可视化",
+      "card": { "layout": 2, "first": "想做", "keyword": "数据新闻？", "color": "#ff5a4a" },
+      "style": { "page": "segments/07.html", "t0": 0.4, "speed": 1.4 }
+    },
+    {
+      "id": "r08",
+      "name": "8-bit 像素",
+      "card": { "layout": 3, "first": "想做", "keyword": "游戏视频？", "color": "#ffd84a" },
+      "style": { "page": "segments/08.html", "t0": 0.9, "speed": 1.25 }
+    },
+    {
+      "id": "r09",
+      "name": "代码录屏",
+      "card": { "layout": 0, "first": "想录", "keyword": "编程教程？", "color": "#c792ea" },
+      "style": { "page": "segments/09.html", "t0": 0.4, "speed": 1.4 }
+    },
+    {
+      "id": "r10",
+      "name": "Three.js 三维",
+      "card": { "layout": 1, "first": "想要", "keyword": "3D质感？", "color": "#ff8a5c" },
+      "style": { "page": "segments/10.html", "t0": 0.3, "speed": 1.3 }
+    },
+    {
+      "id": "r11",
+      "name": "竖屏短视频",
+      "card": { "layout": 2, "first": "想做", "keyword": "竖屏短视频？", "color": "#ff5f9e" },
+      "style": { "page": "segments/11.html", "t0": 0.3, "speed": 1.45 }
+    }
+  ],
+  "moreCard": {
+    "page": "segments/big-card.html",
+    "layout": 3,
+    "first": "还有",
+    "keyword": "更多？",
+    "color": "#ffcf5c"
+  },
+  "flash": {
+    "page": "segments/flash.html"
+  },
+  "ending": {
+    "page": "segments/99-ending.html"
+  }
+}

@@ -1,0 +1,154 @@
+{
+  "specVersion": 1,
+  "meta": {
+    "name": "mini-41s",
+    "brand": "{{BRAND}}",
+    "cta": "现在就试试",
+    "locale": "zh-CN"
+  },
+  "format": {
+    "width": 1920,
+    "height": 1080,
+    "fps": 30,
+    "aspect": "16:9",
+    "duration": 41
+  },
+  "look": {
+    "mode": "showcase",
+    "style": null,
+    "theme": "coral-noir",
+    "accentOverride": null
+  },
+  "audio": {
+    "mood": "electronic",
+    "bpm": 120
+  },
+  "structure": {
+    "opening": 8,
+    "round": 4,
+    "card": 1,
+    "ending": 6,
+    "moreCard": 1,
+    "flash": {
+      "count": 8,
+      "each": 0.25
+    }
+  },
+  "opening": {
+    "page": "templates/segment.html",
+    "name": "opening"
+  },
+  "rounds": [
+    {
+      "id": "r01",
+      "name": "扁平插画科普",
+      "card": {
+        "layout": 0,
+        "first": "想做",
+        "keyword": "科普视频？",
+        "page": "templates/big-card.html"
+      },
+      "style": {
+        "page": "templates/segment.html",
+        "t0": 0.3,
+        "speed": 1.4
+      }
+    },
+    {
+      "id": "r02",
+      "name": "数学动画",
+      "card": {
+        "layout": 1,
+        "first": "想做",
+        "keyword": "知识讲解？",
+        "page": "templates/big-card.html"
+      },
+      "style": {
+        "page": "templates/segment.html",
+        "t0": 0.5,
+        "speed": 1.45
+      }
+    },
+    {
+      "id": "r03",
+      "name": "极简发布会",
+      "card": {
+        "layout": 2,
+        "first": "想开",
+        "keyword": "产品发布会？",
+        "page": "templates/big-card.html"
+      },
+      "style": {
+        "page": "templates/segment.html",
+        "t0": 0,
+        "speed": 1
+      }
+    },
+    {
+      "id": "r04",
+      "name": "手绘白板",
+      "card": {
+        "layout": 3,
+        "first": "想做",
+        "keyword": "培训课件？",
+        "page": "templates/big-card.html"
+      },
+      "style": {
+        "page": "templates/segment.html",
+        "t0": 0.3,
+        "speed": 1.4
+      }
+    },
+    {
+      "id": "r05",
+      "name": "赛博故障",
+      "card": {
+        "layout": 0,
+        "first": "想做",
+        "keyword": "炫酷预告？",
+        "page": "templates/big-card.html"
+      },
+      "style": {
+        "page": "templates/segment.html",
+        "t0": 0.8,
+        "speed": 1.3
+      }
+    },
+    {
+      "id": "r06",
+      "name": "水墨国风",
+      "card": {
+        "layout": 1,
+        "first": "想拍",
+        "keyword": "国风短片？",
+        "page": "templates/big-card.html"
+      },
+      "style": {
+        "page": "templates/segment.html",
+        "t0": 0.5,
+        "speed": 1.35
+      }
+    }
+  ],
+  "moreCard": {
+    "page": "templates/big-card.html",
+    "layout": 3,
+    "first": "还有",
+    "keyword": "更多？"
+  },
+  "flash": {
+    "page": "templates/big-card.html"
+  },
+  "ending": {
+    "page": "templates/segment.html",
+    "name": "ending"
+  },
+  "assets": [],
+  "patches": [],
+  "render": {
+    "quality": "master",
+    "preset": "bilibili",
+    "concurrency": 4,
+    "outDir": "out/mini-41s"
+  }
+}

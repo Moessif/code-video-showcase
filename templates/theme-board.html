@@ -21,7 +21,7 @@
  * 这是一张「海报 + 规格板」而不是调色板调试图：
  *   左侧 = 主视觉（主题序号 / 中文名 / 英文名 / tagline / useFor / A·B·C 大字卡小样 / HUD 实物）
  *   右侧 = 规格板（8 个角色 token / 4 个点缀色 / 材质名 + 说明 / 对比度审计）
- *   底部 = 8 套主题名字轨（当前高亮）——一眼看出这是 8 选 1 的设计系统
+ *   底部 = 全部主题名字轨（当前高亮）——一眼看出这是 N 选 1 的设计系统
  *
  * 所有颜色都来自 themes.js 的 token（或 token 的 alpha/混色），不硬编码任何主题色。
  * 渲染契约：window.DURATION=1.0；window.renderFrame(t)；__ready；无随机/时间副作用。
@@ -208,7 +208,7 @@ function drawTitleBlock() {
   // overline：accent 粗短线 + 一句话定位（粗于 4px 才是图形元素）
   ctx.fillStyle = c.accent;
   ctx.fillRect(LEFT, 190, 30, 5);
-  drawSpaced('主题系统 · 一套版式 / 八种气质', LEFT + 46, 193, { size: 15, spacing: 1.5, color: c.muted });
+  drawSpaced('主题系统 · 一套版式 / 多种气质', LEFT + 46, 193, { size: 15, spacing: 1.5, color: c.muted });
 
   // 中文名
   const cnSize = fitSize(theme.name, CN_WEIGHT, CN, LEFT_R - LEFT, 112, 72);
@@ -518,7 +518,7 @@ function drawRail() {
 /* ---------- 9. footer ---------- */
 function drawFooter() {
   const y = 1036;
-  drawSpaced('CODE-VIDEO-SHOWCASE / THEME SYSTEM v1', LEFT, y, { size: 13, spacing: 2, color: c.muted });
+  drawSpaced('CODE-VIDEO-SHOWCASE / THEME SYSTEM v2', LEFT, y, { size: 13, spacing: 2, color: c.muted });
   drawSpaced(`1920 × 1080 · STATIC PREVIEW · ${NUM}/${TOTAL}`, RIGHT, y, { size: 13, spacing: 2, color: c.muted, align: 'right' });
 }
 
@@ -553,7 +553,7 @@ async function loadFonts(families) {
     m.name, m.note,
     ...rows.map((r) => r.label), ...theme.accents.map((a) => a.name),
     'ABCDEFGHIJKLMNOPQRSTUVWXYZ abcdefghijklmnopqrstuvwxyz 0123456789 /·×—',
-    '主题系统 一套版式 八种气质 适用场景 大字卡 三种底 强调 纸面 暗卡 HUD 实物 胶囊 倒计时 水印',
+    '主题系统 一套版式 多种气质 适用场景 大字卡 三种底 强调 纸面 暗卡 HUD 实物 胶囊 倒计时 水印',
     '底色 主字 强调 纸面 暗卡 表面 次要字 浅强调 点缀色 材质 对比度审计',
   ].join(' ');
   for (const family of families) {

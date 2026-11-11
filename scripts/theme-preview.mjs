@@ -3,8 +3,8 @@
  * theme-preview.mjs — 为 code-video-showcase 的主题系统生成静态预览图。
  *
  * 产物（默认写到 <skill>/assets/theme-previews/）：
- *   01-coral-noir.jpg … 08-crimson-theater.jpg   1920×1080 主题海报 + 规格板
- *   theme-contact-sheet.jpg                      8 套 4×2 联系表（1920×1080）
+ *   01-coral-noir.jpg … 13-pop-acid.jpg          1920×1080 主题海报 + 规格板
+ *   theme-contact-sheet.jpg                      全部主题联系表（自适应网格，1920×1080）
  *   theme-three-up.jpg                           原版 / 橙光白 / 水蓝白 三拼（1920×1080）
  *
  * 用法（在 WSL 里，先让 Chrome 进 PATH）：
@@ -19,7 +19,7 @@
  *   --no-sheet        不生成联系表 / 三拼
  *   --quality <n>     JPEG 质量，默认 95
  *   --keep            保留 <root>/.theme-preview-tmp 与中间 stills，便于排查
- *   --list            只列出 8 套主题 id / 名称
+ *   --list            只列出全部主题 id / 名称
  *
  * 依赖：node（内置模块）+ <root>/render-segment.mjs（Playwright/Chrome 由它自己找）。
  * 本脚本不新增任何 npm 依赖，也不直接调用 ffmpeg。
@@ -103,8 +103,17 @@ async function run(cmd, args, cwd, env) {
   });
 }
 
+async function resolveRenderer(root) {
+  for (const rel of ['render-segment.mjs', 'templates/render-segment.mjs']) {
+    const p = path.join(root, rel);
+    if (await exists(p)) return p;
+  }
+  return null;
+}
+
 async function renderStill({ root, page, outdir, quality }) {
-  const renderer = path.join(root, 'render-segment.mjs');
+  const renderer = await resolveRenderer(root);
+  if (!renderer) throw new Error(`找不到 render-segment.mjs（${root} 或 ${root}/templates）`);
   const args = [renderer, '--page', page, '--still', String(STILL_T), '--outdir', outdir, '--duration', '1', '--quality', String(quality)];
   const { code, stdout, stderr } = await run(process.execPath, args, root, { ...process.env });
   if (code !== 0) {
@@ -142,8 +151,8 @@ async function main() {
   const wantSheet = args.sheet && fullSet;
 
   // 环境检查
-  const renderer = path.join(root, 'render-segment.mjs');
-  if (!(await exists(renderer))) throw new Error(`找不到渲染器：${renderer}\n--root 应指向 remotion 根目录（含 render-segment.mjs / shared/）。`);
+  const renderer = await resolveRenderer(root);
+  if (!renderer) throw new Error(`找不到渲染器（${root}/render-segment.mjs 或 ${root}/templates/render-segment.mjs）。`);
   const boardSrc = path.join(TEMPLATES, 'theme-board.html');
   const themesSrc = path.join(TEMPLATES, 'themes.js');
   const sheetSrc = path.join(TEMPLATES, 'theme-sheet.html');
@@ -198,13 +207,13 @@ async function main() {
     }
   }
 
-  // 拼版（只有在完整 8 套都成功时才做）
+  // 拼版（全部主题都成功时才做）
   if (wantSheet && failed === 0) {
     const thumbs = path.join(tmp, 'thumbs');
     for (const r of results) await fs.copyFile(r.dest, path.join(thumbs, `${r.id}.jpg`));
     const idsParam = encodeURIComponent(THEME_IDS.join(','));
     const sheetJobs = [
-      { kind: 'contact', file: 'theme-contact-sheet.jpg', ids: idsParam, label: '联系表 4×2' },
+      { kind: 'contact', file: 'theme-contact-sheet.jpg', ids: idsParam, label: '联系表' },
       { kind: 'three', file: 'theme-three-up.jpg', ids: encodeURIComponent(['coral-noir', 'claude-light', 'aqua-morandi'].join(',')), label: '三拼' },
     ];
     for (const job of sheetJobs) {
@@ -222,7 +231,7 @@ async function main() {
       }
     }
   } else if (args.sheet && !fullSet) {
-    log('[skip] 子集渲染不生成联系表 / 三拼（需要完整 8 套）');
+    log('[skip] 子集渲染不生成联系表 / 三拼（需要全部主题）');
   }
 
   // 收尾

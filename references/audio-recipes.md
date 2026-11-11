@@ -1,7 +1,7 @@
 # 配乐配方（120 BPM · A 小调 · numpy/scipy 纯合成）
 
 > 参考样片实测：120.0 BPM、拍点相位 0.0 s、86.3% 强 onset 落在 ±30 ms 网格内、结尾 60.38 s 起淡出。
-> 可运行骨架：`../templates/synth_audio.py`（默认 8 s demo；按本文的全局参数与编排表扩展到 61 s）。全片音轨与剪辑表共用同一组时间常数（见 `SKILL.md` 第 3 节）。
+> 可运行骨架：`../templates/synth_audio.py`。v2 起支持 `--plan out/plan.json`：自动读取 `stats.duration` 与 `audio.cues`，按全片时长生成并对齐每个 cue；不带 `--plan` 仍是 8 s demo。全片音轨与剪辑表共用同一组时间常数（见 `SKILL.md` 第 3 节）。
 
 ---
 

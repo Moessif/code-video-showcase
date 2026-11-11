@@ -400,7 +400,7 @@ accent:  #ff5f9e
 
 ## 主题 × 风格段：换色规则
 
-上面那条「黑底 + 珊瑚强调」是无主题参数时的默认视觉（`coral-noir`）。启用主题系统后，**骨架色随主题整体替换**，风格段是骨架里的内容色块。主题的唯一数据源是 `templates/themes.js`，8 套主题的逐项说明见 `references/themes.md`（§8 选型矩阵、§9「覆盖主色 `accentOverride()`」）。
+上面那条「黑底 + 珊瑚强调」是无主题参数时的默认视觉（`coral-noir`）。启用主题系统后，**骨架色随主题整体替换**，风格段是骨架里的内容色块。主题的唯一数据源是 `templates/themes.js`，13 套主题的逐项说明见 `references/themes.md`（§8 选型矩阵、§9「覆盖主色 `accentOverride()`」）。
 
 **三条规则**
 

@@ -1,0 +1,40 @@
+{
+  "name": "code-video-showcase",
+  "version": "2.0.0",
+  "description": "Pure-code, beat-synced showcase video skill: deterministic HTML/Canvas frames, synthesized score, FFmpeg assembly.",
+  "type": "module",
+  "license": "MIT",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "test": "node scripts/test-core.mjs",
+    "determinism": "node scripts/determinism-check.mjs",
+    "doctor": "node scripts/doctor.mjs",
+    "plan": "node templates/timeline.mjs --spec templates/timeline.example.json --out out/plan.json --concat out/segments.txt --print",
+    "spec:lint": "node scripts/spec-lint.mjs",
+    "spec:plan": "node templates/plan.mjs",
+    "compile": "node scripts/compile.mjs",
+    "fixture:lint": "node scripts/spec-lint.mjs --spec fixtures/mini-41s/spec.json --root .",
+    "fixture:plan": "node templates/plan.mjs --spec fixtures/mini-41s/spec.json --root . --print",
+    "fixture:compile": "node scripts/compile.mjs --spec fixtures/mini-41s/spec.json --root . --no-qa --concurrency 4",
+    "render": "node templates/render-farm.mjs --plan out/plan.json --resume",
+    "qa": "node scripts/qa-video.mjs out/final.mp4 --plan out/plan.json",
+    "qa:audio": "python scripts/qa-audio.py audio/mix.wav --plan out/plan.json",
+    "theme:audit": "node scripts/theme-audit.mjs --strict",
+    "theme:preview": "node scripts/theme-preview.mjs",
+    "ai:init": "node scripts/ai-lane.mjs init",
+    "ai:validate": "node scripts/ai-lane.mjs validate --plan out/plan.json",
+    "new": "node scripts/new-project.mjs"
+  },
+  "dependencies": {
+    "@fontsource/inter": "^5.3.0",
+    "@fontsource/jetbrains-mono": "^5.3.0",
+    "@fontsource/noto-sans-sc": "^5.3.1",
+    "@fontsource/noto-serif-sc": "^5.3.1",
+    "@fontsource/orbitron": "^5.3.0",
+    "@fontsource/playfair-display": "^5.3.0",
+    "@fontsource/zcool-kuaile": "^5.3.0",
+    "playwright-core": "^1.64.1"
+  }
+}

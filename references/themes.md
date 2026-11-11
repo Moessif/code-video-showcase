@@ -1,4 +1,4 @@
-# 主题系统（8 套配色 × 8 种材质）
+# 主题系统（13 套配色 × 8 种材质）
 
 > 一句话：主题不是「换三个颜色」，而是**角色色板 + 材质 + HUD 规格 + 点缀色**四层一起换。
 > 数据唯一来源：`templates/themes.js`；对比度审计：`node scripts/theme-audit.mjs`。
@@ -21,7 +21,7 @@
 
 ---
 
-## 2. 8 套主题速查
+## 2. 13 套主题速查
 
 | # | id | 名称 | 明暗 | 主材质 | 底色 | 强调 | 适合 |
 |---|---|---|---|---|---|---|---|
@@ -33,8 +33,33 @@
 | 06 | `graphite-signal` | 石墨信号 | dark | 哑光工业 | `#18191b` | `#ff4a1f` | 开发者 / 硬件 / 工业 / 硬核科技 |
 | 07 | `celadon-paper` | 青瓷白 | light | 水墨晕染 | `#f7f9f8` | `#06525c` | 东方 / 文化 / 极简 / 品牌故事 |
 | 08 | `crimson-theater` | 绯墨剧场 | dark | 舞台聚光 | `#0a0a0a` | `#b11226` | 时尚 / 艺术 / 预告 / 情绪片 |
+| 09 | `cyber-neon` | 赛博霓虹 | dark | 霓虹辉光 + 网格 | `#070d1a` | `#00dadd` | 科技 / 游戏 / 预告 / 直播 |
+| 10 | `paper-journal` | 纸质手账 | light | 纸面 + 细网格 | `#f5f1e9` | `#c13e2e` | 知识 / 教程 / 生活 / 访谈 |
+| 11 | `dark-gold-cinema` | 暗金电影 | dark | 烫金 + 颗粒 | `#090503` | `#e7b643` | 高端 / 电影感 / 年度片 |
+| 12 | `ice-minimal` | 冰蓝极简 | light | 冷白哑光 | `#f5f9fc` | `#2171cc` | SaaS / 数据 / 医疗 / 极简 |
+| 13 | `pop-acid` | 波普酸色 | dark | 光斑 + 颗粒 | `#0b0614` | `#dcdb00` | 潮流 / 音乐 / 社交 / 青年文化 |
 
-4 深 4 浅，默认 `coral-noir` 与旧版视觉**逐值一致**，不传 `theme` 时老项目行为不变。
+7 深 6 浅，默认 `coral-noir` 与旧版视觉**逐值一致**，不传 `theme` 时老项目行为不变。
+
+### 2.1 v2 新增 5 套（OKLCH 派生）
+
+这 5 套的 14 个角色由 `templates/color.js` 的 `derivePalette()` 从 `[L,C,H]` 生成，再用 `apcaLc()` 校验：
+
+| id | 主色 | 第二重音 | 材质要点 | 禁忌 |
+|---|---|---|---|---|
+| `cyber-neon` | 电光青 `#00dadd` | 品红 `#ff2bd6` | 青色辉光只从边角溢出 + 96px 网格；颗粒 0.045 | 禁止整屏青紫渐变；品红不超过画面 5% |
+| `paper-journal` | 赭红 `#c13e2e` | 墨蓝 `#2f5d8a` | 暖纸 + 细纤维 + 64px 装订网格；无光晕 | 不要玻璃/金属；手写体只做标题 |
+| `dark-gold-cinema` | 旧金 `#e7b643` | 牛血红 `#8f2f2f` | 24° 斜向烫金 sheen + 颗粒 0.05 | 金色不做大面积底；暗部不要提亮 |
+| `ice-minimal` | 钴蓝 `#2171cc` | 薄荷 `#7fbfa8` | 冷白哑光 + 120px 冷灰网格；grain 0.012 | 不要柔光球；除钴蓝外只允许中性灰 |
+| `pop-acid` | 酸性黄绿 `#dcdb00` | 热粉 `#ff3d8b` | 单点光斑 + 72px 网格 + 颗粒 0.06 | 黑底必须压住饱和度；同屏不超过 2 个高饱和色 |
+
+新增主题的流程：
+
+```js
+import { derivePalette, gamut, toHex, apcaLc } from '../templates/color.js';
+const colors = derivePalette({ mode: 'dark', accent: '#00dadd' }); // 14 角色
+// 再按材质微调 2–3 个值，写进 themes.js，跑 theme-audit --strict
+```
 
 ---
 
@@ -137,7 +162,7 @@
 | `cardDarkInk` | 暗卡字 | 深色卡上的字 | 对比 cardDark ≥ 7:1 |
 | `flash` | 闪白 | 转场闪白 | 深色主题用纯白，浅色主题用更亮的暖白 |
 
-所有值由 `scripts/theme-audit.mjs` 自动校验，`--strict` 可进 CI。当前 8 套全部通过。
+所有值由 `scripts/theme-audit.mjs` 自动校验（WCAG + APCA），`--strict` 可进 CI。当前 13 套 WCAG 全部通过。
 
 ```bash
 node scripts/theme-audit.mjs            # 全部
@@ -241,7 +266,7 @@ const c = cardColors(theme, layout);
 
 ## 9. 覆盖主色（用户有品牌色时）
 
-允许用户只换「强调色」，不要鼓励自创第 9 套主题。`themes.js` 提供 `accentOverride(themeRef, input)`，返回新主题对象（不污染 `THEMES`），自动处理 accentInk 对比度、accentSoft 与材质光晕：
+允许用户只换「强调色」，不要鼓励自创第 14 套主题。`themes.js` 提供 `accentOverride(themeRef, input)`，返回新主题对象（不污染 `THEMES`），自动处理 accentInk 对比度、accentSoft 与材质光晕：
 
 ```js
 import { accentOverride, auditTheme } from './themes.js';
@@ -299,7 +324,7 @@ const rows = auditTheme(theme);                          // 覆盖后仍需审�
 
 ---
 
-## 12. 新增第 9 套主题
+## 12. 新增第 14 套主题
 
 1. 在 `templates/themes.js` 的 `THEMES` 里加一个条目：14 个角色 token、`hud`、`material`（选一种主材质）、4 个 `accents`、`type`、`tagline/useFor/aliases`。
 2. `node scripts/theme-audit.mjs <id>` 调到全绿（必要时加深 muted / 换 accentInk）。
@@ -317,9 +342,9 @@ const rows = auditTheme(theme);                          // 覆盖后仍需审�
 |---|---|
 | `templates/themes.js` | 主题数据 + 全部 API（唯一数据源） |
 | `templates/theme-board.html` | 单主题预览板（?theme=<id>，1920×1080） |
-| `scripts/theme-preview.mjs` | 批量渲染 8 套预览 + 联系表 + 三拼对比图 |
+| `scripts/theme-preview.mjs` | 批量渲染全部主题预览 + 联系表 + 三拼对比图 |
 | `scripts/theme-audit.mjs` | 对比度审计（`--strict` 可进 CI） |
-| `assets/theme-previews/` | 交付给用户的预览图（01–08、联系表、三拼） |
+| `assets/theme-previews/` | 交付给用户的预览图（01–13、联系表、三拼；`theme-preview.mjs` 可重建） |
 | `references/intake.md` | 调用前先收信息、锁定主题的流程 |
 | `references/big-card-and-typography.md` | 大字卡排印（含主题化说明） |
 | `references/style-recipes.md` | 11 种风格配方（含主题换色规则） |

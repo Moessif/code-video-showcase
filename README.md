@@ -4,7 +4,7 @@
 
 An Agent Skill for producing 30–90 s "style showcase" films: an 8 s opening, eleven style segments with 1 s big cards between them, an eight-flash montage, and a cinematic ending — all reproducible frame by frame.
 
-> **中文简介**：这是一个「用代码做视频」的 Agent Skill：画面用 HTML/Canvas/SVG/Three.js 逐帧渲染，配乐用 Python（numpy/scipy）合成，最后由 FFmpeg 合成 30–90 秒的卡点风格展示片，全程不调用任何视频、图像或音乐生成模型。仓库里包含剪辑结构公式、11 种风格配方、大字卡系统、120 BPM 配乐方案、Playwright 渲染管线、质检清单和可运行模板。完整中文说明见 [中文](#中文)。
+> **中文简介**：这是一个「用代码做视频」的 Agent Skill：画面用 HTML/Canvas/SVG/Three.js 逐帧渲染，配乐用 Python（numpy/scipy）合成，最后由 FFmpeg 合成 30–90 秒的卡点风格展示片，全程不调用任何视频、图像或音乐生成模型。仓库里包含剪辑结构公式、13 套主题、11 种风格配方、大字卡系统、120 BPM 配乐方案、零依赖 CDP/Playwright 渲染管线、视频/音频质检和可运行模板。完整中文说明见 [中文](#中文)。
 
 > **一键安装 / Install in one sentence**
 >
@@ -52,7 +52,9 @@ Theme previews are in [Themes](#themes): `assets/theme-previews/theme-three-up.j
 
 ## What it is
 
-The skill is a production recipe, not a model. It packages the structure measured off a real 61 s showcase: a timeline formula, a big-card system, eight theme palettes, eleven art-direction/technical/sound recipes, a 120 BPM synthesized score, a deterministic Playwright → FFmpeg pipeline, a QA checklist and runnable templates — full style palettes and six-beat animation maps live in `references/style-recipes.md`. Because every frame is a pure function of `t`, renders are deterministic: the same second always produces the same frame, on any machine.
+The skill is a production recipe, not a model. It packages the structure measured off a real 61 s showcase: a declarative timeline + plan, a big-card system, thirteen theme palettes (OKLCH-derived, APCA-audited), eleven art-direction/technical/sound recipes, a 120 BPM synthesized score, a deterministic zero-dependency CDP / Playwright → FFmpeg pipeline, parallel rendering with resume, video + audio QA gates, an optional gated AI lane, and runnable templates. Because every frame is a pure function of `t`, renders are deterministic: the same second always produces the same frame, on any machine.
+
+**v2 adds** — `timeline.json → plan.json` (single source of truth, exact frame snapping), `color.js` (OKLCH/OKLab + APCA), `motion.js` (closed-form springs, CJK kinsoku layout, kinetic type, grain/RGB-split/bloom), a zero-dependency Chrome DevTools Protocol driver, `render-farm.mjs` (parallel + retries + resume), platform delivery presets, `qa-video.mjs` + `qa-audio.py`, `doctor.mjs`, `new-project.mjs`, and `ai-lane.mjs` (disabled by default).
 
 ### At a glance
 
@@ -60,10 +62,10 @@ The skill is a production recipe, not a model. It packages the structure measure
 |---|---|---|
 | Format | 1920×1080, 30 fps, 1× device scale | one HTML page per segment |
 | Length | 61.0 s = 1830 frames | generalized by the formula below |
-| Video | H.264 High, `yuv420p`, libx264, 2-pass ≈ 3.4 Mbps | final file ≈ 26 MB |
-| Audio | 48 kHz stereo AAC 192 kbps | synthesized, no samples |
+| Video | H.264 High, `yuv420p`, bt709, CRF 21 master / 22–24 delivery | maxrate-capped; +faststart; intermediate CRF 12 |
+| Audio | 48 kHz stereo AAC 192–320 kbps, −14 LUFS | synthesized, no samples; two-pass loudnorm |
 | Tempo | 120 BPM — 0.5 s per beat, 2 s per bar | 1 s card = 2 beats, 3 s style segment = 6 beats |
-| Theme | 8 palettes, default `coral-noir` | omitting `?theme=` keeps the original coral `#d97757` on `#0e0e0d` visuals; see [Themes](#themes) |
+| Theme | 13 palettes, default `coral-noir` | omitting `?theme=` keeps the original coral `#d97757` on `#0e0e0d` visuals; see [Themes](#themes) |
 | Type | OFL fonts only, served locally | Noto Sans/Serif CJK SC, Inter, JetBrains Mono, Orbitron, Playfair Display, Ma Shan Zheng, Long Cang, ZCOOL KuaiLe, ZCOOL QingKe HuangYou, Press Start 2P |
 | Determinism | frame = f(t) | no CSS animation, rAF, `Date.now`, `Math.random`; no burned-in subtitles |
 
@@ -84,14 +86,14 @@ Each round `R = 4 s` = one big card (1 s / 2 beats) + one style segment (3 s / 6
 
 1. **Lock the brief** — topic, brand placeholder `{{BRAND}}`, duration, number of styles `N`, one line per style, ending CTA.
 2. **Write the edit table** — every segment as `[start, end, type, style, t0, speed]` in one JSON/Markdown constant file; all later scripts read it.
-3. **Prepare the environment** — Node, Playwright/Chromium, FFmpeg, numpy + scipy, local fonts; see `references/render-pipeline.md` for the cross-platform setup.
+3. **Prepare the environment** — `node scripts/doctor.mjs` checks Node, Chrome/Edge (Playwright optional), FFmpeg, numpy + scipy and local fonts; see `references/render-pipeline.md` for the cross-platform setup.
 4. **Scaffold the project** — static server, `common.js`, segment / card / render / concat / audio templates.
 5. **Implement segments one at a time** (an 11-segment outer loop): scene → 5–6 stills → contact sheet → full render → `ffprobe` frame count.
 6. **Opening (8 s)** — character-by-character typing, three scrolling code columns, particle burst, white flash.
 7. **Big cards** — four layouts rotating, 2 beats each: slam-in, speed lines, echo type, `STYLE 0X / 11`.
 8. **Eight flashes + ending (optional)** — eight 0.25 s micro-posters, then a 6 s cinematic ending.
 9. **Score the film** — 120 BPM, A minor, sharing the exact timing constants of the edit table; verify against a spectrogram.
-10. **Assemble and QA** — segment MP4s → concat → mux → 2-pass encode → contact sheets + spectrogram + human review.
+10. **Assemble and QA** — segment MP4s → concat → platform preset (CRF + loudnorm) → `qa-video` / `qa-audio` → contact sheet + spectrogram + human review.
 
 The mandatory inner loop for every segment:
 
@@ -126,24 +128,30 @@ Pure numpy/scipy synthesis — no samples, no audio model:
 - **Mix**: kick-envelope sidechain (55% duck), 2.2 s synthetic convolution reverb, `tanh` soft clip, normalize to −0.6 dBFS.
 - **Reference measurements**: 120.0 BPM, phase 0.0 s, 86.3% of 102 strong onsets inside ±30 ms of the grid (median error 0 ms); card hits measure 8–9× the previous 300 ms of energy, style-segment hits 2.8–3.5×.
 
-### Rendering pipeline
+### Rendering pipeline (v2)
 
-1. Serve the project root over HTTP (fonts, KaTeX and Three.js all same-origin; never `file://`).
-2. `render-segment.mjs` launches headless Chromium, waits for `document.fonts.ready` and `window.__ready`, then for each frame calls `page.evaluate(t => renderFrame(t))`, captures via CDP `Page.captureScreenshot({ format: 'jpeg', quality: 95 })`, and pipes the JPEGs to `ffmpeg -f image2pipe -framerate 30 -i pipe:0 -c:v libx264 -preset medium -crf 16 -pix_fmt yuv420p`.
-3. `concat-and-encode.sh` concatenates segment MP4s (`-f concat -safe 0 -c copy`), muxes the WAV, and runs a 2-pass encode at 3400 kbps with AAC 192 kbps.
-4. Every segment is verified with `ffprobe -count_frames`; the total must equal 1830.
+1. `timeline.mjs` validates `timeline.json`, snaps every segment to integer frame boundaries and writes `out/plan.json` + `out/segments.txt`. This is the only place that computes duration/frames/cues.
+2. `render-segment.mjs` serves the project root over HTTP (fonts and assets same-origin; never `file://`), launches headless Chromium via Playwright **or raw CDP** with system Chrome/Edge, waits for `document.fonts.ready` and `window.__ready`, then renders each frame. Single full-viewport canvases are captured with `canvas.toDataURL()` (30–50% faster); DOM overlays fall back to `Page.captureScreenshot({ optimizeForSpeed: true })`. Frames are piped to `ffmpeg -f image2pipe … -crf 12 -preset veryfast`, converted from full to limited range and tagged `bt709/bt709/bt709/tv`.
+3. `render-farm.mjs` runs segments in parallel (one process + browser per segment), retries failures, verifies frame counts, and resumes finished segments from `out/render-manifest.json`.
+4. `concat-and-encode.sh` stream-copies the segments (falling back to a normalising re-encode), applies a platform preset (master/youtube/bilibili/douyin/xiaohongshu/weixin/archive), one CRF final pass, two-pass EBU R128 loudness (`−14 LUFS`, `−1 dBTP`), `+faststart`.
+5. `qa-video.mjs` and `qa-audio.py` gate the result: frame count, colour tags, black/frozen frames, silence, loudness, VMAF (optional), beat-grid and cue alignment, HF restraint, contact sheet.
 
-### QA checklist
+### QA gate (automated + human)
 
-**Picture** — no console errors, no 404s (including favicon); every font passes `document.fonts.check()` with no missing CJK glyphs; 5–6 stills per style segment and a 1 fps contact sheet for the whole film; grep proves no CSS animation/rAF/`Date.now`/`Math.random`; no per-frame `ctx.filter` or large `shadowBlur`; coordinates cached before camera transforms (`getBoundingClientRect` is affected by transforms); 1920×1080 at 1×, `preserveDrawingBuffer: true`, WebGL via SwiftShader.
+```bash
+node scripts/qa-video.mjs out/final.mp4 --plan out/plan.json
+python scripts/qa-audio.py audio/mix.wav --plan out/plan.json --strict
+node scripts/theme-audit.mjs --strict
+node scripts/determinism-check.mjs --page "segments/01.html?theme=coral-noir" --t 0.5
+```
 
-**Audio** — spectrogram shows every hit within 30 ms of the edit table; cards drop out, style segments hit on frame one; 5.5–6.0 s fade-out; peak −0.6 dBFS with no clipping.
+**Automated** — frames = `plan.stats.frames`; size/fps/colour tags; black ≤ max(0.5 s, 1%); no unexpected freeze outside card/flash windows; no mid-film silence > 1 s; −14 ±1 LUFS, true peak ≤ −1 dBTP; ≥80% of cues within ±30 ms; BPM ±2; ≥70% onsets on the beat grid; 8–16 kHz key-vs-rest ≥ +6 dB; theme WCAG (and APCA report). `qa-video.mjs` fails hard on pix_fmt/size/frames and (with `--ref`) VMAF; `--strict` promotes warnings.
 
-**Assembly** — every segment's frame count equals `duration × 30`, total 1830; audio and video aligned (`-shortest`, `-t 61` if needed); H.264 `yuv420p` + AAC 48 kHz, ≈ 26 MB; a cover frame is extracted and a one-page spec sheet (frame rate / duration / styles / fonts / toolchain) is written.
+**Human** — no console errors/404s; every font passes `document.fonts.check()` with no missing CJK glyphs; 5–6 stills per style segment and a 1 fps contact sheet; grep proves no CSS animation/rAF/`Date.now`/`Math.random`; no per-frame `ctx.filter` or large `shadowBlur`; coordinates cached before camera transforms; 1920×1080 at 1×, `preserveDrawingBuffer: true`, WebGL via SwiftShader; a cover frame and a one-page spec sheet are produced.
 
 ## Themes
 
-A theme is not three swapped colours: it is a role palette (14 tokens), one background material, HUD specs and four accent colours. Eight themes ship in `templates/themes.js`; **omitting `?theme=` renders the original `coral-noir` visuals, pixel for pixel**.
+A theme is not three swapped colours: it is a role palette (14 tokens), one background material, HUD specs and four accent colours. Thirteen themes ship in `templates/themes.js`; **omitting `?theme=` renders the original `coral-noir` visuals, pixel for pixel**. The five v2 themes are derived in OKLCH and audited with both WCAG 2 and APCA (`node scripts/theme-audit.mjs`).
 
 | # | id | Name | Mode | Material | Best for |
 |---|---|---|---|---|---|
@@ -155,14 +163,19 @@ A theme is not three swapped colours: it is a role palette (14 tokens), one back
 | 06 | `graphite-signal` | Graphite Signal / 石墨信号 | dark | matte industrial | developer / hardware / hard tech |
 | 07 | `celadon-paper` | Celadon Paper / 青瓷白 | light | ink wash | oriental / culture / minimal |
 | 08 | `crimson-theater` | Crimson Theater / 绯墨剧场 | dark | stage spotlight | fashion / art / teaser / mood |
+| 09 | `cyber-neon` | Cyber Neon / 赛博霓虹 | dark | neon glow + grid | tech / gaming / trailer / stream |
+| 10 | `paper-journal` | Paper Journal / 纸质手账 | light | paper + fine grid | knowledge / tutorial / lifestyle |
+| 11 | `dark-gold-cinema` | Dark Gold Cinema / 暗金电影 | dark | foil + grain | premium / cinematic / annual film |
+| 12 | `ice-minimal` | Ice Minimal / 冰蓝极简 | light | cold matte | SaaS / data / medical / minimal |
+| 13 | `pop-acid` | Pop Acid / 波普酸色 | dark | glow spot + grain | street / music / social / youth |
 
 ![Three featured themes](assets/theme-previews/theme-three-up.jpg)
 
 *Three featured themes side by side: coral-noir (default), claude-light, aqua-morandi.*
 
-![All eight themes](assets/theme-previews/theme-contact-sheet.jpg)
+![Theme contact sheet](assets/theme-previews/theme-contact-sheet.jpg)
 
-*Contact sheet of all eight themes. Per-theme stills: `assets/theme-previews/01-coral-noir.jpg` … `08-crimson-theater.jpg`.*
+*Contact sheet of all thirteen themes. Per-theme stills: `assets/theme-previews/01-coral-noir.jpg` … `13-pop-acid.jpg`.*
 
 ![Default theme still](assets/theme-previews/01-coral-noir.jpg)
 
@@ -178,62 +191,65 @@ node render-segment.mjs --page /segments/01.html?theme=aqua-morandi --out out/01
 node render-segment.mjs --page /big-card.html?theme=graphite-signal --still 0.5,1.0 --outdir out/stills
 ```
 
-Theme choice is an intake decision, not a rendering tweak: collect the brief with `references/intake.md` (at most two rounds, lock the theme, write `brief.json`), then read the full spec in `references/themes.md`. Audit every palette change with `node scripts/theme-audit.mjs --strict` — all eight themes pass today. For a real brand colour use `accentOverride(themeRef, input)` in `themes.js` and store the returned `override` in `brief.json`; do not invent a ninth theme.
+Theme choice is an intake decision, not a rendering tweak: collect the brief with `references/intake.md` (at most two rounds, lock the theme, write `brief.json`), then read the full spec in `references/themes.md`. Audit every palette change with `node scripts/theme-audit.mjs --strict` — all thirteen themes pass WCAG today (APCA flags a few dark-theme muted greys). For a real brand colour use `accentOverride(themeRef, input)` in `themes.js` and store the returned `override` in `brief.json`; do not invent a fourteenth theme.
 
-## Quick start
+## Quick start (v2)
 
-The templates are a scaffold, not a finished film. From this repository:
+The templates are a scaffold, not a finished film.
 
 ```bash
-# 0) intake first — collect the brief, lock the theme, write brief.json (references/intake.md)
-#    pick a theme from assets/theme-previews/theme-contact-sheet.jpg (or re-render previews in step 3)
+# 0) environment check — node, Chrome/Edge, ffmpeg, python, fonts
+node scripts/doctor.mjs
 
-# 1) create a project and copy the templates into it
-mkdir -p my-showcase/segments my-showcase/shared my-showcase/fonts my-showcase/audio my-showcase/out
-cp templates/* my-showcase/
-cp scripts/* my-showcase/
-cp my-showcase/segment.html my-showcase/segments/01.html    # your first style segment
-cp my-showcase/common.js my-showcase/themes.js my-showcase/segments/   # segment.html imports ./common.js and ./themes.js
+# 1) scaffold a runnable project (runtime + segments/*.html + timeline.json + BRIEF.json)
+node scripts/new-project.mjs --out ../my-showcase --name my-showcase \
+  --theme cyber-neon --styles 11 --fonts
+cd ../my-showcase
 
-# 2) install the renderer inside the project (theme previews need it too)
-(cd my-showcase && npm i playwright)   # or playwright-core; the renderer accepts either
+# 2) validate the timeline and generate the plan + concat list
+node templates/timeline.mjs --spec timeline.json \
+  --out out/plan.json --concat out/segments.txt --print
 
-# 3) optional: render the eight theme previews + contact sheet (run from the repo root)
-node scripts/theme-preview.mjs --root my-showcase
+# 3) cheap stills first — t=0.2,0.8,1.4,2.0,2.6
+node templates/render-segment.mjs --page "segments/01.html?theme=cyber-neon" \
+  --still 0.2,0.8,1.4,2.0,2.6 --outdir out/stills
 
-# 4) draft stills first (cheap) — t=0.2,0.8,1.4,2.0,2.6
-cd my-showcase
-node render-segment.mjs --page /segments/01.html?theme=aqua-morandi --still 0.2,0.8,1.4,2.0,2.6 --outdir out/stills
+# 4) render one segment, then the whole film in parallel (resume-safe)
+node templates/render-segment.mjs --page "segments/01.html?theme=cyber-neon" \
+  --out out/r01-style.mp4 --duration 3 --t0 0.35 --speed 1.4
+node templates/render-farm.mjs --plan out/plan.json --concurrency 4 --resume
 
-# 5) render one 3 s segment; the renderer starts its own ephemeral static server
-node render-segment.mjs --page /segments/01.html?theme=aqua-morandi --out out/01.mp4 --duration 3
+# 5) soundtrack (--plan lands every cue on the timeline; refine the arrangement after)
+python templates/synth_audio.py --plan out/plan.json --out audio/mix.wav
 
-# 6) verify segment frame counts (h264 / yuv420p / 1920x1080 / fps / frames)
-./qa-check.sh out 30
+# 6) concat + platform preset (master | youtube | bilibili | douyin | xiaohongshu | weixin | archive)
+bash templates/concat-and-encode.sh --platform master out/segments.txt audio/mix.wav out/final.mp4 61 30
 
-# 7) synthesize the soundtrack (8 s demo out of the box)
-python3 synth_audio.py --out audio/demo.wav
-
-# 8) concat + mux + 2-pass encode (defaults: duration 61, 30 fps, 3400 kbps, AAC 192k)
-./concat-and-encode.sh segments.txt audio/mix.wav out/final.mp4
+# 7) QA gate
+node scripts/qa-video.mjs out/final.mp4 --plan out/plan.json
+python scripts/qa-audio.py audio/mix.wav --plan out/plan.json --strict
+node scripts/theme-audit.mjs --strict
 ```
 
-`segments.txt` is the concat demuxer list, one line per segment:
+`segments.txt` is generated by `timeline.mjs`; it is a concat-demuxer list with absolute paths:
 
 ```text
-file 'out/00-opening.mp4'
-file 'out/01-card.mp4'
-file 'out/02-style-01.mp4'
+file 'E:/my-showcase/out/00-opening.mp4'
+file 'E:/my-showcase/out/r01-card.mp4'
+file 'E:/my-showcase/out/r01-style.mp4'
 ...
 ```
 
 Notes:
 
-- `render-segment.mjs` embeds a small static server, so a local **path** is enough (`--page /segments/01.html`); a full URL is used verbatim. Style segments take `--t0 0.35 --speed 1.4` — for a relative page the renderer appends `?seg=1&t0=&speed=&dur=`, and `common.js` maps clip time `u` to scene time `t = t0 + u·speed`.
-- Rendering needs no separate server: the renderer embeds one. For manual browser previews only, serve the project root on port 4600 yourself — `references/render-pipeline.md` §3 documents an optional `tools/server.mjs` (`node tools/server.mjs --port 4600`) that is not shipped, because the renderer already contains an equivalent. To click through the theme boards interactively, serve the templates directory instead: `python3 -m http.server -d templates 4600`, then open `http://localhost:4600/theme-board.html?theme=aqua-morandi` (the boards import `./themes.js` as a module, so `file://` will not work).
-- The templates expect a local `shared/fonts.css` with `@font-face` rules for OFL fonts you download yourself. Fonts are not bundled.
-- Useful env vars: `CHROME_EXE` / `FFMPEG_EXE` for the renderer; `FFMPEG` / `FFPROBE` / `VIDEO_BITRATE` / `AUDIO_BITRATE` for the shell scripts (plus `PYTHON` for `qa-check.sh`). `node render-segment.mjs --help` lists every flag.
-- `synth_audio.py` is a toolkit plus a runnable 8 s demo; extend `build_arrangement()` to the full 61 s timeline using `references/audio-recipes.md`.
+- **No Playwright required.** `render-segment.mjs` tries Playwright, then falls back to system Chrome/Edge over raw CDP (`templates/cdp.mjs`). Set `CHROME_EXE` or `--browser` to pin a build.
+- Single full-viewport canvases are captured with `canvas.toDataURL()`; pages with DOM overlays or WebGL readback problems automatically use CDP screenshots. Force it with `window.__capture = 'cdp'`.
+- Style segments take `--t0 0.35 --speed 1.4`; the renderer appends `?seg=1&t0=&speed=&dur=` and `common.js` maps clip time `u` to scene time `t = t0 + u·speed`.
+- `timeline.json` is the single source of truth. Never hand-compute `round(duration × 30)`; 0.25 s flashes snap to 8/7/8/7 frames at 30 fps. See `references/timeline-schema.md`.
+- For manual browser previews, serve the project root (`python -m http.server -d . 4600`) and open `http://localhost:4600/segments/01.html?theme=cyber-neon`. `file://` will not work because pages import ES modules.
+- The templates expect a local `shared/fonts.css` with `@font-face` rules. `new-project --fonts` copies the bundled set; otherwise download OFL fonts yourself.
+- Useful env vars: `CHROME_EXE` / `FFMPEG_EXE` for the renderer; `FFMPEG` / `FFPROBE` / `PLATFORM` / `CRF` for the shell script; `PYTHON` for audio QA. `--help` is implemented by every script.
+- `synth_audio.py` is a toolkit plus a runnable 8 s demo; extend `build_arrangement()` to the full 61 s timeline using `references/audio-recipes.md`, and read `plan.json` cues so audio and cuts share one time base.
 
 ## Install as an Agent Skill
 
@@ -256,17 +272,17 @@ Once installed, the skill auto-triggers on prompts such as 卡点视频 / 风格
 
 | Component | Requirement | Why |
 |---|---|---|
-| Node.js | ≥ 20 (24 recommended) | renderer script + `playwright` |
-| npm packages | `playwright` or `playwright-core` (optional: `katex`) | headless Chromium driver, browser |
-| Browser | Playwright bundled Chromium, Chrome for Testing, or Edge | frame capture; WebGL via SwiftShader args |
-| FFmpeg + ffprobe | libx264, AAC, `image2pipe`; `tile`/`showspectrumpic` for analysis | encode, concat, 2-pass, contact sheets, spectrogram |
-| Python | ≥ 3.10 with numpy + scipy | soundtrack synthesis, audio analysis, QA script |
-| Fonts | all OFL, downloaded and served locally | CJK + display type; no CDN at render time |
+| Node.js | ≥ 20 (24 recommended; raw CDP needs the global `WebSocket`, Node ≥ 22) | renderer + raw-CDP driver |
+| npm packages | **none required**; `playwright`/`playwright-core` optional | fallback driver; system Chrome/Edge is enough |
+| Browser | Chrome, Edge or Chromium (Playwright bundled also works) | frame capture; WebGL via SwiftShader args |
+| FFmpeg + ffprobe | libx264, AAC, `loudnorm`, `blackdetect`/`freezedetect`/`silencedetect`; `libvmaf` optional | encode, concat, loudness, QA, contact sheets |
+| Python | ≥ 3.10 with numpy + scipy (matplotlib optional) | soundtrack synthesis, audio QA, spectrogram |
+| Fonts | all OFL, served locally | CJK + display type; no CDN at render time |
 
 ### Platform notes
 
-- **Windows**: the renderer tries `CHROME_EXE` if set, then Playwright's bundled Chromium, then Edge (`channel: 'msedge'`); set `CHROME_EXE` to point at a specific build.
-- **WSL / Linux**: if the bundled download is slow, use Chrome for Testing and `executablePath`; headless Chromium may need `libnss3/libnspr4/libasound2`, obtainable without root via `apt-get download` + `dpkg-deb -x` into `~/.local/opt/chromium-libs` and `LD_LIBRARY_PATH`.
+- **Windows**: the renderer tries Playwright (if installed), then system Chrome/Edge over raw CDP. Set `CHROME_EXE` or `--browser` to pin a build. Browser stderr goes to a temp log, and the Chrome profile is removed by a detached cleanup so each segment process exits promptly.
+- **WSL / Linux**: if Playwright's bundled download is slow, use Chrome for Testing with `--browser` (the raw-CDP path needs no npm package at all); headless Chromium may need `libnss3/libnspr4/libasound2`, obtainable without root via `apt-get download` + `dpkg-deb -x` into `~/.local/opt/chromium-libs` and `LD_LIBRARY_PATH`.
 - Keep `node_modules`, Python venvs, browser caches and scratch frames on the Linux filesystem: in the reference measurements `/mnt/e` wrote ~2000 small files in ~4.9 s versus ~0.05 s on ext4. Frames are piped straight to ffmpeg and never hit disk; rendering is local and CPU-bound, with no cloud service or generation API involved.
 
 ## Repo structure
@@ -274,39 +290,55 @@ Once installed, the skill auto-triggers on prompts such as 卡点视频 / 风格
 ```text
 code-video-showcase/
 ├─ SKILL.md                          # the skill itself — workflow, constraints, index
-├─ README.md                         # this file
-├─ LICENSE                           # MIT
-├─ .gitignore / .gitattributes       # ignore build output / enforce LF line endings
+├─ README.md / CHANGELOG.md          # this file / release notes
+├─ package.json                     # npm scripts: test, doctor, plan, render, qa, theme:audit
+├─ .github/workflows/render-smoke.yml# CI: 2 s render + concat + QA
 ├─ references/
+│  ├─ timeline-schema.md             # v2: timeline.json → plan.json, frame snapping, render farm
+│  ├─ motion-and-color.md            # v2: springs, easing, CJK layout, OKLCH/APCA, transitions
+│  ├─ platform-presets.md            # v2: platform resolution/CRF/LUFS + ffmpeg recipes
+│  ├─ qa.md                          # v2: video/audio thresholds and JSON reports
+│  ├─ ai-lane.md                     # v2: optional AI asset lane, model table, licences
 │  ├─ intake.md                      # pre-flight brief intake + theme lock (brief.json)
 │  ├─ original-brief.txt             # the original 61 s brief — copy and rebrand
 │  ├─ reference-film-analysis.md     # measured breakdown of the reference (cuts/frames/audio)
 │  ├─ style-recipes.md               # 11 styles: art direction + technique + sound
-│  ├─ themes.md                      # theme system: palettes, materials, HUD, cardColors, QA
+│  ├─ themes.md                      # 13 themes: palettes, materials, HUD, cardColors, QA
 │  ├─ big-card-and-typography.md     # 4 card layouts, type scale, slam parameters
 │  ├─ audio-recipes.md               # 120 BPM arrangement, synthesis formulas, mix chain
-│  └─ render-pipeline.md             # Playwright / FFmpeg / cross-platform setup and commands
+│  └─ render-pipeline.md             # browser/CDP / FFmpeg / cross-platform setup and commands
 ├─ templates/
-│  ├─ common.js                      # easing, seeded random, noise/fbm, segment mode, impact
-│  ├─ themes.js                      # 8 themes: palettes, materials, HUD, cardColors/chrome/accentOverride
-│  ├─ segment.html                   # style-segment skeleton (Canvas + optional Three.js)
-│  ├─ big-card.html                  # big-card skeleton (4 layouts, slam, echo type)
-│  ├─ theme-board.html               # single-theme preview board (?theme=<id>, 1920×1080)
-│  ├─ render-segment.mjs             # frame-by-frame renderer -> ffmpeg image2pipe
-│  ├─ concat-and-encode.sh           # concat + mux + 2-pass encode
-│  └─ synth_audio.py                 # numpy/scipy instrument library + arrangement demo
+│  ├─ color.js                       # v2: OKLCH/OKLab, APCA, palette derivation
+│  ├─ motion.js                      # v2: springs, easing, CJK kinsoku, kinetic type, textures
+│  ├─ common.js                      # easing, seeded random, noise/fbm, segment mode, re-exports
+│  ├─ themes.js                      # 13 themes: palettes, materials, HUD, cardColors/chrome
+│  ├─ timeline.mjs                   # v2: validate timeline → plan.json + segments.txt
+│  ├─ timeline.example.json          # 61 s / 11 rounds example
+│  ├─ render-segment.mjs             # frame-by-frame renderer → ffmpeg (Playwright or raw CDP)
+│  ├─ cdp.mjs                        # v2: zero-dependency Chrome DevTools Protocol driver
+│  ├─ render-farm.mjs                # v2: parallel renders, retries, resume, manifest
+│  ├─ concat-and-encode.sh           # v2: platform presets, CRF, loudnorm, bt709
+│  ├─ synth_audio.py                 # numpy/scipy instrument library + arrangement demo
+│  ├─ segment.html / big-card.html   # style-segment / big-card skeletons
+│  └─ theme-board.html / theme-sheet.html
 ├─ scripts/
-│  ├─ analyze-reference.sh           # any reference MP4 -> contact sheet/cuts/spectrogram/analysis
-│  ├─ theme-preview.mjs              # render the eight theme previews, contact sheet and three-up
-│  ├─ theme-audit.mjs                # theme contrast audit (--strict for CI)
-│  └─ qa-check.sh                    # verify segment MP4s (codec/pix_fmt/size/fps/frame count)
+│  ├─ qa-video.mjs                   # v2: container/frames/black/freeze/silence/LUFS/VMAF/contact
+│  ├─ qa-audio.py                    # v2: BPM/grid/cue alignment/clipping/HF/spectrogram
+│  ├─ doctor.mjs                     # v2: environment check
+│  ├─ new-project.mjs                # v2: one-command scaffold
+│  ├─ ai-lane.mjs                    # v2: AI asset validation / overlay commands
+│  ├─ test-core.mjs                  # v2: pure-module regression tests
+│  ├─ determinism-check.mjs          # v2: same t twice, byte-identical check
+│  ├─ theme-preview.mjs              # render all theme previews, contact sheet and three-up
+│  ├─ theme-audit.mjs                # WCAG + APCA audit (--strict for CI)
+│  ├─ analyze-reference.sh           # any reference MP4 -> contact sheet/cuts/spectrogram
+│  └─ qa-check.sh                    # legacy per-segment check (still works)
 └─ assets/                           # evidence images and measured data
    ├─ contact-1fps.jpg               # 1 fps contact sheet of the 61 s reference
-   ├─ opening-tiles.jpg / style-tiles.jpg / card-tiles.jpg / flash-tiles.jpg / ending-tiles.jpg
-   ├─ template-demo-segment.jpg / template-demo-card.jpg   # stills rendered from the templates
-   ├─ audio-spectrogram.png          # log-frequency spectrogram
-   ├─ theme-previews/                # 8 theme stills + contact sheet + three-up (see Themes)
-   └─ audio-analysis.json / scene-cuts.txt / colors-per-second.json   # measured data
+   ├─ template-demo-segment.jpg / template-demo-card.jpg
+   ├─ audio-spectrogram.png
+   ├─ theme-previews/                # theme stills + contact sheet + three-up
+   └─ audio-analysis.json / scene-cuts.txt / colors-per-second.json
 ```
 
 ## The 11 styles
@@ -363,17 +395,19 @@ This README is bilingual: English first, Chinese below. `SKILL.md` itself is wri
 
 ### 这个项目是什么
 
-它不是模型，而是一套可复用的制作方法。内容来自对一支 61 秒风格展示样片的逐帧拆解：剪辑结构公式、4 套大字卡版式、11 种风格的「美术 + 技术 + 音色」配方、120 BPM 配乐、Playwright 逐帧渲染管线、质检清单，以及可直接运行的模板。样片的结构是固定句式：开场 8 秒 → 11 轮 × 4 秒（大字卡 1 秒 + 风格段 3 秒）→ 「还有更多?」卡 1 秒 → 八连闪 2 秒 → 结尾 6 秒，合计 61 秒 / 1830 帧。公式可推广到任意风格数 `N`，30–90 秒的短片都能套用。
+它不是模型，而是一套可复用的制作方法。内容来自对一支 61 秒风格展示样片的逐帧拆解：时间轴/计划、4 套大字卡版式、11 种风格的「美术 + 技术 + 音色」配方、120 BPM 配乐、零依赖 CDP/Playwright 逐帧渲染管线、并行渲染、视频/音频质检，以及可直接运行的模板。样片的结构是固定句式：开场 8 秒 → 11 轮 × 4 秒（大字卡 1 秒 + 风格段 3 秒）→ 「还有更多?」卡 1 秒 → 八连闪 2 秒 → 结尾 6 秒，合计 61 秒 / 1830 帧。公式可推广到任意风格数 `N`，30–90 秒的短片都能套用。
+
+**v2 新增**：`timeline.json → plan.json`（唯一真源、精确帧吸附）、`color.js`（OKLCH/OKLab + APCA）、`motion.js`（闭式弹簧 / CJK 避头尾 / 动态字体 / 颗粒 / RGB 分离 / Bloom）、原生 CDP 驱动、`render-farm`（并行 + 重试 + 断点续渲）、平台交付预设、`qa-video` + `qa-audio`、`doctor`、`new-project`、可选 `ai-lane`（默认关闭）。
 
 ### 仓库里有什么
 
 - **十阶段工作流**：从需求定稿、剪辑表、环境准备，到逐段实现、配乐、合成与质检（见 `SKILL.md`）。
 - **时间结构公式**：总时长 = `O + N·R + 1 + 2 + E`；每段帧数 `round(duration × 30)`，全片合计必须为 1830。
 - **大字卡系统**：强调色底 / 米白底 / 黑底居中 / 黑底左对齐 4 套版式；砸入缩放 1.7→1、模糊 16→0 px、0.11 秒 `outExpo`；速度线、径向光晕、6/12 px 抖动、600 px 描边回声字。
-- **8 套主题配色**：珊瑚暗夜（默认，与原版逐值一致）、橙光白、水蓝白·莫兰迪、琥珀黑金、蓝图纸、石墨信号、青瓷白、绯墨剧场。一套主题 = 角色色板 + 材质 + HUD 规格 + 点缀色；数据源 `templates/themes.js`，规范见 `references/themes.md`，选主题走 `references/intake.md`。
+- **13 套主题配色**：珊瑚暗夜（默认，与原版逐值一致）、橙光白、水蓝白·莫兰迪、琥珀黑金、蓝图纸、石墨信号、青瓷白、绯墨剧场、赛博霓虹、纸质手账、暗金电影、冰蓝极简、波普酸色。一套主题 = 角色色板 + 材质 + HUD 规格 + 点缀色；后 5 套由 OKLCH 派生并过 WCAG + APCA 审计。数据源 `templates/themes.js`，规范见 `references/themes.md`。
 - **11 种风格配方**：每种都给出调色板、构图、6 拍动效表、技术实现要点和专属音色。
 - **120 BPM 配乐方案**：A 小调、纯 numpy/scipy 合成；大字卡音乐压到 6% 形成 drop-out，风格段第一帧是六层叠加的「啪」；侧链 55%、2.2 秒混响、`tanh` 软削波、归一化到 −0.6 dBFS。
-- **渲染管线与质检**：服务器 → Playwright 无头 Chromium → CDP 截帧 JPEG q95 → `image2pipe` → libx264 crf16 → concat → 2-pass 3400 kbps + AAC 192k；质检覆盖画面、音频、合成三组检查项，外加 1 fps 接触表、频谱图与 `ffprobe` 帧数复核。
+- **渲染管线与质检**：`timeline.mjs` 生成 plan → Playwright 或系统 Chrome/Edge 原生 CDP →（单 canvas 页用 `toDataURL`，否则 CDP 截图）→ `image2pipe` → libx264 CRF12 中间片（bt709）→ 并行 `render-farm`（重试/续渲）→ concat + 平台预设 CRF + 两遍 loudnorm −14 LUFS → `qa-video` / `qa-audio`（帧数、黑帧、冻结、静音、VMAF、BPM、cue ±30 ms、高频克制、频谱图）。
 - **参考样片拆解与原始任务书**：`references/reference-film-analysis.md` 记录实测切点、画面与音频数据；`references/original-brief.txt` 是可改品牌直接复用的完整任务书。
 
 ### 预览说明
@@ -384,7 +418,7 @@ This README is bilingual: English first, Chinese below. `SKILL.md` itself is wri
 
 ### 主题配色
 
-主题不是「换三个颜色」，而是**角色色板（14 个 token）+ 材质 + HUD 规格 + 点缀色**四层一起换。`templates/themes.js` 内置 8 套主题；**不传 `?theme=` 时渲染原版 `coral-noir` 画面，逐像素一致**。
+主题不是「换三个颜色」，而是**角色色板（14 个 token）+ 材质 + HUD 规格 + 点缀色**四层一起换。`templates/themes.js` 内置 13 套主题（后 5 套由 OKLCH 派生、WCAG + APCA 审计）；**不传 `?theme=` 时渲染原版 `coral-noir` 画面，逐像素一致**。
 
 | # | id | 名称 | 明暗 | 主材质 | 适合内容 |
 |---|---|---|---|---|---|
@@ -396,14 +430,19 @@ This README is bilingual: English first, Chinese below. `SKILL.md` itself is wri
 | 06 | `graphite-signal` | 石墨信号 / Graphite Signal | 深色 | 哑光工业 | 开发者 / 硬件 / 硬核科技 |
 | 07 | `celadon-paper` | 青瓷白 / Celadon Paper | 浅色 | 水墨晕染 | 东方 / 文化 / 极简 |
 | 08 | `crimson-theater` | 绯墨剧场 / Crimson Theater | 深色 | 舞台聚光 | 时尚 / 艺术 / 预告 |
+| 09 | `cyber-neon` | 赛博霓虹 / Cyber Neon | 深色 | 霓虹辉光 + 网格 | 科技 / 游戏 / 预告 / 直播 |
+| 10 | `paper-journal` | 纸质手账 / Paper Journal | 浅色 | 纸面 + 细网格 | 知识 / 教程 / 生活 |
+| 11 | `dark-gold-cinema` | 暗金电影 / Dark Gold Cinema | 深色 | 烫金 + 颗粒 | 高端 / 电影感 / 年度片 |
+| 12 | `ice-minimal` | 冰蓝极简 / Ice Minimal | 浅色 | 冷白哑光 | SaaS / 数据 / 医疗 |
+| 13 | `pop-acid` | 波普酸色 / Pop Acid | 深色 | 光斑 + 颗粒 | 潮流 / 音乐 / 社交 |
 
 ![三套主推主题](assets/theme-previews/theme-three-up.jpg)
 
 *三套主推主题对比：珊瑚暗夜（默认）/ 橙光白 / 水蓝白·莫兰迪。*
 
-![8 套主题联系表](assets/theme-previews/theme-contact-sheet.jpg)
+![主题联系表](assets/theme-previews/theme-contact-sheet.jpg)
 
-*8 套主题全集。单主题大图：`assets/theme-previews/01-coral-noir.jpg` … `08-crimson-theater.jpg`。*
+*13 套主题联系表。单主题大图：`assets/theme-previews/01-coral-noir.jpg` … `13-pop-acid.jpg`；可用 `node scripts/theme-preview.mjs --root <project>` 重新生成。*
 
 ![默认主题静帧](assets/theme-previews/01-coral-noir.jpg)
 
@@ -419,52 +458,56 @@ node render-segment.mjs --page /segments/01.html?theme=aqua-morandi --out out/01
 node render-segment.mjs --page /big-card.html?theme=graphite-signal --still 0.5,1.0 --outdir out/stills
 ```
 
-主题选择属于「信息采集」，不是渲染参数：先按 `references/intake.md` 收信息（最多 2 轮）、锁定主题、写 `brief.json`，完整规范见 `references/themes.md`。任何配色改动都跑 `node scripts/theme-audit.mjs --strict`——当前 8 套全部通过。用户有真实品牌色时用 `themes.js` 的 `accentOverride(themeRef, input)`，把返回的 `override` 写进 `brief.json`，不要自创第 9 套主题。
+主题选择属于「信息采集」，不是渲染参数：先按 `references/intake.md` 收信息（最多 2 轮）、锁定主题、写 `brief.json`，完整规范见 `references/themes.md`。任何配色改动都跑 `node scripts/theme-audit.mjs --strict`——当前 13 套 WCAG 全部通过。用户有真实品牌色时用 `themes.js` 的 `accentOverride(themeRef, input)`，把返回的 `override` 写进 `brief.json`，不要自创第 14 套主题。
 
 ### 快速开始
 
-模板是脚手架，不是成片。在本仓库根目录执行：
+模板是脚手架，不是成片。
 
 ```bash
-# 0) 先采集信息——按 references/intake.md 锁定主题，把 brief.json 写进项目根
-#    看 assets/theme-previews/theme-contact-sheet.jpg 选主题（或在第 3 步重新渲染预览）
+# 0) 环境体检（Node / Chrome / FFmpeg / numpy+scipy / 字体）
+node scripts/doctor.mjs
 
-# 1) 建项目并复制模板
-mkdir -p my-showcase/segments my-showcase/shared my-showcase/fonts my-showcase/audio my-showcase/out
-cp templates/* my-showcase/
-cp scripts/* my-showcase/
-cp my-showcase/segment.html my-showcase/segments/01.html    # 第一段风格片
-cp my-showcase/common.js my-showcase/themes.js my-showcase/segments/   # segment.html 里 import 的是 ./common.js 与 ./themes.js
+# 1) 脚手架：复制运行时 + 生成 segments/*.html + timeline.json + BRIEF.json
+node scripts/new-project.mjs --out ../my-showcase --name my-showcase \
+  --theme cyber-neon --styles 11 --fonts
+cd ../my-showcase
 
-# 2) 在项目里安装渲染器（主题预览也要用它）
-(cd my-showcase && npm i playwright)   # 或 playwright-core，渲染器两者都接受
+# 2) 校验时间轴并生成 plan.json / segments.txt
+node templates/timeline.mjs --spec timeline.json \
+  --out out/plan.json --concat out/segments.txt --print
 
-# 3) 可选：渲染 8 套主题预览 + 联系表（默认写入仓库 assets/theme-previews/，在仓库根目录跑）
-node scripts/theme-preview.mjs --root my-showcase
+# 3) 先出静帧（便宜）—— t=0.2/0.8/1.4/2.0/2.6
+node templates/render-segment.mjs --page "segments/01.html?theme=cyber-neon" \
+  --still 0.2,0.8,1.4,2.0,2.6 --outdir out/stills
 
-# 4) 先出静帧（便宜）—— t=0.2/0.8/1.4/2.0/2.6
-cd my-showcase
-node render-segment.mjs --page /segments/01.html?theme=aqua-morandi --still 0.2,0.8,1.4,2.0,2.6 --outdir out/stills
+# 4) 单段 → 全片并行（--resume 断点续渲）
+node templates/render-segment.mjs --page "segments/01.html?theme=cyber-neon" \
+  --out out/r01-style.mp4 --duration 3 --t0 0.35 --speed 1.4
+node templates/render-farm.mjs --plan out/plan.json --concurrency 4 --resume
 
-# 5) 渲染一个 3 秒片段；渲染器会自启临时静态服务器
-node render-segment.mjs --page /segments/01.html?theme=aqua-morandi --out out/01.mp4 --duration 3
+# 5) 配乐（--plan 让每个 cue 落在时间轴上；再按 references/audio-recipes.md 精修）
+python templates/synth_audio.py --plan out/plan.json --out audio/mix.wav
 
-# 6) 校验分段帧数（h264 / yuv420p / 1920x1080 / fps / 帧数）
-./qa-check.sh out 30
+# 6) 合成 + 平台预设
+bash templates/concat-and-encode.sh --platform master out/segments.txt audio/mix.wav out/final.mp4 61 30
 
-# 7) 合成配乐（默认先跑 8 秒 demo 验证环境）
-python3 synth_audio.py --out audio/demo.wav
-
-# 8) 拼接 + 混音 + 2-pass 输出（默认 61 秒、30 fps、3400 kbps、AAC 192k）
-./concat-and-encode.sh segments.txt audio/mix.wav out/final.mp4
+# 7) 质检
+node scripts/qa-video.mjs out/final.mp4 --plan out/plan.json
+python scripts/qa-audio.py audio/mix.wav --plan out/plan.json --strict
+node scripts/theme-audit.mjs --strict
 ```
 
 补充说明：
 
-- `render-segment.mjs` 自带静态服务器，`--page` 传本地路径即可，完整 URL 原样使用。风格段可传 `--t0 0.35 --speed 1.4`：相对路径会自动拼成 `?seg=1&t0=&speed=&dur=`，`common.js` 按 `t = t0 + u*speed` 把片段时间映射为场景时间。
-- 渲染不需要另起服务器（渲染器已内置）。只有在浏览器里手动预览时才需要自己起一个监听 4600 端口的服务器；`references/render-pipeline.md` 第 3 节记录了一个可选的 `tools/server.mjs`（`node tools/server.mjs --port 4600`），它没有随仓库分发，因为渲染器内已有等价实现。想交互式点开主题预览板时，改成伺服 `templates/` 目录：`python3 -m http.server -d templates 4600`，然后打开 `http://localhost:4600/theme-board.html?theme=aqua-morandi`（预览板以模块方式 import `./themes.js`，`file://` 打不开）。
-- `templates/` 里的 HTML 引用 `/shared/fonts.css`，需要你自己下载 OFL 字体并写 `@font-face`；字体不随仓库分发。常用环境变量：渲染器的 `CHROME_EXE` / `FFMPEG_EXE`，脚本的 `FFMPEG` / `FFPROBE` / `VIDEO_BITRATE` / `AUDIO_BITRATE`。
-- `synth_audio.py` 是「音色库 + 8 秒可运行 demo」，完整 61 秒编排按 `references/audio-recipes.md` 扩展 `build_arrangement()`。
+- **不需要 Playwright**：`render-segment.mjs` 先试 Playwright，失败则用系统 Chrome/Edge 的原生 CDP（`templates/cdp.mjs`）。`CHROME_EXE` 或 `--browser` 可指定浏览器。
+- 单 canvas 全屏页面用 `canvas.toDataURL()` 取帧；有 DOM 叠加或 WebGL 读回问题时自动回退 CDP 截图。页面可设 `window.__capture='cdp'` 强制。
+- 风格段可传 `--t0 0.35 --speed 1.4`：渲染器自动拼成 `?seg=1&t0=&speed=&dur=`，`common.js` 按 `t = t0 + u*speed` 映射场景时间。
+- `timeline.json` 是唯一真源，不要手算 `round(duration×30)`；30 fps 下 0.25 s 闪段会吸附成 8/7/8/7 帧。字段见 `references/timeline-schema.md`。
+- 手动预览时起静态服务器：`python -m http.server -d . 4600`，打开 `http://localhost:4600/segments/01.html?theme=cyber-neon`；页面以 ES module 导入，`file://` 打不开。
+- `templates/` 的 HTML 引用 `/shared/fonts.css`；`new-project --fonts` 会复制仓库自带字体，否则自行下载 OFL 字体。
+- 常用环境变量：`CHROME_EXE` / `FFMPEG_EXE`（渲染器）、`FFMPEG` / `FFPROBE` / `PLATFORM` / `CRF`（合成）、`PYTHON`（音频 QA）。
+- `synth_audio.py` 是「音色库 + 8 秒 demo」，完整 61 秒编排按 `references/audio-recipes.md` 扩展 `build_arrangement()`，并读 `plan.json` 的 cues 保证音画同一时间基准。
 
 ### 安装为 Agent Skill
 
@@ -476,14 +519,14 @@ python3 synth_audio.py --out audio/demo.wav
 
 | 组件 | 要求 | 用途 |
 |---|---|---|
-| Node.js | ≥ 20（推荐 24） | 渲染脚本与 `playwright` |
-| npm 包 | `playwright` 或 `playwright-core`（可选 `katex`） | 无头 Chromium 驱动 |
-| 浏览器 | Playwright 自带 Chromium、Chrome for Testing 或 Edge | 逐帧截图；WebGL 走 SwiftShader |
-| FFmpeg + ffprobe | 含 libx264、AAC、`image2pipe`；分析需 `tile` / `showspectrumpic` | 编码、拼接、2-pass、接触表、频谱图 |
-| Python | ≥ 3.10 + numpy + scipy | 配乐合成、音频分析与质检脚本 |
+| Node.js | ≥ 20（推荐 24；原生 CDP 需要全局 `WebSocket`，即 Node ≥ 22） | 渲染脚本 + 原生 CDP |
+| npm 包 | **非必需**；`playwright` / `playwright-core` 可选 | 系统 Chrome/Edge 即可渲染 |
+| 浏览器 | Chrome、Edge 或 Chromium（Playwright 自带也支持） | 逐帧截图；WebGL 走 SwiftShader |
+| FFmpeg + ffprobe | 含 libx264、AAC、`loudnorm`、`blackdetect`/`freezedetect`/`silencedetect`；`libvmaf` 可选 | 编码、拼接、响度、质检、接触表 |
+| Python | ≥ 3.10 + numpy + scipy（matplotlib 可选） | 配乐合成、音频 QA、频谱图 |
 | 字体 | 全部 OFL、本地文件 | 中文与展示字体；渲染时不依赖 CDN |
 
-平台要点：Windows 下渲染器会依次尝试自带 Chromium → Chrome for Testing → Edge（`channel: 'msedge'`）；WSL/Linux 下若浏览器下载慢可用 Chrome for Testing + `executablePath`，缺 `libnss3/libnspr4/libasound2` 时可用 `apt-get download` + `dpkg-deb -x` 解到用户目录并设 `LD_LIBRARY_PATH`。`node_modules`、venv、浏览器缓存和临时帧建议放 Linux 文件系统：实测 `/mnt/e` 写 2000 个小文件约 4.9 秒，ext4 约 0.05 秒；逐帧渲染直接管道给 ffmpeg，不落盘。整个过程在本地 CPU 完成，不调用云端服务。
+平台要点：Windows 下渲染器先试 Playwright（若装），再走系统 Chrome/Edge 原生 CDP；`CHROME_EXE` / `--browser` 可指定版本。Chrome 的 stderr 写入临时日志、profile 由 detached 进程清理，避免每段进程拖尾。WSL/Linux 下若 Playwright 浏览器下载慢，可直接用 Chrome for Testing + `--browser`（原生 CDP 路径不需要 npm 包）；缺 `libnss3/libnspr4/libasound2` 时可用 `apt-get download` + `dpkg-deb -x` 解到用户目录并设 `LD_LIBRARY_PATH`。`node_modules`、venv、浏览器缓存和临时帧建议放 Linux 文件系统：实测 `/mnt/e` 写 2000 个小文件约 4.9 秒，ext4 约 0.05 秒；逐帧渲染直接管道给 ffmpeg，不落盘。整个过程在本地 CPU 完成，不调用云端服务。
 
 ### 11 种风格速查
 

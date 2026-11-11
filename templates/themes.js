@@ -27,7 +27,7 @@
  * ============================================================================
  */
 
-export const THEME_SCHEMA_VERSION = 1;
+export const THEME_SCHEMA_VERSION = 2; // v2 adds five OKLCH-derived themes
 
 /* ────────────────────────────────────────────────────────────────────────────
  * 主题数据
@@ -518,6 +518,247 @@ export const THEMES = {
       fonts: ['Playfair Display', 'Noto Sans SC', 'JetBrains Mono'],
     },
   },
+
+  /* 9 ── 赛博霓虹（OKLCH 生成：青 × 品红）────────────────────────────── */
+  'cyber-neon': {
+    id: 'cyber-neon',
+    name: '赛博霓虹',
+    nameEn: 'Cyber Neon',
+    mode: 'dark',
+    tagline: '近黑底 + 电光青，品红只做第二重音',
+    useFor: '科技 / 游戏 / 预告片 / 直播',
+    aliases: ['cyber', 'neon', '赛博', '霓虹'],
+    colors: {
+      bg: '#070d1a', bgDeep: '#01030c', surface: '#0f182b',
+      ink: '#ecf3f8', muted: '#9099a5',
+      accent: '#00dadd', accentInk: '#111111', accentSoft: '#8cebea',
+      paper: '#ecf3f8', paperInk: '#090d16', paperMuted: '#4d5566',
+      cardDark: '#040915', cardDarkInk: '#e9f0f5', flash: '#ffffff',
+    },
+    accents: [
+      { name: '电光青', hex: '#00dadd' },
+      { name: '品红', hex: '#ff2bd6' },
+      { name: '酸性绿', hex: '#b6ff2e' },
+      { name: '电紫', hex: '#8a5cff' },
+    ],
+    hud: {
+      capsuleBg: 'rgba(5,8,16,0.78)',
+      capsuleBorder: 'rgba(0,218,221,0.35)',
+      capsuleNumber: '#00dadd',
+      capsuleText: '#e9f6ff',
+      hudText: 'rgba(233,246,255,0.42)',
+      countdown: 'rgba(233,246,255,0.7)',
+    },
+    cardSheen: 'rgba(0,218,221,0.08)',
+    material: {
+      kind: 'glow',
+      name: '霓虹辉光',
+      note: '青色辉光只从边角溢出，品红只做第二重音；禁止整屏渐变。',
+      grain: 0.045,
+      glow: { color: '#00dadd', alpha: 0.22, radius: 1100, x: 0.78, y: 0.26 },
+      grid: { color: '#00dadd', alpha: 0.035, step: 96, major: 4, majorAlpha: 0.07 },
+      glass: null, foil: null, tints: null, texture: 'grain',
+    },
+    type: {
+      display: 'Noto Sans SC 900',
+      accent: 'JetBrains Mono',
+      note: '等宽字体承担编号/参数，标题保持黑体；不要用圆体。',
+      fonts: ['Noto Sans SC', 'JetBrains Mono', 'Inter'],
+    },
+  },
+
+  /* 10 ── 纸质手账（OKLCH 生成：暖纸 × 赭红）─────────────────────────── */
+  'paper-journal': {
+    id: 'paper-journal',
+    name: '纸质手账',
+    nameEn: 'Paper Journal',
+    mode: 'light',
+    tagline: '米白纸 + 赭红印章，像一本工作笔记',
+    useFor: '知识 / 教程 / 生活 / 访谈',
+    aliases: ['journal', 'paper', '手账', '纸质'],
+    colors: {
+      bg: '#f5f1e9', bgDeep: '#ebe4d6', surface: '#fefcf6',
+      ink: '#1e130e', muted: '#635146',
+      accent: '#c13e2e', accentInk: '#ffffff', accentSoft: '#f6c3ba',
+      paper: '#fefcf6', paperInk: '#1e130e', paperMuted: '#635146',
+      cardDark: '#1e130e', cardDarkInk: '#f5f1e9', flash: '#ffffff',
+    },
+    accents: [
+      { name: '赭红', hex: '#c13e2e' },
+      { name: '墨蓝', hex: '#2f5d8a' },
+      { name: '橄榄', hex: '#6f7a4a' },
+      { name: '芥末', hex: '#b8862f' },
+    ],
+    hud: {
+      capsuleBg: 'rgba(30,19,14,0.9)',
+      capsuleBorder: 'rgba(255,255,255,0.18)',
+      capsuleNumber: '#f6c3ba',
+      capsuleText: '#faf6ee',
+      hudText: 'rgba(30,19,14,0.5)',
+      countdown: 'rgba(30,19,14,0.58)',
+    },
+    cardSheen: 'rgba(255,255,255,0.16)',
+    material: {
+      kind: 'paper',
+      name: '手账纸面',
+      note: '暖纸 + 细纤维 + 极淡的装订线；不要光晕，不要玻璃。',
+      grain: 0.035,
+      glow: null,
+      grid: { color: '#8a7258', alpha: 0.035, step: 64, major: 8, majorAlpha: 0.06 },
+      glass: null, foil: null, tints: null, texture: 'paper',
+    },
+    type: {
+      display: 'Noto Serif SC 900',
+      accent: 'Ma Shan Zheng',
+      note: '标题可用宋体/手写体；正文必须黑体，保证小字号可读。',
+      fonts: ['Noto Sans SC', 'Noto Serif SC', 'Ma Shan Zheng', 'JetBrains Mono'],
+    },
+  },
+
+  /* 11 ── 暗金电影（OKLCH 生成：近黑 × 旧金）─────────────────────────── */
+  'dark-gold-cinema': {
+    id: 'dark-gold-cinema',
+    name: '暗金电影',
+    nameEn: 'Dark Gold Cinema',
+    mode: 'dark',
+    tagline: '近黑底 + 旧金烫印，预告片质感',
+    useFor: '高端 / 电影感 / 品牌年度片',
+    aliases: ['gold', 'cinema', '暗金', '电影'],
+    colors: {
+      bg: '#090503', bgDeep: '#020100', surface: '#140e09',
+      ink: '#f0ebe0', muted: '#a1968b',
+      accent: '#e7b643', accentInk: '#111111', accentSoft: '#f3dba9',
+      paper: '#f0ebe0', paperInk: '#120c07', paperMuted: '#554b42',
+      cardDark: '#050301', cardDarkInk: '#f0ebe0', flash: '#ffffff',
+    },
+    accents: [
+      { name: '旧金', hex: '#e7b643' },
+      { name: '香槟', hex: '#f3dba9' },
+      { name: '牛血红', hex: '#8f2f2f' },
+      { name: '祖母绿', hex: '#2f6b5a' },
+    ],
+    hud: {
+      capsuleBg: 'rgba(8,5,3,0.82)',
+      capsuleBorder: 'rgba(231,182,67,0.3)',
+      capsuleNumber: '#e7b643',
+      capsuleText: '#f3ead9',
+      hudText: 'rgba(243,234,217,0.4)',
+      countdown: 'rgba(243,234,217,0.66)',
+    },
+    cardSheen: 'rgba(231,182,67,0.1)',
+    material: {
+      kind: 'foil',
+      name: '金属烫金',
+      note: '金色只做烫印高光与细线，不做大面积金底；暗部保留颗粒。',
+      grain: 0.05,
+      glow: { color: '#e7b643', alpha: 0.16, radius: 980, x: 0.5, y: 0.3 },
+      grid: null, glass: null,
+      foil: { color: 'rgba(231,182,67,0.16)', angle: 24 },
+      tints: null, texture: 'grain',
+    },
+    type: {
+      display: 'Playfair Display + Noto Sans SC',
+      accent: 'Playfair Display',
+      note: '标题用高对比衬线，字距拉开；正文仍用黑体。',
+      fonts: ['Playfair Display', 'Noto Sans SC', 'JetBrains Mono'],
+    },
+  },
+
+  /* 12 ── 冰蓝极简（OKLCH 生成：冷白 × 钴蓝）────────────────────────── */
+  'ice-minimal': {
+    id: 'ice-minimal',
+    name: '冰蓝极简',
+    nameEn: 'Ice Minimal',
+    mode: 'light',
+    tagline: '冷白留白 + 钴蓝一条线，像实验室手册',
+    useFor: 'SaaS / 数据 / 医疗 / 极简品牌',
+    aliases: ['ice', 'minimal', '冰蓝', '极简'],
+    colors: {
+      bg: '#f5f9fc', bgDeep: '#e5edf1', surface: '#fcfefe',
+      ink: '#0c121a', muted: '#51606b',
+      accent: '#2171cc', accentInk: '#ffffff', accentSoft: '#b7d4f9',
+      paper: '#fcfefe', paperInk: '#0c121a', paperMuted: '#51606b',
+      cardDark: '#0c121a', cardDarkInk: '#f1f6f8', flash: '#ffffff',
+    },
+    accents: [
+      { name: '钴蓝', hex: '#2171cc' },
+      { name: '冰青', hex: '#8ec5e8' },
+      { name: '薄荷', hex: '#7fbfa8' },
+      { name: '石板', hex: '#5d6b78' },
+    ],
+    hud: {
+      capsuleBg: 'rgba(12,18,26,0.9)',
+      capsuleBorder: 'rgba(255,255,255,0.2)',
+      capsuleNumber: '#b7d4f9',
+      capsuleText: '#f7fbfe',
+      hudText: 'rgba(12,18,26,0.48)',
+      countdown: 'rgba(12,18,26,0.56)',
+    },
+    cardSheen: 'rgba(255,255,255,0.2)',
+    material: {
+      kind: 'matte',
+      name: '冷白哑光',
+      note: '大面积留白 + 1px 冷灰分割线；唯一彩色是钴蓝，禁止柔光球。',
+      grain: 0.012,
+      glow: null,
+      grid: { color: '#2171cc', alpha: 0.025, step: 120, major: 6, majorAlpha: 0.05 },
+      glass: null, foil: null, tints: null, texture: 'grid',
+    },
+    type: {
+      display: 'Noto Sans SC 700',
+      accent: 'Inter',
+      note: '数字用 Inter tnum，中文标题 700；字距略紧，行高 1.1。',
+      fonts: ['Noto Sans SC', 'Inter', 'JetBrains Mono'],
+    },
+  },
+
+  /* 13 ── 波普酸色（OKLCH 生成：酸性黄绿 × 热粉）────────────────────── */
+  'pop-acid': {
+    id: 'pop-acid',
+    name: '波普酸色',
+    nameEn: 'Pop Acid',
+    mode: 'dark',
+    tagline: '近黑 + 酸性黄绿，热粉做第二击',
+    useFor: '潮流 / 音乐 / 社交 / 青年文化',
+    aliases: ['pop', 'acid', '波普', '酸色'],
+    colors: {
+      bg: '#0b0614', bgDeep: '#030109', surface: '#170e27',
+      ink: '#f8f7ff', muted: '#a299b4',
+      accent: '#dcdb00', accentInk: '#111111', accentSoft: '#ebee9f',
+      paper: '#f5f4fc', paperInk: '#0b0614', paperMuted: '#534663',
+      cardDark: '#07040f', cardDarkInk: '#f8f7ff', flash: '#ffffff',
+    },
+    accents: [
+      { name: '酸性黄绿', hex: '#dcdb00' },
+      { name: '热粉', hex: '#ff3d8b' },
+      { name: '电青', hex: '#00e5ff' },
+      { name: '橘红', hex: '#ff7a1a' },
+    ],
+    hud: {
+      capsuleBg: 'rgba(6,3,12,0.8)',
+      capsuleBorder: 'rgba(220,219,0,0.32)',
+      capsuleNumber: '#dcdb00',
+      capsuleText: '#f8f7ff',
+      hudText: 'rgba(248,247,255,0.42)',
+      countdown: 'rgba(248,247,255,0.7)',
+    },
+    cardSheen: 'rgba(220,219,0,0.1)',
+    material: {
+      kind: 'glow',
+      name: '波普光斑',
+      note: '酸性黄绿做单点爆闪，热粉只做第二色；黑底必须压住饱和度。',
+      grain: 0.06,
+      glow: { color: '#dcdb00', alpha: 0.2, radius: 900, x: 0.3, y: 0.72 },
+      grid: { color: '#ff3d8b', alpha: 0.03, step: 72, major: 4, majorAlpha: 0.06 },
+      glass: null, foil: null, tints: null, texture: 'grain',
+    },
+    type: {
+      display: 'Noto Sans SC 900',
+      accent: 'ZCOOL KuaiLe',
+      note: '标题可以更粗更紧；数字/标签用等宽，形成反差错位。',
+      fonts: ['Noto Sans SC', 'ZCOOL KuaiLe', 'JetBrains Mono'],
+    },
+  },
 };
 
 export const THEME_IDS = Object.keys(THEMES);
@@ -834,7 +1075,9 @@ export function drawGrain(ctx, themeRef, W, H, t = 0) {
   const ox = Math.round(((t * 30) % 256 + 256) % 256);
   const oy = Math.round(((t * 47) % 256 + 256) % 256);
   ctx.save();
-  ctx.globalAlpha = Math.min(0.5, m.grain * 3.2);
+  // v2: 1.8× instead of 3.2× — the old value read as digital noise at 1080p and
+  // pushed CRF intermediates past 90 Mbps. 0.10 alpha still reads as film grain.
+  ctx.globalAlpha = Math.min(0.5, m.grain * 1.5);
   ctx.translate(-ox, -oy);
   ctx.fillStyle = pattern;
   ctx.fillRect(0, 0, W + 256, H + 256);

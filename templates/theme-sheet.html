@@ -136,19 +136,21 @@ function backdrop() {
 function drawContact(imgs) {
   const M = 84;
   const GAP = 20;
-  const COLS = 4;
-  const cellW = (W - M * 2 - GAP * (COLS - 1)) / COLS;
-  const cellH = (cellW * 9) / 16;
-  const labelH = 46;
-  const rowGap = 22;
+  const labelH = 52;
+  const rowGap = 16;
   const gridTop = 232;
+  const COLS = IDS.length <= 8 ? 4 : IDS.length <= 12 ? 4 : 5;
+  const rows = Math.ceil(IDS.length / COLS);
+  const cellW = (W - M * 2 - GAP * (COLS - 1)) / COLS;
+  const maxCellH = (H - gridTop - 60 - rows * (labelH + rowGap)) / rows;
+  const cellH = Math.min((cellW * 9) / 16, maxCellH);
 
-  spaced('CODE-VIDEO-SHOWCASE  /  THEME SYSTEM V1', M, 88, { size: 15, spacing: 2.4, color: MUTED });
+  spaced('CODE-VIDEO-SHOWCASE  /  THEME SYSTEM V2', M, 88, { size: 15, spacing: 2.4, color: MUTED });
   spaced(`${String(IDS.length).padStart(2, '0')} THEMES  ·  1920 × 1080  ·  STATIC PREVIEW`, W - M, 88, {
     size: 15, spacing: 2.2, color: MUTED, align: 'right',
   });
-  text('八种气质 · 一套版式', M, 154, { weight: 700, size: 46 });
-  spaced('THEME PREVIEWS  ·  01–08', W - M, 154, { size: 15, spacing: 2.4, color: DIM, align: 'right' });
+  text('多种气质 · 一套版式', M, 154, { weight: 700, size: 46 });
+  spaced(`THEME PREVIEWS  ·  01–${String(IDS.length).padStart(2, '0')}`, W - M, 154, { size: 15, spacing: 2.4, color: DIM, align: 'right' });
 
   ctx.fillStyle = HAIR;
   ctx.fillRect(M, 198, W - M * 2, 1);
@@ -172,27 +174,34 @@ function drawContact(imgs) {
     ctx.strokeRect(x + 0.5, y + 0.5, cellW - 1, cellH - 1);
 
     const num = String(THEME_IDS.indexOf(id) + 1).padStart(2, '0');
-    spaced(num, x, y + cellH + 21, { size: 12, spacing: 1.8, color: DIM });
-    text(th.name, x + 34, y + cellH + 21, { weight: 600, size: 20 });
-    spaced(th.nameEn.toUpperCase(), x + cellW, y + cellH + 21, {
-      size: 10.5, spacing: 1.5, color: DIM, align: 'right',
+    spaced(num, x, y + cellH + 20, { size: 12, spacing: 1.8, color: DIM });
+    text(th.name, x + 34, y + cellH + 20, { weight: 600, size: 20 });
+    // English name on its own line: 5 columns are too narrow for a right-aligned
+    // long name, and overlapping labels were unreadable at 1080p.
+    spaced(th.nameEn.toUpperCase(), x + 34, y + cellH + 40, {
+      size: 9, spacing: 1.2, color: DIM,
     });
   });
 
-  spaced(
-    '每张预览 = 主题海报 + 规格板：8 个角色 token · 4 个点缀色 · 材质说明 · A/B/C 三种大字卡 · HUD 实物',
-    M, 872, { size: 14, spacing: 0.8, color: MUTED },
-  );
-  spaced('EIGHT THEMES  ·  ONE DESIGN SYSTEM', M, 940, {
-    weight: 500, size: 30, spacing: 3, color: 'rgba(255,255,255,0.10)',
-  });
+  // With 3+ rows the grid reaches the footer; only draw the decorative lines
+  // when there is room, otherwise they collide with the last row's labels.
+  const gridBottom = gridTop + rows * (cellH + labelH + rowGap);
+  if (rows <= 2) {
+    spaced(
+      '每张预览 = 主题海报 + 规格板：8 个角色 token · 4 个点缀色 · 材质说明 · A/B/C 三种大字卡 · HUD 实物',
+      M, 872, { size: 14, spacing: 0.8, color: MUTED },
+    );
+    spaced(`${IDS.length} THEMES  ·  ONE DESIGN SYSTEM`, M, 940, {
+      weight: 500, size: 30, spacing: 3, color: 'rgba(255,255,255,0.10)',
+    });
+  }
 
   ctx.fillStyle = HAIR;
   ctx.fillRect(M, 1012, W - M * 2, 1);
   spaced('GENERATED FROM templates/themes.js  ·  templates/theme-board.html', M, 1040, {
     size: 12.5, spacing: 1.6, color: DIM,
   });
-  spaced('PREVIEW BOARD  /  8 OF 8', W - M, 1040, { size: 12.5, spacing: 1.6, color: DIM, align: 'right' });
+  spaced(`PREVIEW BOARD  /  ${IDS.length} OF ${THEME_IDS.length}`, W - M, 1040, { size: 12.5, spacing: 1.6, color: DIM, align: 'right' });
 }
 
 /* ---------- 三拼 ---------- */

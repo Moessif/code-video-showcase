@@ -21,6 +21,7 @@ use low drums (sub + tom + kick + clap). See references/audio-recipes.md section
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import sys
 
@@ -271,18 +272,34 @@ def master(x: np.ndarray, peak_db: float = -0.6, drive: float = 1.1) -> np.ndarr
 
 
 # ----------------------------------------------------------------------------- demo arrangement
-def build_arrangement() -> np.ndarray:
-    """8 s demo. Replace with the full 61 s timeline (see references/audio-recipes.md)."""
-    dur = 8.0
-    n = int(dur * SR)
+def build_arrangement(plan: dict | None = None) -> np.ndarray:
+    """8 s demo, or a full-length cue-aligned bed when plan.json is supplied.
+
+    `--plan out/plan.json` reads stats.duration + audio.cues, so every segment
+    start / card beat lands on the same time base as the picture. The musical
+    material is still the simple demo loop; replace the per-style instruments
+    with references/audio-recipes.md for a finished score.
+    """
+    if plan:
+        dur = float(plan["stats"]["duration"])
+        bpm = float(plan["audio"]["bpm"])
+        beat = 60.0 / bpm
+        bar = 4 * beat
+        chord_seq = CHORD_TABLE
+    else:
+        dur = 8.0
+        beat, bar = BEAT, BAR
+        chord_seq = [("Am", "F"), ("Am", "F")]  # 2 bars of demo
+    n = int(round(dur * SR))
     music = np.zeros(n)       # mono bus for pads/keys/lead
     drums = np.zeros(n)       # kick/snare/hat
     fx = np.zeros(n)          # risers / impacts / whooshes
 
-    chord_seq = [("Am", "F"), ("Am", "F")]  # 2 bars of demo
     kicks: list[float] = []
-    for beat_i in range(int(dur / BEAT)):
-        tb = beat_i * BEAT
+    for beat_i in range(int(dur / beat + 0.5)):
+        tb = beat_i * beat
+        if tb >= dur:
+            break
         # drums
         place(drums, kick(), tb, 0.9); kicks.append(tb)
         if beat_i % 4 in (1, 3):
@@ -290,48 +307,68 @@ def build_arrangement() -> np.ndarray:
         if beat_i % 4 == 2:
             place(drums, clap(), tb, 0.28)
         place(drums, hat(), tb, 0.18)
-        place(drums, hat(open_=True), tb + BEAT / 2, 0.10)
+        place(drums, hat(open_=True), tb + beat / 2, 0.10)
         # bass: root every beat
-        bar = int(tb // BAR)
-        root = note_freq(CHORDS[chord_seq[bar % len(chord_seq)][0]][0]) / 2
+        bar_idx = int(tb // bar)
+        root = note_freq(CHORDS[chord_seq[bar_idx % len(chord_seq)][0]][0]) / 2
         place(music, eight08(root, 0.45), tb, 0.22)
         # arp 8ths
-        chord_name = chord_seq[bar % len(chord_seq)][0]
+        chord_name = chord_seq[bar_idx % len(chord_seq)][0]
         tones = [note_freq(x) for x in CHORDS[chord_name]]
         note = tones[beat_i % len(tones)]
         place(music, epiano(note * 2, 0.4), tb, 0.10)
-        place(music, epiano(note * 4, 0.3), tb + BEAT / 2, 0.06)
+        place(music, epiano(note * 4, 0.3), tb + beat / 2, 0.06)
 
     # pad per bar
-    for bar_i in range(int(dur / BAR)):
+    for bar_i in range(int(dur / bar + 0.5)):
         first, second = chord_seq[bar_i % len(chord_seq)]
-        for chord_name, off in ((first, 0.0), (second, 2 * BEAT)):
+        for chord_name, off in ((first, 0.0), (second, 2 * beat)):
             freqs = [note_freq(x) for x in CHORDS[chord_name]]
-            t = t_axis(2 * BEAT)
+            t = t_axis(2 * beat)
             pad = sum(np.sin(2 * np.pi * f * t) for f in freqs) / len(freqs)
             pad = lowpass(pad, 1800) * adsr(len(t), 0.05, 0.2, 0.8, 0.2)
-            place(music, pad, bar_i * BAR + off, 0.12)
+            place(music, pad, bar_i * bar + off, 0.12)
 
     # impacts / riser
     place(fx, sub_boom(), 0.0, 0.8)
-    place(fx, reverse_crash(), BEAT)
-    place(fx, whoosh(), 2 * BEAT, 0.4)
-    place(fx, riser(2.0), dur - 2.0, 0.4)
+    place(fx, reverse_crash(), beat)
+    place(fx, whoosh(), 2 * beat, 0.4)
+    place(fx, riser(2.0), max(0.0, dur - 2.0), 0.4)
+
+    # v2: land the picture cues on the same grid (segment starts, card keyword,
+    # style second beat). This is what makes qa-audio's ±30 ms check meaningful.
+    if plan:
+        for cue in plan.get("audio", {}).get("cues", []):
+            tc = float(cue.get("t", -1))
+            if 0 <= tc < dur:
+                kind = cue.get("kind")
+                place(fx, sub_boom(), tc, 0.55)
+                place(drums, kick(), tc, 0.7); kicks.append(tc)
+                if kind in ("start", "card-keyword"):
+                    place(drums, clap(), tc, 0.26)
 
     sc = kick_sidechain(n, kicks, 0.5)
     music *= sc
 
     mix = drums * 0.9 + music * 0.8 + fx
+    # 0.6 s fade at the tail so the film ends on silence, not a cut.
+    fade_n = min(n, int(0.6 * SR))
+    if fade_n > 1:
+        mix[-fade_n:] *= np.linspace(1.0, 0.0, fade_n)
     stereo = reverb_stereo(mix, make_ir(), wet=0.18)
     return master(stereo)
 
 
 def main() -> int:
-    ap = argparse.ArgumentParser(description="numpy/scipy synth toolkit demo")
+    ap = argparse.ArgumentParser(description="numpy/scipy synth toolkit")
     ap.add_argument("--out", default=os.path.join("audio", "demo.wav"))
+    ap.add_argument("--plan", help="out/plan.json: render the full duration and land every cue on the timeline")
     args = ap.parse_args()
+    plan = json.load(open(args.plan, encoding="utf-8")) if args.plan else None
+    if plan and "stats" not in plan:
+        raise SystemExit(f"{args.plan} is not a timeline plan (missing stats)")
     os.makedirs(os.path.dirname(os.path.abspath(args.out)), exist_ok=True)
-    audio = build_arrangement()
+    audio = build_arrangement(plan)
     wavfile.write(args.out, SR, np.ascontiguousarray(audio.T.astype(np.float32)))
     peak = float(np.max(np.abs(audio)))
     print(f"wrote {args.out}  {audio.shape[1] / SR:.2f}s  {SR} Hz stereo  peak={peak:.3f} ({20*np.log10(peak):.1f} dBFS)")

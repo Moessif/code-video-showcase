@@ -1,0 +1,81 @@
+name: render-smoke
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  smoke:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    env:
+      CHROME_EXE: /usr/bin/google-chrome
+      FFMPEG: ffmpeg
+      FFPROBE: ffprobe
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install ffmpeg
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg fonts-noto-cjk
+
+      - name: Install npm deps (fonts only; Playwright is optional)
+        run: npm install --no-audit --no-fund
+
+      - name: Font placeholder (repo does not ship the 60 MB font set)
+        run: |
+          mkdir -p shared/fonts
+          printf '/* CI smoke: no bundled fonts; system Noto CJK is used. */\n' > shared/fonts.css
+
+      - name: Pure-module tests
+        run: node scripts/test-core.mjs
+
+      - name: Theme audit (WCAG + APCA)
+        run: node scripts/theme-audit.mjs --strict
+
+      - name: Timeline check (61 s example)
+        run: node templates/timeline.mjs --spec templates/timeline.example.json --check
+
+      - name: Determinism (same t, two fresh browsers)
+        run: node scripts/determinism-check.mjs --page "templates/segment.html?theme=coral-noir" --t 0.5
+
+      - name: Render 2 s smoke segment (system Chrome + raw CDP)
+        run: |
+          mkdir -p out/smoke
+          node templates/render-segment.mjs \
+            --page templates/segment.html \
+            --out out/smoke/seg.mp4 \
+            --duration 2 --fps 30 --capture auto \
+            --browser "$CHROME_EXE"
+
+      - name: Synthesize 2 s audio and encode
+        run: |
+          ffmpeg -y -hide_banner -loglevel error -f lavfi -i "sine=frequency=220:duration=2" \
+            -ar 48000 -ac 2 out/smoke/audio.wav
+          printf "file '%s'\n" "$(pwd)/out/smoke/seg.mp4" > out/smoke/segments.txt
+          bash templates/concat-and-encode.sh --platform master --no-loudnorm \
+            out/smoke/segments.txt out/smoke/audio.wav out/smoke/final.mp4 2 30
+
+      - name: Video QA
+        run: |
+          node scripts/qa-video.mjs out/smoke/final.mp4 \
+            --width 1920 --height 1080 --fps 30 --duration 2 \
+            --ref out/smoke/seg.mp4 --min-vmaf 90 \
+            --json out/smoke/qa.json --contact out/smoke/contact.jpg
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: smoke-${{ github.sha }}
+          path: |
+            out/smoke/
+            qa/
+          if-no-files-found: warn
+          retention-days: 7
