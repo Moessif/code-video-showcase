@@ -120,12 +120,36 @@ async function connect(wsUrl, timeout = 15000) {
 
 /**
  * Launch a headless browser and return a session bound to one page.
- * @returns {Promise<{client:Cdp, sessionId:string, targetId:string, executable:string, close:()=>Promise<void>}>}
+ *
+ * Options:
+ *   profileDir     use this directory as --user-data-dir (persistent). Default
+ *                  is a fresh temp profile that is removed on close.
+ *   removeProfile  delete the persistent profile on close (default false).
+ *   extraArgs      extra Chrome flags (appended verbatim).
+ *
+ * The returned object also exposes `createPage()` so one browser can render
+ * many segments without paying the (expensive) SwiftShader startup each time.
+ *
+ * @returns {Promise<{client:Cdp, sessionId:string, targetId:string, executable:string, createPage:Function, close:()=>Promise<void>}>}
  */
-export async function launch({ executablePath, width = 1920, height = 1080, headed = false, timeout = 20000 } = {}) {
+export async function launch({
+  executablePath, width = 1920, height = 1080, headed = false, timeout = 20000,
+  profileDir = null, removeProfile = false, extraArgs = [],
+} = {}) {
   const exe = executablePath || browserCandidates()[0];
   if (!exe) throw new Error('no Chrome/Edge/Chromium found; set CHROME_EXE or install playwright');
-  const userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cvshow-cdp-'));
+  const persistent = !!profileDir;
+  const userDataDir = persistent
+    ? path.resolve(String(profileDir))
+    : fs.mkdtempSync(path.join(os.tmpdir(), 'cvshow-cdp-'));
+  if (persistent) {
+    fs.mkdirSync(userDataDir, { recursive: true });
+    // A crashed previous run can leave singleton locks behind and make Chrome
+    // silently hand off to the dead instance (or refuse to start).
+    for (const f of ['SingletonLock', 'SingletonSocket', 'SingletonCookie']) {
+      try { fs.unlinkSync(path.join(userDataDir, f)); } catch { /* none */ }
+    }
+  }
   const args = [
     headed ? '--new-window' : '--headless=new',
     '--remote-debugging-port=0',
@@ -138,6 +162,7 @@ export async function launch({ executablePath, width = 1920, height = 1080, head
     '--run-all-compositor-stages-before-draw', '--disable-frame-rate-limit', '--disable-gpu-vsync',
     '--enable-unsafe-swiftshader', '--use-angle=swiftshader', '--enable-webgl', '--ignore-gpu-blocklist',
     '--disable-dev-shm-usage', '--disable-gpu-sandbox', '--disable-search-engine-choice-screen',
+    ...extraArgs,
     'about:blank',
   ];
   if (process.platform !== 'win32') args.unshift('--no-sandbox', '--disable-setuid-sandbox');
@@ -171,23 +196,38 @@ export async function launch({ executablePath, width = 1920, height = 1080, head
   }
 
   const client = await connect(`ws://127.0.0.1:${port}${wsPath}`, timeout);
-  const { targetId } = await client.send('Target.createTarget', { url: 'about:blank' });
-  const { sessionId } = await client.send('Target.attachToTarget', { targetId, flatten: true });
-  await client.send('Page.enable', {}, sessionId);
-  await client.send('Runtime.enable', {}, sessionId);
-  await client.send('Emulation.setDeviceMetricsOverride', {
-    width, height, deviceScaleFactor: 1, mobile: false,
-    screenWidth: width, screenHeight: height,
-  }, sessionId);
+
+  /** Create a fresh tab bound to a flat CDP session with the given viewport. */
+  async function createPage({ width: w = width, height: h = height } = {}) {
+    const { targetId: tid } = await client.send('Target.createTarget', { url: 'about:blank' });
+    const { sessionId } = await client.send('Target.attachToTarget', { targetId: tid, flatten: true });
+    await client.send('Page.enable', {}, sessionId);
+    await client.send('Runtime.enable', {}, sessionId);
+    await client.send('Emulation.setDeviceMetricsOverride', {
+      width: w, height: h, deviceScaleFactor: 1, mobile: false,
+      screenWidth: w, screenHeight: h,
+    }, sessionId);
+    return {
+      sessionId,
+      targetId: tid,
+      close: async () => {
+        try { await client.send('Target.closeTarget', { targetId: tid }); } catch { /* already gone */ }
+      },
+    };
+  }
+
+  const first = await createPage({ width, height });
+  const { sessionId, targetId } = first;
 
   const close = async () => {
-    try { await client.send('Target.closeTarget', { targetId }); } catch { /* ignore */ }
+    try { await first.close(); } catch { /* ignore */ }
     client.close();
     try { proc.kill('SIGKILL'); } catch { /* ignore */ }
     try { fs.closeSync(logFd); } catch { /* ignore */ }
     await sleep(40);
     // Removing a Chrome profile synchronously can take seconds on Windows (and
     // would delay every render). Hand it to a detached, unref'd process.
+    if (persistent && !removeProfile) return;
     try {
       const [c, a] = process.platform === 'win32'
         ? ['cmd', ['/c', 'rmdir', '/s', '/q', userDataDir]]
@@ -196,7 +236,7 @@ export async function launch({ executablePath, width = 1920, height = 1080, head
     } catch { /* ignore */ }
   };
 
-  return { client, sessionId, targetId, executable: exe, close };
+  return { client, sessionId, targetId, executable: exe, createPage, userDataDir, close };
 }
 
 /** Evaluate an expression or function-with-arg inside the page. */

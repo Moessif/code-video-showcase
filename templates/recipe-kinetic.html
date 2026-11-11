@@ -1,0 +1,228 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<link rel="stylesheet" href="/shared/fonts.css">
+<title>recipe 13 · kinetic type</title>
+<style>
+  html, body { margin: 0; padding: 0; overflow: hidden; background: #0e0e0d; }
+  #c { display: block; }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+
+<script type="module">
+// recipe-kinetic.html — 风格段 13「动态字体 / 大字排版」。
+//
+// 渲染契约（与 segment.html 一致）：
+//   window.DURATION        从 ?dur= 读，默认 3
+//   window.renderFrame(t)  纯函数：同一 t 两次渲染逐像素一致
+//   window.__ready / window.__bootError
+//
+// 画幅（D7）：画布尺寸由 util.setupStage() 从 window.innerWidth / window.innerHeight
+// 取（偶数，缺省 1920×1080），竖屏按短边重排字号与安全区。
+//
+// 视觉：逐字入场 + 字距呼吸 + 基线错位 + 背景速度线 + 巨型描边数字 13。
+import { createSegment, applyImpact2D, drawFlash, loadFonts, vars } from './common.js';
+import { themeFromURL, getTheme, loadFontsFor, drawThemeBackground, hexToRgba } from './themes.js';
+import {
+  clamp, ease, hash01, setupStage, safePad, fitTextSize, measureChars,
+  drawTracked, drawHud, drawTopMeta,
+} from './recipes/util.js';
+
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d', { alpha: false });
+const { W, H, portrait } = setupStage(canvas);
+const pad = safePad(W, H);
+
+const params = new URLSearchParams(location.search);
+const seg = createSegment({ duration: 3.0 });
+window.DURATION = seg.duration;
+
+const THEME = getTheme(themeFromURL(location.search));
+const TC = THEME.colors;
+const V = vars();
+const TITLE = String(params.get('title') || V.title || '速度即风格').slice(0, 16);
+const SUBTITLE = String(V.subtitle || 'MOTION IS THE MESSAGE').slice(0, 48);
+const BRAND = String(V.brand || 'CVS').slice(0, 24);
+
+const isLight = THEME.mode === 'light';
+const INK = isLight ? TC.ink : TC.paper;
+const MUTED = hexToRgba(isLight ? TC.ink : TC.paper, 0.5);
+const ACCENT = TC.accent;
+const GHOST = hexToRgba(ACCENT, isLight ? 0.09 : 0.13);
+
+const SANS = '"Noto Sans SC", "PingFang SC", sans-serif';
+const MONO = '"JetBrains Mono", ui-monospace, monospace';
+const FAMILIES = Array.from(new Set([
+  ...(loadFontsFor(THEME) || []),
+  'Noto Sans SC', 'JetBrains Mono', 'Inter',
+]));
+
+let LAYOUT = null;
+
+function buildLayout() {
+  const chars = Array.from(TITLE);
+  const maxW = (W - pad * 2) * (portrait ? 0.96 : 0.88);
+  const size = fitTextSize(ctx, TITLE, {
+    maxWidth: maxW,
+    family: SANS,
+    weight: 900,
+    maxSize: Math.round(H * (portrait ? 0.155 : 0.3)),
+    minSize: 34,
+    spacing: 0.018,
+  });
+  return { chars, size, cx: W / 2, cy: H * (portrait ? 0.44 : 0.465) };
+}
+
+/* ───────────────────────────── 背景层 ───────────────────────────── */
+
+function drawGhost(t) {
+  const size = Math.round(H * (portrait ? 0.4 : 0.62));
+  const x = W - pad * 0.35;
+  const y = H * (portrait ? 0.17 : 0.29) + Math.sin(t * 0.7) * H * 0.012;
+  ctx.save();
+  ctx.textAlign = 'right';
+  ctx.textBaseline = 'middle';
+  ctx.font = `900 ${size}px ${SANS}`;
+  ctx.fillStyle = GHOST;
+  ctx.fillText('13', x, y);
+  ctx.restore();
+}
+
+function drawSpeedLines(t) {
+  const count = portrait ? 16 : 24;
+  ctx.save();
+  for (let i = 0; i < count; i++) {
+    const y = Math.round(hash01(i, 11) * H);
+    const len = (0.05 + 0.24 * hash01(i, 12)) * W;
+    const speed = 320 + hash01(i, 13) * 2100;
+    const span = W + len;
+    const x = ((hash01(i, 14) * span + t * speed) % span) - len;
+    const thick = hash01(i, 15) > 0.86 ? 3 : 1;
+    const alpha = 0.05 + 0.12 * hash01(i, 16);
+    ctx.fillStyle = hexToRgba(ACCENT, alpha);
+    ctx.fillRect(x, y, len, thick);
+    // 线头亮点：让速度线有方向感
+    ctx.fillStyle = hexToRgba(ACCENT, Math.min(1, alpha * 3.2));
+    ctx.fillRect(x + len - thick * 2, y, thick * 2, thick);
+  }
+  ctx.restore();
+}
+
+/* ───────────────────────────── 标题层 ───────────────────────────── */
+
+function drawTitleBlock(t) {
+  const L = LAYOUT;
+  const n = L.chars.length;
+  const spacing = L.size * (0.016 + 0.022 * Math.sin(t * 2.15));
+  const { advances, total } = measureChars(ctx, L.chars, {
+    size: L.size, family: SANS, weight: 900, spacing,
+  });
+
+  ctx.save();
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'middle';
+  ctx.font = `900 ${L.size}px ${SANS}`;
+
+  let x = L.cx - total / 2;
+  for (let i = 0; i < n; i++) {
+    const p = clamp((t - 0.05 - i * 0.055) / 0.48);
+    const e = ease.outExpo(p);
+    if (e > 0.002) {
+      const dy = (1 - e) * L.size * 0.62 + Math.sin(t * 1.75 + i * 0.92) * L.size * 0.026;
+      ctx.globalAlpha = e;
+      ctx.fillStyle = i === n - 1 ? ACCENT : INK;
+      ctx.fillText(L.chars[i], x, L.cy + dy);
+    }
+    x += advances[i] + spacing;
+  }
+  ctx.globalAlpha = 1;
+
+  // eyebrow：编号 + 配方名
+  const ebSize = Math.max(12, Math.round(L.size * 0.135));
+  ctx.globalAlpha = ease.outExpo(clamp((t - 0.02) / 0.35));
+  drawTracked(ctx, '13 · KINETIC TYPE', L.cx, L.cy - L.size * 0.8, {
+    size: ebSize, family: MONO, weight: 600, color: ACCENT,
+    tracking: ebSize * 0.42, align: 'center',
+  });
+
+  // 下划线：从中线向两侧展开
+  const grow = ease.outExpo(clamp((t - 0.5) / 0.55));
+  if (grow > 0.01) {
+    const uw = (total + L.size * 0.18) * grow;
+    const uh = Math.max(2, Math.round(L.size * 0.014));
+    ctx.fillStyle = ACCENT;
+    ctx.fillRect(Math.round(L.cx - uw / 2), Math.round(L.cy + L.size * 0.63), Math.round(uw), uh);
+    ctx.fillStyle = hexToRgba(ACCENT, 0.35);
+    ctx.fillRect(
+      Math.round(L.cx + uw / 2 - L.size * 0.085),
+      Math.round(L.cy + L.size * 0.63),
+      uh,
+      Math.max(2, Math.round(L.size * 0.085)),
+    );
+  }
+
+  // 副标题
+  const subA = ease.outCubic(clamp((t - 0.85) / 0.45));
+  if (subA > 0.002) {
+    ctx.globalAlpha = subA;
+    drawTracked(ctx, SUBTITLE, L.cx, L.cy + L.size * 0.87, {
+      size: Math.max(13, Math.round(L.size * 0.105)), family: MONO, weight: 500,
+      color: MUTED, tracking: L.size * 0.026, align: 'center',
+    });
+  }
+
+  ctx.globalAlpha = 1;
+  ctx.restore();
+}
+
+/* ───────────────────────────── 渲染入口 ───────────────────────────── */
+
+window.renderFrame = (u) => {
+  const { t, fx } = seg.sample(u);
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.globalAlpha = 1;
+  ctx.globalCompositeOperation = 'source-over';
+
+  ctx.save();
+  applyImpact2D(ctx, fx, W, H);
+  drawThemeBackground(ctx, THEME, W, H, t);
+  drawGhost(t);
+  drawSpeedLines(t);
+  drawTitleBlock(t);
+  drawTopMeta(ctx, {
+    W, H, pad,
+    text: `${BRAND} · ${String(THEME.nameEn || THEME.id).toUpperCase()}`,
+    sub: 'RECIPE 13 · KINETIC TYPE',
+    color: MUTED,
+    accent: ACCENT,
+  });
+  drawHud(ctx, {
+    W, H, u, duration: seg.duration, theme: THEME,
+    label: 'STYLE 13 / 16', name: 'KINETIC TYPE', brand: BRAND, pad,
+  });
+  ctx.restore();
+
+  drawFlash(ctx, fx.flash, W, H, TC.flash || '#ffffff');
+};
+
+/* ───────────────────────────── 启动 ───────────────────────────── */
+
+window.__ready = false;
+window.__bootError = null;
+
+(async () => {
+  await loadFonts(FAMILIES);
+  LAYOUT = buildLayout();
+  window.renderFrame(0);
+  window.__ready = true;
+})().catch((err) => {
+  window.__bootError = String((err && err.stack) || err);
+});
+
+window.__seg = seg;
+</script>
+</body>
+</html>

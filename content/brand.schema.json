@@ -1,0 +1,147 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://code-video-showcase.local/content/brand.schema.json",
+  "title": "code-video-showcase brand kit v1",
+  "description": "一套品牌包：强调色、logo、字体、口吻。由 scripts/brand.mjs 读取并合入 project spec；不改变 format/structure/rounds。",
+  "type": "object",
+  "required": ["id", "name", "aliases", "colors", "logo", "fonts", "voice", "meta"],
+  "additionalProperties": false,
+  "properties": {
+    "id": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9_-]{1,63}$",
+      "description": "稳定标识，用于 brandKit.id 与 CLI 引用。小写字母/数字/-/_。"
+    },
+    "name": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64,
+      "description": "展示名，写入 spec.meta.brand。"
+    },
+    "aliases": {
+      "type": "array",
+      "minItems": 0,
+      "maxItems": 24,
+      "uniqueItems": true,
+      "items": { "type": "string", "minLength": 1, "maxLength": 64 },
+      "description": "人类可读别名（中英文均可）。"
+    },
+    "colors": {
+      "type": "object",
+      "required": ["accent"],
+      "additionalProperties": false,
+      "properties": {
+        "accent": {
+          "$ref": "#/definitions/hex",
+          "description": "品牌强调色。写入 look.accentOverride.accent。"
+        },
+        "accentInk": {
+          "$ref": "#/definitions/hex",
+          "description": "强调底上的文字色；不填则由主题派生。"
+        },
+        "accentSoft": {
+          "$ref": "#/definitions/hex",
+          "description": "强调色的浅色变体；不填则由主题混色派生。"
+        }
+      }
+    },
+    "logo": {
+      "type": "object",
+      "required": ["path"],
+      "additionalProperties": false,
+      "properties": {
+        "path": {
+          "type": "string",
+          "minLength": 1,
+          "description": "相对仓库根的路径。当前只校验存在性，尚未绘制。"
+        },
+        "safeArea": {
+          "type": "object",
+          "required": ["top", "right", "bottom", "left"],
+          "additionalProperties": false,
+          "properties": {
+            "top": { "type": "number", "minimum": 0, "maximum": 4096 },
+            "right": { "type": "number", "minimum": 0, "maximum": 4096 },
+            "bottom": { "type": "number", "minimum": 0, "maximum": 4096 },
+            "left": { "type": "number", "minimum": 0, "maximum": 4096 }
+          },
+          "description": "logo 四周留白（px）。任一边 < 24 触发 W_LOGO_SAFE_AREA。"
+        },
+        "minWidth": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 10000,
+          "description": "logo 最小绘制宽度（px）。当前仅记录，不参与渲染。"
+        }
+      }
+    },
+    "fonts": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "heading": { "$ref": "#/definitions/fontFamily" },
+        "body": { "$ref": "#/definitions/fontFamily" },
+        "mono": { "$ref": "#/definitions/fontFamily" }
+      },
+      "description": "只允许仓库已提供的 OFL 字族（shared/fonts.css）。"
+    },
+    "voice": {
+      "type": "object",
+      "required": ["cta", "forbiddenWords"],
+      "additionalProperties": false,
+      "properties": {
+        "cta": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 40,
+          "description": "行动号召；仅当 spec.meta.cta 为空或 {{...}} 占位时写入。"
+        },
+        "forbiddenWords": {
+          "type": "array",
+          "minItems": 0,
+          "maxItems": 200,
+          "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1, "maxLength": 40 },
+          "description": "禁用词。大小写不敏感，中文按包含匹配。"
+        },
+        "tone": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 120,
+          "description": "口吻备注，供人和 agent 读，不参与机器校验。"
+        }
+      }
+    },
+    "meta": {
+      "type": "object",
+      "required": ["owner", "updatedAt"],
+      "additionalProperties": false,
+      "properties": {
+        "owner": { "type": "string", "minLength": 1, "maxLength": 120 },
+        "updatedAt": {
+          "type": "string",
+          "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$",
+          "description": "YYYY-MM-DD。"
+        }
+      }
+    }
+  },
+  "definitions": {
+    "hex": {
+      "type": "string",
+      "pattern": "^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$"
+    },
+    "fontFamily": {
+      "type": "string",
+      "enum": [
+        "Inter",
+        "JetBrains Mono",
+        "Noto Sans SC",
+        "Noto Serif SC",
+        "Orbitron",
+        "Playfair Display",
+        "ZCOOL KuaiLe"
+      ]
+    }
+  }
+}

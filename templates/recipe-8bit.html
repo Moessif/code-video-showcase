@@ -1,0 +1,398 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<link rel="stylesheet" href="/shared/fonts.css">
+<title>recipe 16 · 8-bit</title>
+<style>
+  html, body { margin: 0; padding: 0; overflow: hidden; background: #0b0614; }
+  #c { display: block; }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+
+<script type="module">
+// recipe-8bit.html — 风格段 16「8-bit 像素 / 精灵 / 扫描线」。
+//
+// 渲染契约：
+//   window.DURATION / window.renderFrame(t)（纯函数）/ window.__ready / window.__bootError
+//
+// 画幅（D7）：画布尺寸来自 window.innerWidth / window.innerHeight（经 util.setupStage()，
+// 偶数、缺省 1920×1080）。低分辨率缓冲按画幅取 480×270（横）或 270×480（竖），
+// 整数倍最近邻放大，保持像素网格。
+//
+// 视觉：视差山丘 + 地面瓦片 + 机器人两帧跑动 + 金币旋转 + 史莱姆 + 血条 + 扫描线。
+import { createSegment, applyImpact2D, drawFlash, loadFonts, vars } from './common.js';
+import {
+  themeFromURL, getTheme, loadFontsFor, hexToRgba, mix, relativeLuminance,
+} from './themes.js';
+import { drawPixelText, measurePixelText } from './styles/cyber-pixel.js';
+import {
+  clamp, hash01, setupStage, safePad, drawHud,
+} from './recipes/util.js';
+
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d', { alpha: false });
+const { W, H, portrait } = setupStage(canvas);
+const pad = safePad(W, H);
+
+const params = new URLSearchParams(location.search);
+const seg = createSegment({ duration: 3.0 });
+window.DURATION = seg.duration;
+
+const THEME = getTheme(themeFromURL(location.search));
+const TC = THEME.colors;
+const V = vars();
+const TITLE = String(params.get('title') || V.title || 'STAGE CLEAR!').toUpperCase().slice(0, 14);
+const BRAND = String(V.brand || 'CVS').slice(0, 24);
+
+const isLight = THEME.mode === 'light' || relativeLuminance(TC.bg) > 0.55;
+const INK = isLight ? TC.ink : TC.paper;
+const ACCENT = TC.accent;
+const ACCENT_SOFT = TC.accentSoft || TC.accent;
+const GOLD = (THEME.accents && THEME.accents[1] && THEME.accents[1].hex) || TC.accentSoft || TC.accent;
+const SKY_TOP = isLight ? TC.bg : mix(TC.bgDeep, TC.accent, 0.08);
+const SKY_MID = isLight ? mix(TC.bg, TC.accent, 0.1) : mix(TC.bg, TC.accent, 0.14);
+const HILL_FAR = mix(TC.bg, TC.accent, isLight ? 0.2 : 0.28);
+const HILL_MID = mix(TC.bg, TC.accent, isLight ? 0.36 : 0.46);
+const HILL_NEAR = mix(TC.bg, TC.accent, isLight ? 0.52 : 0.64);
+const GROUND = isLight ? mix(TC.surface, TC.ink, 0.16) : mix(TC.bgDeep, '#000000', 0.4);
+const SHADE = isLight ? mix(TC.ink, TC.bg, 0.35) : mix(TC.bgDeep, '#000000', 0.55);
+const EYE = isLight ? TC.paper : TC.bgDeep;
+const BG = isLight ? TC.bgDeep : TC.bgDeep;
+
+const SANS = '"Noto Sans SC", "PingFang SC", sans-serif';
+const MONO = '"JetBrains Mono", ui-monospace, monospace';
+const FAMILIES = Array.from(new Set([
+  ...(loadFontsFor(THEME) || []),
+  'Noto Sans SC', 'JetBrains Mono', 'Inter',
+]));
+
+/* ───────────────────────────── 低分辨率缓冲 ───────────────────────────── */
+
+const aspect = W / H;
+let LW;
+let LH;
+if (aspect >= 1) {
+  LW = 480;
+  LH = Math.max(120, Math.round((480 / aspect) / 2) * 2);
+} else {
+  LH = 480;
+  LW = Math.max(120, Math.round((480 * aspect) / 2) * 2);
+}
+const SCALE = Math.max(1, Math.floor(Math.min(W / LW, H / LH)));
+const OX = Math.round((W - LW * SCALE) / 2);
+const OY = Math.round((H - LH * SCALE) / 2);
+
+const low = document.createElement('canvas');
+low.width = LW;
+low.height = LH;
+const lc = low.getContext('2d', { alpha: false });
+lc.imageSmoothingEnabled = false;
+
+const VIGNETTE = document.createElement('canvas');
+VIGNETTE.width = LW;
+VIGNETTE.height = LH;
+{
+  const vg = VIGNETTE.getContext('2d');
+  const grad = vg.createRadialGradient(LW / 2, LH / 2, Math.min(LW, LH) * 0.34, LW / 2, LH / 2, Math.max(LW, LH) * 0.72);
+  grad.addColorStop(0, 'rgba(0,0,0,0)');
+  grad.addColorStop(1, 'rgba(0,0,0,0.42)');
+  vg.fillStyle = grad;
+  vg.fillRect(0, 0, LW, LH);
+}
+
+/* ───────────────────────────── 像素基元 ───────────────────────────── */
+
+function fill(x, y, w, h, color, alpha = 1) {
+  if (alpha <= 0.002 || w <= 0 || h <= 0) return;
+  lc.globalAlpha = clamp(alpha);
+  lc.fillStyle = color;
+  lc.fillRect(Math.round(x), Math.round(y), Math.round(w), Math.round(h));
+  lc.globalAlpha = 1;
+}
+
+function pixelCircle(cx, cy, r, color, alpha = 1) {
+  const ir = Math.max(1, Math.round(r));
+  for (let dy = -ir; dy <= ir; dy++) {
+    const half = Math.floor(Math.sqrt(Math.max(0, ir * ir - dy * dy)));
+    fill(cx - half, cy + dy, half * 2 + 1, 1, color, alpha);
+  }
+}
+
+function sprite(rows, x, y) {
+  for (let r = 0; r < rows.length; r++) {
+    const row = rows[r];
+    for (let c = 0; c < row.length; c++) {
+      const ch = row[c];
+      const color = ch === 'r' ? ACCENT
+        : ch === 'R' ? ACCENT_SOFT
+          : ch === 'e' ? EYE
+            : ch === 'k' ? SHADE
+              : null;
+      if (color) fill(x + c, y + r, 1, 1, color);
+    }
+  }
+}
+
+/* ───────────────────────────── 精灵 ───────────────────────────── */
+
+const ROBOT_A = [
+  '....rrrr....',
+  '...rrrrrr...',
+  '...reeeer...',
+  '...rrrrrr...',
+  '....rrrr....',
+  '..rrrrrrrr..',
+  '.rrRRRRRRrr.',
+  '.rrRRRRRRrr.',
+  '..rrrrrrrr..',
+  '...rr..rr...',
+  '...rr..rr...',
+  '..rr....rr..',
+];
+
+const ROBOT_B = [
+  '....rrrr....',
+  '...rrrrrr...',
+  '...reeeer...',
+  '...rrrrrr...',
+  '....rrrr....',
+  '..rrrrrrrr..',
+  '.rrRRRRRRrr.',
+  '.rrRRRRRRrr.',
+  '..rrrrrrrr..',
+  '...rr..rr...',
+  '..rr....rr..',
+  '.rr......rr.',
+];
+
+const GROUND_Y = Math.round(LH * 0.775);
+
+/* ───────────────────────────── 场景 ───────────────────────────── */
+
+function drawStars(t) {
+  const frame = Math.floor(t * 12);
+  for (let i = 0; i < 26; i++) {
+    const x = Math.floor(hash01(i, 21) * LW);
+    const y = Math.floor(hash01(i, 22) * LH * 0.45);
+    const tw = hash01(i, 23 + frame);
+    if (tw < 0.35) continue;
+    fill(x, y, hash01(i, 24) > 0.86 ? 2 : 1, 1, INK, 0.3 + tw * 0.6);
+  }
+}
+
+function drawHills(t) {
+  const layers = [
+    { base: 0.62, amp: 0.055, freq: 0.017, speed: 5, color: HILL_FAR },
+    { base: 0.7, amp: 0.05, freq: 0.024, speed: 11, color: HILL_MID },
+    { base: 0.775, amp: 0.034, freq: 0.033, speed: 19, color: HILL_NEAR },
+  ];
+  for (const L of layers) {
+    const baseY = LH * L.base;
+    const off = t * L.speed;
+    for (let x = 0; x < LW; x += 4) {
+      const y = baseY
+        - Math.sin((x + off) * L.freq) * LH * L.amp
+        - Math.sin((x * 0.47 + off * 0.6) * L.freq * 1.7) * LH * L.amp * 0.45;
+      fill(x, y, 4, LH - y, L.color);
+    }
+  }
+}
+
+function drawGround(t) {
+  fill(0, GROUND_Y, LW, LH - GROUND_Y, GROUND);
+  fill(0, GROUND_Y, LW, 1, INK, 0.28);
+
+  const tile = 16;
+  const off = Math.floor(t * 44) % tile;
+  let row = 0;
+  for (let y = GROUND_Y + 4; y < LH; y += 8, row++) {
+    const shift = (row % 2) * (tile / 2);
+    for (let x = -shift - off; x < LW; x += tile) {
+      fill(x, y, tile / 2, 2, INK, 0.08);
+      fill(x + tile / 2, y, tile / 2, 2, SHADE, 0.24);
+    }
+  }
+}
+
+function drawCoins(t) {
+  for (let i = 0; i < 3; i++) {
+    const phase = Math.floor(t * 10 + i) % 4;
+    const cw = [6, 4, 2, 4][phase];
+    const cx = LW * (0.5 + i * 0.045) + Math.sin(t * 1.6 + i) * 3;
+    const cy = LH * 0.52 + Math.sin(t * 2.2 + i * 1.4) * 5;
+    fill(cx - cw / 2, cy - 5, cw, 10, GOLD, 0.95);
+    if (phase === 0) fill(cx - 1, cy - 3, 2, 6, SHADE, 0.5);
+  }
+}
+
+function drawRobot(t) {
+  const running = Math.floor(t * 8) % 2 === 0 ? ROBOT_A : ROBOT_B;
+  const jumpT = clamp((t - 1.05) / 0.5, 0, 1);
+  const jump = jumpT > 0 && jumpT < 1 ? Math.sin(jumpT * Math.PI) * 8 : 0;
+  const x = Math.round(LW * 0.3);
+  const y = Math.round(GROUND_Y - 12 - jump);
+  sprite(running, x, y);
+  // 落地压缩：只画脚下一小段影子
+  fill(x + 2, GROUND_Y, 8, 1, SHADE, 0.6);
+}
+
+function drawSlime(t) {
+  const x = Math.round(LW * 0.7 + Math.sin(t * 1.5) * 10);
+  const squash = Math.sin(t * 6) > 0.6 ? 1 : 0;
+  fill(x, GROUND_Y - 5 + squash, 12, 6 - squash, HILL_MID);
+  fill(x + 1, GROUND_Y - 4 + squash, 10, 2, HILL_NEAR);
+  fill(x + 3, GROUND_Y - 3 + squash, 1, 1, EYE);
+  fill(x + 8, GROUND_Y - 3 + squash, 1, 1, EYE);
+}
+
+let TITLE_SIZE = 0;
+
+function titleSize() {
+  if (TITLE_SIZE) return TITLE_SIZE;
+  let size = Math.max(10, Math.round(LH * 0.125));
+  const maxW = LW * 0.92;
+  while (size > 8) {
+    const m = measurePixelText(lc, TITLE, size, {
+      weight: 900, family: SANS, letterSpacing: Math.max(1, Math.round(size * 0.03)),
+    });
+    if (m.width <= maxW) break;
+    size -= 1;
+  }
+  TITLE_SIZE = size;
+  return size;
+}
+
+function drawTitle(t) {
+  const size = titleSize();
+  const blink = t > 1.15 ? 0.72 + 0.28 * Math.sin(t * 9.0) : 1;
+  drawPixelText(lc, TITLE, LW / 2, Math.round(LH * 0.33), size, ACCENT, {
+    align: 'center',
+    baseline: 'middle',
+    weight: 900,
+    family: SANS,
+    dither: true,
+    outline: SHADE,
+    shadow: GROUND,
+    letterSpacing: Math.max(1, Math.round(size * 0.03)),
+    alpha: blink,
+    perChar: (i) => {
+      const p = clamp((t - 0.08 - i * 0.03) / 0.32);
+      return { alpha: p, dy: Math.round((1 - p) * 5), color: p < 0.55 ? GOLD : ACCENT };
+    },
+  });
+
+  const subSize = Math.max(6, Math.round(size * 0.24));
+  drawPixelText(lc, 'RECIPE 16 · 8-BIT', LW / 2, Math.round(LH * 0.33 + size * 0.92), subSize, INK, {
+    align: 'center',
+    baseline: 'middle',
+    weight: 600,
+    family: MONO,
+    letterSpacing: 2,
+    dither: true,
+    alpha: clamp((t - 0.55) / 0.4) * 0.85,
+  });
+}
+
+function drawGameHud(t) {
+  const size = Math.max(6, Math.round(LH * 0.03));
+  const score = 1800 + Math.floor(t * 640);
+  drawPixelText(lc, `SCORE ${String(score).padStart(6, '0')}`, 8, Math.round(size * 0.8), size, INK, {
+    align: 'left', baseline: 'middle', weight: 700, family: MONO, letterSpacing: 1, dither: false,
+  });
+  drawPixelText(lc, `TIME ${String(54 - Math.floor(t * 2)).padStart(2, '0')}`, LW - 8, Math.round(size * 0.8), size, INK, {
+    align: 'right', baseline: 'middle', weight: 700, family: MONO, letterSpacing: 1, dither: false,
+  });
+
+  const segW = 7;
+  const segH = 3;
+  const gap = 2;
+  const x0 = LW - 8 - (segW + gap) * 6 + gap;
+  const y0 = Math.round(size * 0.8 + size * 0.95);
+  for (let i = 0; i < 6; i++) {
+    fill(x0 + i * (segW + gap), y0, segW, segH, i < 4 ? ACCENT : SHADE, 0.95);
+  }
+}
+
+function drawLow(t) {
+  lc.setTransform(1, 0, 0, 1, 0, 0);
+  lc.globalAlpha = 1;
+  lc.globalCompositeOperation = 'source-over';
+  lc.imageSmoothingEnabled = false;
+
+  fill(0, 0, LW, LH, SKY_TOP);
+  fill(0, LH * 0.34, LW, LH * 0.3, SKY_MID);
+
+  drawStars(t);
+  pixelCircle(LW * 0.78, LH * 0.2, Math.max(8, Math.round(LH * 0.1)), GOLD, 0.95);
+  drawHills(t);
+  drawGround(t);
+  drawCoins(t);
+  drawRobot(t);
+  drawSlime(t);
+  drawTitle(t);
+  drawGameHud(t);
+}
+
+/* ───────────────────────────── 渲染入口 ───────────────────────────── */
+
+window.renderFrame = (u) => {
+  const { t, fx } = seg.sample(u);
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.globalAlpha = 1;
+  ctx.globalCompositeOperation = 'source-over';
+  ctx.fillStyle = BG;
+  ctx.fillRect(0, 0, W, H);
+
+  ctx.save();
+  applyImpact2D(ctx, fx, W, H);
+
+  drawLow(t);
+
+  ctx.imageSmoothingEnabled = false;
+  ctx.drawImage(low, 0, 0, LW, LH, OX, OY, LW * SCALE, LH * SCALE);
+
+  // 扫描线：4 屏幕像素一条，压住像素画面的“屏幕感”
+  ctx.fillStyle = 'rgba(0,0,0,0.14)';
+  for (let y = OY; y < OY + LH * SCALE; y += 4) ctx.fillRect(OX, y, LW * SCALE, 1);
+
+  // 暗角
+  ctx.globalAlpha = 0.9;
+  ctx.drawImage(VIGNETTE, OX, OY, LW * SCALE, LH * SCALE);
+  ctx.globalAlpha = 1;
+
+  // 机框
+  ctx.strokeStyle = hexToRgba(ACCENT, 0.35);
+  ctx.lineWidth = Math.max(2, SCALE);
+  ctx.strokeRect(OX + 1.5, OY + 1.5, LW * SCALE - 3, LH * SCALE - 3);
+
+  drawHud(ctx, {
+    W, H, u, duration: seg.duration, theme: THEME,
+    label: 'STYLE 16 / 16', name: '8-BIT', brand: BRAND, pad,
+  });
+  ctx.restore();
+
+  drawFlash(ctx, fx.flash, W, H, TC.flash || '#ffffff');
+};
+
+/* ───────────────────────────── 启动 ───────────────────────────── */
+
+window.__ready = false;
+window.__bootError = null;
+
+(async () => {
+  await loadFonts(FAMILIES);
+  titleSize();
+  window.renderFrame(0);
+  window.__ready = true;
+})().catch((err) => {
+  window.__bootError = String((err && err.stack) || err);
+});
+
+window.__seg = seg;
+window.__8bit = { LW, LH, SCALE, OX, OY, portrait };
+</script>
+</body>
+</html>

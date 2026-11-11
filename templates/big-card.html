@@ -18,10 +18,41 @@ import { loadFonts, clamp, ease, rng, mulberry32 } from './common.js';
 import { themeFromURL, cardColors, mix } from './themes.js';
 import { createEditBridge, mergePatches } from './edit-bridge.mjs';
 
-const W = 1920, H = 1080;
+// ---------- 画布 = 视口（D7） ----------
+// 不再硬编码 1920×1080：取 window.innerWidth / innerHeight，取整、偶数、最小 320；
+// 视口数据缺失时回退 1920×1080。位图与 CSS 尺寸同步，缩放恒为 1。
+function viewportCanvasSize() {
+  const iw = Number(window.innerWidth);
+  const ih = Number(window.innerHeight);
+  const rawW = Number.isFinite(iw) && iw > 0 ? iw : 1920;
+  const rawH = Number.isFinite(ih) && ih > 0 ? ih : 1080;
+  const evenAtLeast = (v, min) => {
+    let n = Math.floor(Number(v));
+    if (!Number.isFinite(n) || n < min) n = min;
+    return n - (n % 2);
+  };
+  return { W: evenAtLeast(rawW, 320), H: evenAtLeast(rawH, 320) };
+}
+
+const SIZE = viewportCanvasSize();
+const W = SIZE.W, H = SIZE.H;
+const ASPECT = W / H;
+// >1.05 横屏 / <0.95 竖屏 / 其余按方图处理（D7）
+const ORIENT = ASPECT > 1.05 ? 'landscape' : (ASPECT < 0.95 ? 'portrait' : 'square');
+
 const canvas = document.getElementById('c');
+canvas.width = W;
+canvas.height = H;
+canvas.style.width = `${W}px`;
+canvas.style.height = `${H}px`;
+const stageEl = document.getElementById('stage');
+if (stageEl) {
+  stageEl.style.width = `${W}px`;
+  stageEl.style.height = `${H}px`;
+}
 const ctx = canvas.getContext('2d');
 window.DURATION = 1.0;
+window.__viewport = { width: W, height: H, aspect: ASPECT, orient: ORIENT };
 
 // ---------- per-card config (pass via the --page URL, e.g. --page "/big-card.html?layout=1&index=2") ----------
 const p = new URLSearchParams(location.search);
@@ -216,6 +247,92 @@ function computePal(layout, colorHex, explicitColor = false) {
   };
 }
 
+// ---------- 布局（D7：横 / 竖 / 方） ----------
+// 所有 rect 与字号都由这里算出。横屏分支复刻旧模板的逐值常量，
+// 所以 1920×1080 的输出（D7 基线哈希）不受重排代码影响。
+function layoutFor(S) {
+  if (ORIENT === 'landscape') {
+    return {
+      mode: 'landscape',
+      firstY: H / 2 - 116,
+      keyY: H / 2 + 60,
+      firstSize: S.first.size,
+      keySize: S.keyword.size,
+      maxTextW: W - 2 * 96,
+      echo: { font: 600, y: H / 2 + 40, drift: 70 },
+      underline: {
+        x: W / 2 - 450, y: H / 2 + 182, w: 900, h: 14,
+        hit: [W / 2 - 450, H / 2 + 166, 900, 30],
+      },
+      footerY: 1016,
+      footerLeft: 96,
+      footerRight: 1824,
+      footIndexFont: '500 22px "JetBrains Mono", monospace',
+      footBrandFont: '500 20px "JetBrains Mono", monospace',
+      footIndexSize: 22,
+      footBrandSize: 20,
+      layoutRect: [96, 56, 220, 48],
+      speed: { x: W / 2, y: H / 2 + 30, scale: 1 },
+      glow: { cx: W / 2, cy: H / 2, r: 900 },
+    };
+  }
+
+  const portrait = ORIENT === 'portrait';
+  const short = Math.min(W, H);
+  const base = short / 1080;
+  // 安全区：竖屏左右 8%、上下 10%；方图 6% / 8%。
+  const safeX = Math.round(W * (portrait ? 0.08 : 0.06));
+  const safeTop = Math.round(H * (portrait ? 0.10 : 0.08));
+  const safeBottom = Math.round(H * (portrait ? 0.10 : 0.08));
+  // 字号按短边换算，再乘 0.66 / 0.72（竖屏）或 0.78 / 0.84（方图）。
+  const firstSize = Math.round(clamp(S.first.size * base * (portrait ? 0.66 : 0.78), 24, 160));
+  const keySize = Math.round(clamp(S.keyword.size * base * (portrait ? 0.72 : 0.84), 40, 300));
+  const maxTextW = W - 2 * safeX;
+  // 上下堆叠：整块在竖直方向居中，首行在上、关键词在下。
+  const gap = Math.round(keySize * (portrait ? 0.36 : 0.40));
+  const blockH = firstSize + gap + keySize;
+  const blockTop = Math.round(H * 0.5 - blockH / 2);
+  const firstY = blockTop + firstSize / 2;
+  const keyY = blockTop + firstSize + gap + keySize / 2;
+
+  const underlineW = Math.round(Math.min(900, W * (portrait ? 0.58 : 0.56)));
+  const underlineY = Math.round(keyY + keySize * 0.62);
+  const underlineH = Math.max(8, Math.round(14 * base));
+  const footIndexSize = portrait ? 26 : 24;
+  const footBrandSize = portrait ? 24 : 22;
+  const footerY = Math.round(H - safeBottom - 12);
+
+  // echo 大字按宽度 fit：先在 600px 下量宽，再等比缩到 92% 画宽。
+  const echoMaxW = Math.round(W * 0.92);
+  let echoSize = 600;
+  ctx.save();
+  ctx.font = `900 600px ${FONT}`;
+  const echoW = ctx.measureText(S.keyword.text).width;
+  ctx.restore();
+  if (echoW > echoMaxW) echoSize = Math.round(600 * (echoMaxW / echoW));
+  echoSize = Math.round(clamp(echoSize, 40, Math.round(H * 0.4)));
+
+  return {
+    mode: ORIENT,
+    firstY, keyY, firstSize, keySize, maxTextW,
+    echo: { font: echoSize, y: Math.round(keyY), drift: Math.round(W * 0.03) },
+    underline: {
+      x: W / 2 - underlineW / 2, y: underlineY, w: underlineW, h: underlineH,
+      hit: [W / 2 - underlineW / 2, underlineY - 8, underlineW, underlineH + 16],
+    },
+    footerY,
+    footerLeft: safeX,
+    footerRight: W - safeX,
+    footIndexFont: `500 ${footIndexSize}px "JetBrains Mono", monospace`,
+    footBrandFont: `500 ${footBrandSize}px "JetBrains Mono", monospace`,
+    footIndexSize,
+    footBrandSize,
+    layoutRect: [safeX, safeTop, Math.min(220, W - 2 * safeX), 48],
+    speed: { x: W / 2, y: Math.round(keyY), scale: base },
+    glow: { cx: W / 2, cy: Math.round(blockTop + blockH / 2), r: Math.round(short * 0.85) },
+  };
+}
+
 // ---------- pre-rendered text layers (blur 16px once, never per frame) ----------
 function textLayer(text, { size, weight, color, blur = 0, y = H / 2, align = 'center', x = W / 2, maxW = W - 2 * 96 }) {
   const c = document.createElement('canvas');
@@ -240,19 +357,18 @@ function textLayer(text, { size, weight, color, blur = 0, y = H / 2, align = 'ce
 }
 
 function makeLayers(S) {
+  const L = layoutFor(S);
   const firstColor = S.first.color || PAL.firstColor;
   const keyColor = S.keyword.color || PAL.keyColor;
-  const firstY = H / 2 - 116;
-  const keyY = H / 2 + 60;
   const layers = [];
   for (const [text, size, weight, color, y, align] of [
-    [S.first.text, S.first.size, 700, firstColor, firstY, 'center'],
-    [S.keyword.text, S.keyword.size, 900, keyColor, keyY, 'center'],
+    [S.first.text, L.firstSize, 700, firstColor, L.firstY, 'center'],
+    [S.keyword.text, L.keySize, 900, keyColor, L.keyY, 'center'],
   ]) {
-    const sharp = textLayer(text, { size, weight, color, y, align });
+    const sharp = textLayer(text, { size, weight, color, y, align, maxW: L.maxTextW });
     layers.push({
       sharp,
-      blur: textLayer(text, { size, weight, color, blur: 16, y, align }),
+      blur: textLayer(text, { size, weight, color, blur: 16, y, align, maxW: L.maxTextW }),
       align,
       y,
       size: sharp.__fontSize,
@@ -260,7 +376,7 @@ function makeLayers(S) {
       color,
     });
   }
-  return { layers, firstColor, keyColor, keyY };
+  return { layers, firstColor, keyColor, keyY: L.keyY, L };
 }
 // ---------- effective params（SPEC + patches） ----------
 // 默认 patches 为空 → 每个字段都回退到 CARD，与旧模板完全相同。
@@ -367,15 +483,16 @@ function drawBackground() {
   }
 }
 
-// ---------- echo outline text (600px, drifts horizontally) ----------
+// ---------- echo outline text（横屏 600px；竖屏/方图按画宽 fit，横向漂移同步收窄） ----------
 function drawEcho(t) {
+  const E = ASSETS.L.echo;
   ctx.save();
-  ctx.font = `900 600px ${FONT}`;
+  ctx.font = `900 ${E.font}px ${FONT}`;
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
   ctx.lineWidth = 3;
   ctx.strokeStyle = PAL.echo;
-  ctx.strokeText(STATE.keyword.text, W / 2 + Math.sin(t * 1.1) * 70, H / 2 + 40);
+  ctx.strokeText(STATE.keyword.text, W / 2 + Math.sin(t * 1.1) * E.drift, E.y);
   ctx.restore();
 }
 
@@ -396,31 +513,32 @@ function slam(localT) {
 }
 
 // ---------- speed lines burst ----------
-function drawSpeedLines(progress, amount = 26, color = PAL.speedLine) {
+function drawSpeedLines(progress, amount = 26, color = PAL.speedLine, at = { x: W / 2, y: H / 2 + 30, scale: 1 }) {
   if (progress <= 0 || progress >= 1) return;
   const t = ease.outCubic(progress);
   ctx.save();
-  ctx.translate(W / 2, H / 2 + 30);
+  ctx.translate(at.x, at.y);
   const n = amount;
   const rr = mulberry32(900 + STATE.index);
   for (let i = 0; i < n; i++) {
     const a = (i / n) * Math.PI * 2 + rr() * 0.12;
-    const len = (120 + rr() * 480) * (0.4 + t * 1.6);
+    const inner = 90 * at.scale;
+    const len = (120 + rr() * 480) * (0.4 + t * 1.6) * at.scale;
     ctx.strokeStyle = color;
     ctx.globalAlpha = (1 - t) * (0.25 + rr() * 0.55);
     ctx.lineWidth = 1 + rr() * 2.5;
     ctx.beginPath();
-    ctx.moveTo(Math.cos(a) * 90, Math.sin(a) * 90);
-    ctx.lineTo(Math.cos(a) * (90 + len), Math.sin(a) * (90 + len));
+    ctx.moveTo(Math.cos(a) * inner, Math.sin(a) * inner);
+    ctx.lineTo(Math.cos(a) * (inner + len), Math.sin(a) * (inner + len));
     ctx.stroke();
   }
   ctx.restore();
 }
 
-function drawGlow(alpha) {
+function drawGlow(alpha, at = { cx: W / 2, cy: H / 2, r: 900 }) {
   if (alpha <= 0.001) return;
   const [gr, gg, gb] = PAL.glowRgb;
-  const g = ctx.createRadialGradient(W / 2, H / 2, 40, W / 2, H / 2, 900);
+  const g = ctx.createRadialGradient(at.cx, at.cy, 40, at.cx, at.cy, at.r);
   g.addColorStop(0, `rgba(${gr},${gg},${gb},${0.26 * alpha})`);
   g.addColorStop(1, `rgba(${gr},${gg},${gb},0)`);
   ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
@@ -432,9 +550,9 @@ function drawUnderline(t) {
   // keyword underline: width from 0 -> 72% of keyword width, starting at second beat
   const local = clamp((t - 0.5) / 0.22);
   if (local <= 0) return;
-  const w = 900 * ease.outCubic(local);
-  const y = H / 2 + 182;
-  ctx.fillRect(W / 2 - w / 2, y, w, 14);
+  const U = ASSETS.L.underline;
+  const w = U.w * ease.outCubic(local);
+  ctx.fillRect(W / 2 - w / 2, U.y, w, U.h);
 }
 
 // ---------- frame ----------
@@ -512,13 +630,14 @@ function shiftRect(rect, sx, sy) {
 }
 
 function registerHits(S, view) {
+  const L = ASSETS.L;
   const first = ASSETS.layers[0];
   const key = ASSETS.layers[1];
 
   // 强调色（关键词下划线带；暗卡没有下划线时仍是同一片可点区域）
   bridge.add({
     id: 'card.color', role: 'accent',
-    rect: shiftRect([W / 2 - 450, H / 2 + 166, 900, 30], view.sx, view.sy),
+    rect: shiftRect(L.underline.hit, view.sx, view.sy),
     props: { color: S.color },
     schema: SCHEMA.accent,
   });
@@ -537,26 +656,26 @@ function registerHits(S, view) {
     schema: SCHEMA.keyword,
   });
 
-  const idxW = textWidth(view.footIndex, '500 22px "JetBrains Mono", monospace');
+  const idxW = textWidth(view.footIndex, L.footIndexFont);
   bridge.add({
     id: 'card.index', role: 'meta',
-    rect: [1824 - idxW + view.sx, 1016 - 22 + view.sy, idxW, 22],
+    rect: [L.footerRight - idxW + view.sx, L.footerY - L.footIndexSize + view.sy, idxW, L.footIndexSize],
     props: { index: S.index },
     schema: SCHEMA.index,
   });
 
-  const brandW = textWidth(S.brand, '500 20px "JetBrains Mono", monospace');
+  const brandW = textWidth(S.brand, L.footBrandFont);
   bridge.add({
     id: 'card.brand', role: 'meta',
-    rect: [96 + view.sx, 1016 - 20 + view.sy, brandW, 20],
+    rect: [L.footerLeft + view.sx, L.footerY - L.footBrandSize + view.sy, brandW, L.footBrandSize],
     props: { text: S.brand },
     schema: SCHEMA.brand,
   });
 
-  // 版式没有独立可见控件：登记在左上角空白区（顶层，方便点选）
+  // 版式没有独立可见控件：登记在顶部安全区空白处（顶层，方便点选）
   bridge.add({
     id: 'card.layout', role: 'layout',
-    rect: [96 + view.sx, 56 + view.sy, 220, 48],
+    rect: [L.layoutRect[0] + view.sx, L.layoutRect[1] + view.sy, L.layoutRect[2], L.layoutRect[3]],
     props: { layout: S.layout },
     schema: SCHEMA.layout,
   });
@@ -582,27 +701,28 @@ window.renderFrame = (u) => {
   ctx.translate(sx, sy);
   drawBackground();
   drawEcho(t);
-  drawGlow(t < 0.12 ? 1 - t / 0.12 : 0);
+  drawGlow(t < 0.12 ? 1 - t / 0.12 : 0, ASSETS.L.glow);
 
   const s1 = slam(t);
   drawLayer(ASSETS.layers[0], s1);
-  drawSpeedLines(t < 0.14 ? t / 0.14 : 0, 22, PAL.speedLine);
+  drawSpeedLines(t < 0.14 ? t / 0.14 : 0, 22, PAL.speedLine, ASSETS.L.speed);
 
   const s2 = slam(t - 0.5);
   drawLayer(ASSETS.layers[1], s2);
-  drawSpeedLines(t >= 0.5 && t < 0.64 ? (t - 0.5) / 0.14 : 0, 30, PAL.speedLine);
+  drawSpeedLines(t >= 0.5 && t < 0.64 ? (t - 0.5) / 0.14 : 0, 30, PAL.speedLine, ASSETS.L.speed);
   drawUnderline(t);
 
-  // footer chrome
+  // footer chrome（竖屏/方图跟随安全区）
+  const L = ASSETS.L;
   const footIndex = `STYLE ${String(S.index).padStart(2, '0')} / ${S.total}`;
   ctx.fillStyle = PAL.footerStyle;
-  ctx.font = '500 22px "JetBrains Mono", monospace';
+  ctx.font = L.footIndexFont;
   ctx.textAlign = 'right';
-  ctx.fillText(footIndex, 1824, 1016);
+  ctx.fillText(footIndex, L.footerRight, L.footerY);
   ctx.textAlign = 'left';
   ctx.fillStyle = PAL.footerBrand;
-  ctx.font = '500 20px "JetBrains Mono", monospace';
-  ctx.fillText(S.brand, 96, 1016);
+  ctx.font = L.footBrandFont;
+  ctx.fillText(S.brand, L.footerLeft, L.footerY);
   ctx.restore();
 
   // opening flash (card cut impact)

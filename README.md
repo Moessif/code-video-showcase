@@ -64,6 +64,18 @@ node bin/cvs.mjs build project.spec.json --concurrency 4
 | `app/canvas/` | 5182 | scrub + click-to-inspect + Shift-drag marquee + live patch |
 | `app/script/` | 5183 | storyboard table editing with overflow checks |
 | `app/versions/` | 5184 | localStorage version tree + side-by-side diff |
+| `server/api.mjs` | 5190 | job queue: `POST /jobs` → compile → `master.mp4` |
+| `app/review/` | 5185 | review page: player + frame-level comments (localStorage) |
+
+**Guards**
+
+```bash
+npm run test:all        # pure-Node suites (spec, script, assets, variants, reflow, ref, brand, ingest)
+npm run test:browser    # canvas contract, wizard reference, 9:16 reflow, recipes, cyber-pixel determinism
+npm run golden          # 3 projects × 3 frames, byte-exact still hashes (fixtures/golden/manifest.json)
+npm run test:perf       # cold vs cached compile wall-time gate
+npm run brand -- check --spec project.spec.json --brand content/brands/tech-dark.json
+```
 
 **Ingest** (optional, from real footage):
 
@@ -71,7 +83,16 @@ node bin/cvs.mjs build project.spec.json --concurrency 4
 node ingest/cli.mjs --input <file-or-dir> --target 60 --out out/ingest
 ```
 
-Measured on this machine (Windows 10, 41 s fixture, 1230 frames, 1080p30): cold compile `9m34s` at concurrency 4 (Chrome startup contention; one transient CDP timeout), **warm recompile `3.9s` with 23/23 cache hits**, QA 10 pass / 1 warn (no audio) / 0 fail. Cold-start browser cost is the current bottleneck; browser reuse is the next optimization.
+Measured on this machine (Windows 10, 41 s fixture, 1230 frames, 1080p30):
+
+| Pass | Wall time | Notes |
+|---|---|---|
+| cold compile @4 | **4m30s** | batch workers (one browser per shard), 600 ms stagger; 1230 frames |
+| cold compile @2 | **4m48s** | same output; 4-way Chrome cold start contends on this box |
+| warm recompile | **1.9–3.2s** | 23/23 segments served from the content cache |
+| QA | 10 pass / 1 warn / 0 fail | warn = no audio track |
+
+Before the batch worker (one process + one browser per segment) the same cold compile took `9m34s`. `npm run test:perf` re-runs this gate.
 
 ## Preview
 

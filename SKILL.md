@@ -36,6 +36,11 @@ node scripts/compile.mjs --spec project.spec.json --root . --concurrency 4
 - **参考图**：`node bin/cvs.mjs ref poster.jpg --spec project.spec.json --out project.spec.json`（只提取色板/强调色/密度与 top-3 主题候选，不复制像素）。Wizard 也支持直接拖入参考图；结果写 `meta.reference`。
 - **界面**：`app/wizard/`（5181，8 预设 + 七张卡）、`app/canvas/`（5182，圈选改参数）、`app/script/`（5183，剧本表）、`app/versions/`（5184，版本树）。
 - **旧项目**：timeline v1 仍完全可用，`spec.mjs` 可自动迁移。
+- **多画幅**：页面按视口自适应（横 / 竖 / 方真重排，不是裁切）；`render-segment --width 1080 --height 1920`。16:9 输出位级不变。
+- **渲染**：`render-farm` 默认 batch 模式——一个 worker 一个浏览器跑一个 shard，段缓存语义不变；`--legacy` 回退逐段进程。
+- **服务**：`server/api.mjs`（5190，`POST /jobs` → 编译 → `master.mp4`）、`app/review/`（5185，播放 + 帧级评论）。
+- **质量闸门**：`npm run test:all`（纯 Node）、`npm run test:browser`（画布/参考图/竖屏/配方）、`npm run golden`（9 张静帧位级回归）、`npm run brand -- check …`。
+- **配方 13–16**：kinetic-type / data-race / ink-wash / 8bit（`templates/recipe-*.html`）。
 - **实拍素材**：`node ingest/cli.mjs --input <file|dir> --target 60 --out out/ingest` 产出 EDL + spec 草稿；选段质量是启发式，需人工审。
 - **禁止**：让 LLM 直接生成 HTML/CSS/JS，或绕过 spec 直接改像素。模型只填枚举与文案。
 

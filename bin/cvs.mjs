@@ -43,10 +43,14 @@ const commands = {
   variants: (a) => node('scripts/variants.mjs', specArgs(a)),
   ingest:   (a) => node('ingest/cli.mjs', a.length && !a[0].startsWith('--') ? ['--input', ...a] : a),
   doctor:   (a) => node('scripts/doctor.mjs', a),
+  brand:    (a) => node('scripts/brand.mjs', a),
+  golden:   (a) => node('scripts/golden.mjs', a),
+  api:      (a) => node('server/api.mjs', a),
   wizard:   () => node('app/wizard/serve.mjs', []),
   canvas:   () => node('app/canvas/serve.mjs', []),
   script:   () => node('app/script/serve.mjs', []),
   versions: () => node('app/versions/serve.mjs', []),
+  review:   () => node('app/review/serve.mjs', []),
   test:     (a) => {
     const suites = [
       'scripts/test-core.mjs',
@@ -55,10 +59,21 @@ const commands = {
       'scripts/test-assets.mjs',
       'scripts/test-variants.mjs',
       'scripts/test-reflow.mjs',
+      'scripts/test-ref-core.mjs',
       'scripts/test-from-reference.mjs',
+      'scripts/test-brand.mjs',
       'ingest/test-edl.mjs',
     ];
-    if (a.includes('--browser')) suites.push('scripts/test-inspect.mjs', 'scripts/still-cyber-pixel.mjs');
+    if (a.includes('--browser')) {
+      suites.push(
+        'scripts/test-inspect.mjs',
+        'scripts/test-wizard-ref.mjs',
+        'scripts/test-reflow-pages.mjs',
+        'scripts/still-cyber-pixel.mjs',
+        'scripts/test-recipes.mjs',
+        'server/test-api.mjs',
+      );
+    }
     for (const s of suites) {
       console.log(`\n=== ${s} ===`);
       const r = node(s, []);
@@ -80,7 +95,10 @@ usage: cvs <command> [args]
                                          lint -> plan -> incremental render -> concat -> qa
   variant <spec> --axes <file> [--out d] cartesian variants + manifest
   ingest <file|dir> --target <sec>       footage -> EDL + spec draft
-  wizard | canvas | script | versions    start a dev surface (5181-5184)
+  brand apply|check|list                 brand kit apply / compliance check
+  golden [--update|--selfcheck]          byte-exact still regression
+  api [--port 5190]                      job-queue HTTP service
+  wizard | canvas | script | versions | review    start a dev surface (5181-5185)
   test [--browser]                       run all suites
   doctor                                 environment check
 

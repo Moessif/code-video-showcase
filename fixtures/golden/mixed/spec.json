@@ -1,0 +1,96 @@
+{
+  "specVersion": 1,
+  "meta": {
+    "name": "golden-mixed",
+    "brand": "Golden Labs",
+    "cta": "现在就试试",
+    "locale": "zh-CN"
+  },
+  "format": {
+    "width": 1920,
+    "height": 1080,
+    "fps": 30,
+    "aspect": "16:9",
+    "duration": 5
+  },
+  "look": {
+    "mode": "showcase",
+    "style": null,
+    "theme": "aqua-morandi",
+    "accentOverride": {
+      "accentInk": "#151d1f"
+    }
+  },
+  "audio": {
+    "mood": "restrained",
+    "bpm": 120
+  },
+  "structure": {
+    "opening": 0.6,
+    "round": 1.4,
+    "card": 0.4,
+    "ending": 0.8,
+    "moreCard": 0.2,
+    "flash": {
+      "count": 4,
+      "each": 0.15
+    }
+  },
+  "opening": {
+    "page": "templates/segment.html",
+    "name": "opening"
+  },
+  "rounds": [
+    {
+      "id": "r01",
+      "name": "莫兰迪水色",
+      "card": {
+        "layout": 1,
+        "first": "想做",
+        "keyword": "品牌片？",
+        "page": "templates/big-card.html"
+      },
+      "style": {
+        "page": "templates/segment.html",
+        "t0": 0.15,
+        "speed": 1.1
+      }
+    },
+    {
+      "id": "r02",
+      "name": "柔光玻璃",
+      "card": {
+        "layout": 3,
+        "first": "想拍",
+        "keyword": "生活方式？",
+        "page": "templates/big-card.html"
+      },
+      "style": {
+        "page": "templates/segment.html",
+        "t0": 0.35,
+        "speed": 1.25
+      }
+    }
+  ],
+  "moreCard": {
+    "page": "templates/big-card.html",
+    "layout": 2,
+    "first": "还有",
+    "keyword": "更多？"
+  },
+  "flash": {
+    "page": "templates/big-card.html"
+  },
+  "ending": {
+    "page": "templates/segment.html",
+    "name": "ending"
+  },
+  "assets": [],
+  "patches": [],
+  "render": {
+    "quality": "master",
+    "preset": "bilibili",
+    "concurrency": 1,
+    "outDir": "out/golden-mixed"
+  }
+}

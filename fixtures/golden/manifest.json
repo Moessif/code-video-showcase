@@ -1,0 +1,148 @@
+{
+  "chrome": "Google Chrome 157.0.8103.50",
+  "engineVersion": 1,
+  "format": "png",
+  "generatedBy": "scripts/golden.mjs",
+  "git": "8f18a67",
+  "manifestVersion": 1,
+  "specs": [
+    {
+      "duration": 2,
+      "name": "card",
+      "rounds": 1,
+      "spec": "fixtures/golden/card/spec.json",
+      "specHash": "f1947e867e2ed45a569bc491e11575f669ee20ffda69417f58fb21105061b377",
+      "stills": [
+        {
+          "bytes": 4076702,
+          "file": "card/01-t0.300.png",
+          "hash": "312ef5823e2e1872bb90c9f22b26dedf5ccb5bd7195ad670af494464f92c849d",
+          "kind": "opening",
+          "local": 0.3,
+          "page": "templates/segment.html?theme=coral-noir",
+          "sceneT": 0.3,
+          "segment": "00-opening",
+          "t": 0.3
+        },
+        {
+          "bytes": 1638319,
+          "file": "card/02-t1.000.png",
+          "hash": "407ddbdc5723cd7d0c4b1238151c468c174c1b7820bbc86308ad95ae8e3903dc",
+          "kind": "card",
+          "local": 0.2,
+          "page": "templates/big-card.html?theme=coral-noir&layout=0&index=1&total=1&first=%E6%83%B3%E5%81%9A&keyword=%E9%BB%84%E9%87%91%E5%9F%BA%E7%BA%BF%EF%BC%9F&color=%23ffcf5c&brand=Golden+Labs&seconds=0.4",
+          "sceneT": 0.2,
+          "segment": "r01-card",
+          "t": 1
+        },
+        {
+          "bytes": 777667,
+          "file": "card/03-t1.700.png",
+          "hash": "d3b14ca1c77a8986bdfd1536edd259e4b1411a14fad2f68f934f147386732938",
+          "kind": "more",
+          "local": 0.1,
+          "page": "templates/big-card.html?theme=coral-noir&layout=1&index=2&total=2&first=%E8%BF%98%E6%9C%89&keyword=%E6%9B%B4%E5%A4%9A%EF%BC%9F&color=%23ffcf5c&brand=Golden+Labs&seconds=0.2",
+          "sceneT": 0.1,
+          "segment": "99-more",
+          "t": 1.7
+        }
+      ],
+      "theme": "coral-noir"
+    },
+    {
+      "duration": 3,
+      "name": "cyber",
+      "rounds": 2,
+      "spec": "fixtures/golden/cyber/spec.json",
+      "specHash": "b5568e99c33501720f6a2d83bac5afbf9612d9b8683ff6e52038a0e7749e5ed6",
+      "stills": [
+        {
+          "bytes": 1801922,
+          "file": "cyber/01-t0.450.png",
+          "hash": "16b8658b5e8e2a83ae470c01222eacea38a1e5c076fd27d6c03afd12f1b0bcd1",
+          "kind": "opening",
+          "local": 0.45,
+          "page": "templates/cyber-pixel.html?theme=cyber-neon",
+          "sceneT": 0.45,
+          "segment": "00-opening",
+          "t": 0.45
+        },
+        {
+          "bytes": 1731072,
+          "file": "cyber/02-t1.500.png",
+          "hash": "1e8cb9f6b04aa55e31c93e603d9372ad981ba3c710e5a9132467ce3f8262717e",
+          "kind": "style",
+          "local": 0.7,
+          "page": "templates/cyber-pixel.html?recipe=cyber-pixel&theme=cyber-neon",
+          "sceneT": 0.8,
+          "segment": "r01-style",
+          "t": 1.5
+        },
+        {
+          "bytes": 1705578,
+          "file": "cyber/03-t2.550.png",
+          "hash": "713e178229938aba4742da0176855aa9f3019958493ba9e7693508f634a6e56f",
+          "kind": "style",
+          "local": 0.55,
+          "page": "templates/cyber-pixel.html?recipe=cyber-pixel&theme=cyber-neon",
+          "sceneT": 1.115,
+          "segment": "r02-style",
+          "t": 2.55
+        }
+      ],
+      "theme": "cyber-neon"
+    },
+    {
+      "duration": 5,
+      "name": "mixed",
+      "rounds": 2,
+      "spec": "fixtures/golden/mixed/spec.json",
+      "specHash": "d8a7297d1bf94d145d255d62ef90572bb47a1665a51c2f53f210d7968ad59c58",
+      "stills": [
+        {
+          "bytes": 82510,
+          "file": "mixed/01-t0.750.png",
+          "hash": "ff45485a9fc460df861fa98caa3470b125fe0035298e39397dc59d7dd5160c8c",
+          "kind": "card",
+          "local": 0.15,
+          "page": "templates/big-card.html?theme=aqua-morandi&layout=1&index=1&total=2&first=%E6%83%B3%E5%81%9A&keyword=%E5%93%81%E7%89%8C%E7%89%87%EF%BC%9F&color=%23ffcf5c&brand=Golden+Labs&seconds=0.4",
+          "sceneT": 0.15,
+          "segment": "r01-card",
+          "t": 0.75
+        },
+        {
+          "bytes": 3407859,
+          "file": "mixed/02-t2.500.png",
+          "hash": "74f7b9220baf6f14c52e86488ca76248572e870446cd275e694ecdc498c6897f",
+          "kind": "style",
+          "local": 0.1,
+          "page": "templates/segment.html?theme=aqua-morandi",
+          "sceneT": 0.475,
+          "segment": "r02-style",
+          "t": 2.5
+        },
+        {
+          "bytes": 3108312,
+          "file": "mixed/03-t4.250.png",
+          "hash": "27f14b92f4462eadbb12ee04ca3044983efda2f536c9a193a1f68b40052e1bf6",
+          "kind": "ending",
+          "local": 0.05,
+          "page": "templates/segment.html?theme=aqua-morandi",
+          "sceneT": 0.05,
+          "segment": "99-ending",
+          "t": 4.25
+        }
+      ],
+      "theme": "aqua-morandi"
+    }
+  ],
+  "times": [
+    0.15,
+    0.5,
+    0.85
+  ],
+  "viewport": {
+    "height": 1080,
+    "width": 1920
+  }
+}

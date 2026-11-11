@@ -2,15 +2,21 @@
 /**
  * render-farm.mjs — plan-driven parallel renderer with retries and resume.
  *
- * One segment is one process; N segments render concurrently (default
- * min(4, cpus-1)). Each process owns its browser instance, so there is no
- * shared GPU context contention. Results are tracked in out/render-manifest.json
- * and can be resumed after a crash without re-rendering finished segments.
+ * Default (v3): split the selected segments into `--concurrency` shards and run
+ * one `render-batch.mjs` per shard. Each worker pays one static server + one
+ * browser startup and then renders its whole shard in that browser, which makes
+ * a 23-segment film ~5x faster than one Chrome per segment.
+ *
+ * `--legacy` keeps the old behaviour: one render-segment process per segment.
+ * Every old flag keeps working in both modes, including the manifest
+ * (`<outDir>/render-manifest.json`) and the content-addressed cache
+ * (`<outDir>/.cache/<hash>.mp4`).
  *
  *   node templates/render-farm.mjs --plan out/plan.json
  *   node templates/render-farm.mjs --plan out/plan.json --concurrency 6 --resume
  *   node templates/render-farm.mjs --plan out/plan.json --only r01-style,r02-style
  *   node templates/render-farm.mjs --plan out/plan.json --kinds style --dry-run
+ *   node templates/render-farm.mjs --plan out/plan.json --legacy --concurrency 4
  */
 import fs from 'node:fs';
 import os from 'node:os';
@@ -20,6 +26,7 @@ import { fileURLToPath } from 'node:url';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const RENDERER = path.join(HERE, 'render-segment.mjs');
+const BATCH_RENDERER = path.join(HERE, 'render-batch.mjs');
 
 function parseArgs(argv) {
   const a = {};
@@ -39,15 +46,16 @@ const list = (k) => (args[k] ? String(args[k]).split(',').map((s) => s.trim()).f
 
 if (args.help || !args.plan) {
   console.log(`Usage: node templates/render-farm.mjs --plan <plan.json> [options]
-  --concurrency <n>     parallel segments, default min(4, cpus-1)
+  --concurrency <n>     parallel shards (batch) or segments (legacy), default min(4, cpus-1)
   --retries <n>         retries per segment, default 2
   --resume              skip segments whose MP4 already has the expected frame count
   --only <id,id>        render only these segment ids
   --kinds <kind,kind>   render only these kinds (style,card,opening,flash,ending,more)
   --from <id> --to <id> inclusive segment range
   --shard <i/n>         render only every n-th segment starting at i (0-based)
+  --legacy              one render-segment process per segment (old behaviour)
   --root <dir>          project root, default plan.meta.root
-  --browser <path>      pass through to render-segment
+  --browser <path>      pass through to the renderer
   --crf <n>             intermediate CRF, default 12
   --preset <name>       x264 preset, default veryfast
   --capture <mode>      auto|canvas|cdp
@@ -58,7 +66,8 @@ if (args.help || !args.plan) {
   --dry-run             print commands without running
   --manifest <file>     default <outDir>/render-manifest.json
   --cache <dir>         content-addressed segment cache, default <outDir>/.cache
-  --no-cache            disable the segment cache`);
+  --no-cache            disable the segment cache
+  --stagger <ms>        delay each batch worker's start (default 600; 0 disables)`);
   process.exit(args.help ? 0 : 1);
 }
 
@@ -71,9 +80,16 @@ const resume = !!args.resume;
 const dryRun = !!args['dry-run'];
 const quiet = !!args.quiet;
 const stopOnError = !!args['stop-on-error'];
-const manifestPath = path.resolve(str('manifest', path.join(root, plan.meta.outDir || 'out', 'render-manifest.json')));
-const cacheDir = args['no-cache'] ? null : path.resolve(str('cache', path.join(root, plan.meta.outDir || 'out', '.cache')));
+// outDir 可能是绝对路径（compile --outdir / spec.render.outDir），此时不能再 join(root)。
+const resolveOutPath = (p) => (path.isAbsolute(String(p)) ? path.resolve(String(p)) : path.resolve(root, String(p)));
+const manifestPath = args.manifest
+  ? resolveOutPath(args.manifest)
+  : path.join(resolveOutPath(plan.meta.outDir || 'out'), 'render-manifest.json');
+const cacheDir = args['no-cache']
+  ? null
+  : (args.cache ? resolveOutPath(args.cache) : path.join(resolveOutPath(plan.meta.outDir || 'out'), '.cache'));
 
+// ── selection (identical semantics to v2) ───────────────────────────────────
 let segments = plan.segments.slice();
 const only = list('only');
 const kinds = list('kinds');
@@ -108,6 +124,7 @@ function probeFrames(file) {
   return Number(String(r.stdout).trim()) || 0;
 }
 
+// ── legacy mode: one process per segment ────────────────────────────────────
 function rendererArgs(s) {
   const a = [RENDERER, ...s.renderArgs, '--root', root];
   if (args.browser) a.push('--browser', String(args.browser));
@@ -133,7 +150,7 @@ function writeCache(s, outAbs, frames, seconds) {
   }
 }
 
-function runOne(s) {
+function runOneLegacy(s) {
   return new Promise((resolve) => {
     const outAbs = path.resolve(root, s.out);
 
@@ -227,17 +244,16 @@ function runOne(s) {
   });
 }
 
-async function main() {
+async function runLegacy() {
   fs.mkdirSync(path.dirname(manifestPath), { recursive: true });
-  console.log(`[farm] ${segments.length} segments, concurrency=${concurrency}, retries=${retries}, resume=${resume}`);
+  console.log(`[farm] legacy mode: ${segments.length} segments, concurrency=${concurrency}, retries=${retries}, resume=${resume}`);
   const queue = segments.slice();
   const results = [];
   let stopped = false;
-
   async function worker() {
     while (queue.length && !stopped) {
       const s = queue.shift();
-      const r = await runOne(s);
+      const r = await runOneLegacy(s);
       results.push(r);
       if (!r.ok && stopOnError) { stopped = true; break; }
     }
@@ -255,4 +271,144 @@ async function main() {
   console.log(`[farm] manifest ${manifestPath}`);
 }
 
-main().catch((e) => { console.error('[fatal]', e.stack || e); process.exit(1); });
+// ── batch mode: N workers, one server + browser each ────────────────────────
+function batchArgsFor(job) {
+  // 临时 plan 已经只含本 shard 的段，worker 侧用 0/1（shard 是 0 基索引；1/1 会选空）。
+  const a = [
+    BATCH_RENDERER, '--plan', job.tmpPlan, '--shard', '0/1', '--concurrency', '1',
+    '--root', root, '--manifest', job.partManifest, '--retries', String(retries),
+  ];
+  if (cacheDir) a.push('--cache', cacheDir); else a.push('--no-cache');
+  if (resume) a.push('--resume');
+  if (quiet) a.push('--quiet');
+  if (stopOnError) a.push('--stop-on-error');
+  if (args.browser) a.push('--browser', String(args.browser));
+  if (args.crf !== undefined) a.push('--crf', String(args.crf));
+  if (args.preset !== undefined) a.push('--preset', String(args.preset));
+  if (args.capture !== undefined) a.push('--capture', String(args.capture));
+  if (args.format !== undefined) a.push('--format', String(args.format));
+  if (args.quality !== undefined) a.push('--quality', String(args.quality));
+  return a;
+}
+
+function spawnBatch(job) {
+  return new Promise((resolve) => {
+    const child = spawn(process.execPath, job.argv, { cwd: root, stdio: 'inherit', windowsHide: true });
+    let settled = false;
+    const done = (code) => { if (!settled) { settled = true; resolve(code == null ? 1 : code); } };
+    child.on('error', (e) => { console.error(`[farm] worker ${job.index} failed to start: ${e.message}`); done(1); });
+    child.on('close', done);
+  });
+}
+
+function mergePartManifests(jobs, codes) {
+  const merged = fs.existsSync(manifestPath)
+    ? JSON.parse(fs.readFileSync(manifestPath, 'utf8'))
+    : { version: 1, segments: {} };
+  merged.version = 1;
+  merged.updated = new Date().toISOString();
+
+  for (const job of jobs) {
+    if (fs.existsSync(job.partManifest)) {
+      try {
+        const part = JSON.parse(fs.readFileSync(job.partManifest, 'utf8'));
+        Object.assign(merged.segments, part.segments || {});
+      } catch (e) {
+        console.error(`[farm] worker ${job.index}: unreadable manifest: ${e.message}`);
+      }
+    }
+    if (codes[job.index] !== 0) {
+      for (const s of job.segments) {
+        const entry = merged.segments[s.id];
+        if (!entry || !['done', 'cached', 'skipped'].includes(entry.status)) {
+          merged.segments[s.id] = {
+            status: 'failed',
+            ...(s.hash ? { hash: s.hash } : {}),
+            out: s.out,
+            error: (entry && entry.error) || `render-batch worker exited ${codes[job.index]}`,
+          };
+        }
+      }
+    }
+  }
+
+  fs.mkdirSync(path.dirname(manifestPath), { recursive: true });
+  fs.writeFileSync(manifestPath, JSON.stringify(merged, null, 2));
+  return merged;
+}
+
+async function runBatch() {
+  const workers = Math.min(concurrency, segments.length);
+  const outDirAbs = resolveOutPath(plan.meta.outDir || path.dirname(planPath));
+  const batchDir = path.join(outDirAbs, '.batch');
+  fs.mkdirSync(batchDir, { recursive: true });
+  const stamp = `${process.pid}-${Date.now()}`;
+
+  const jobs = [];
+  for (let i = 0; i < workers; i++) {
+    const shardSegments = segments.filter((_, k) => k % workers === i);
+    if (!shardSegments.length) continue;
+    const tmpPlan = path.join(batchDir, `plan-${stamp}-${i}.json`);
+    fs.writeFileSync(tmpPlan, JSON.stringify({ ...plan, segments: shardSegments }, null, 2));
+    const partManifest = path.join(batchDir, `manifest-${stamp}-${i}.json`);
+    jobs.push({ index: i, segments: shardSegments, tmpPlan, partManifest });
+  }
+
+  console.log(`[farm] batch mode: ${jobs.length} workers (1 browser each), ${segments.length} segments, retries=${retries}, resume=${resume}`);
+  for (const job of jobs) {
+    job.argv = batchArgsFor(job);
+  }
+
+  if (dryRun) {
+    for (const job of jobs) {
+      console.log(`[dry] shard ${job.index}: ${job.segments.map((s) => s.id).join(', ')}`);
+      console.log(`[dry] node ${job.argv.map((x) => (x.includes(' ') ? JSON.stringify(x) : x)).join(' ')}`);
+    }
+    for (const job of jobs) { try { fs.unlinkSync(job.tmpPlan); } catch { /* ignore */ } }
+    return;
+  }
+
+  // 错峰启动：N 个 Chrome 同时冷启动会互相抢资源，造成 CDP navigate 超时。
+  const staggerMs = Math.max(0, num('stagger', 600));
+  const codes = {};
+  try {
+    const results = await Promise.all(jobs.map(async (job) => {
+      if (staggerMs && job.index) await new Promise((r) => setTimeout(r, job.index * staggerMs));
+      const code = await spawnBatch(job);
+      codes[job.index] = code;
+      return code;
+    }));
+    void results;
+  } finally {
+    const merged = mergePartManifests(jobs, codes);
+    for (const job of jobs) {
+      try { fs.unlinkSync(job.tmpPlan); } catch { /* ignore */ }
+      try { fs.unlinkSync(job.partManifest); } catch { /* ignore */ }
+    }
+    try {
+      if (!fs.readdirSync(batchDir).length) fs.rmdirSync(batchDir);
+    } catch { /* ignore */ }
+
+    const failed = [];
+    let ok = 0;
+    for (const s of segments) {
+      const st = merged.segments[s.id]?.status;
+      if (st === 'done' || st === 'cached' || st === 'skipped') ok++;
+      else failed.push({ id: s.id, status: st || 'missing' });
+    }
+    console.log(`[farm] done: ${ok}/${segments.length} ok, ${failed.length} failed`);
+    if (failed.length) {
+      for (const f of failed) console.error(`  ✗ ${f.id}: ${f.status}`);
+      process.exitCode = 1;
+    }
+    console.log(`[farm] manifest ${manifestPath}`);
+  }
+}
+
+const useBatch = !args.legacy && fs.existsSync(BATCH_RENDERER);
+if (useBatch) {
+  runBatch().catch((e) => { console.error('[fatal]', e.stack || e); process.exit(1); });
+} else {
+  if (!args.legacy) console.warn('[farm] render-batch.mjs not found; falling back to legacy mode');
+  runLegacy().catch((e) => { console.error('[fatal]', e.stack || e); process.exit(1); });
+}

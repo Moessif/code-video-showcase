@@ -48,3 +48,43 @@ window.__patch   = (id, props) => diff;   // 改内存 spec → renderFrame(curr
 ## D6 验收
 
 每个任务必须在 Windows Git Bash 下跑通自己的测试命令，并把命令与输出摘要写回报告。测试不得依赖网络。
+
+## D7 多画幅页面契约（v2.2）
+
+- 页面**不得**再硬编码 `1920×1080`。画布尺寸取 `window.innerWidth` / `window.innerHeight`（取整、偶数），缺省回退 1920×1080。
+- 布局按 `W/H > 1`（横）、`< 1`（竖）、`= 1`（方）分支；竖屏必须重排，不许把横屏画面整体缩进竖框。
+- 默认 16:9（1920×1080）输出必须逐字节不变。基线：
+  - `templates/big-card.html` @ t=0.5 → `6915e0bf21ce229725c577f45bdddfe4599b423187553b7f641fde36f477eff0`
+  - `templates/segment.html` @ t=1.2 → `16cadad4252c12462cdc92a1c6ca502293e5aed99fc8a595707011c362641905`
+  （`render-segment --still` 的 JPG SHA-256）
+- 命中表 rect 必须跟随新布局；`__inspect` 在竖屏下仍能点中。
+- `app/canvas` 的 iframe 视口仍是 1920×1080，行为不变。
+
+## D8 渲染核心所有权（v2.2）
+
+- `M-PERF` 独占：`templates/render-segment.mjs`、`templates/render-farm.mjs`、`templates/cdp.mjs`。
+- 兼容契约：CLI 参数语义不变（`--page/--out/--duration/--still/--width/--height/--t0/--speed`）；页面 URL 继续追加 `seg/t0/speed/dur`；`--still` 输出文件名不变；段缓存 `<outDir>/.cache/<hash>.mp4` 语义不变。
+- 允许新增内部批量/worker 入口，但必须仍能单段调用。
+- 其他任务不得修改这三个文件。
+
+## D9 第二轮目录所有权
+
+| 路径 | 归属 |
+|---|---|
+| `templates/render-segment.mjs` `templates/render-farm.mjs` `templates/cdp.mjs` | M-PERF |
+| `templates/big-card.html` `templates/segment.html` `scripts/test-reflow-pages.mjs` | M-REFLOW |
+| `server/` `app/review/` | M-API |
+| `fixtures/golden/` `scripts/golden.mjs` `scripts/test-golden.mjs` | M-GOLDEN |
+| `content/brand.schema.json` `content/brands/` `scripts/brand.mjs` `scripts/test-brand.mjs` | M-BRAND |
+| `templates/recipes/` `templates/recipe-*.html` `scripts/test-recipes.mjs` | M-RECIPES |
+
+其余文件（`package.json`、`docs/`、README/SKILL/CHANGELOG）由集成者统一修改。
+
+## D10 批渲染与路径规则（v2.2 定稿）
+
+- `render-farm` 默认 **batch**：把选中段按 shard 分给 `min(concurrency, 段数)` 个 `render-batch.mjs` worker，每个 worker 一个静态服务器 + 一个浏览器；`--legacy` 回退逐段进程。
+- worker 启动错峰 `--stagger <ms>`（默认 600，0 关闭），避免 N 个 Chrome 同时冷启动导致 CDP `Page.navigate` 超时。
+- 路径规则：`--outdir/--manifest/--cache/--profile-dir` 若为**绝对路径必须原样使用**；只有相对路径才相对 `outDir` 解析。`plan.meta.outDir` 可能是绝对路径，任何 `path.join(root, outDir)` 都是 bug。
+- shard 是 0 基索引，合法值 `0/n .. n-1/n`；临时 plan 已按 shard 切好时，worker 一律用 `0/1`。
+- 段缓存 `<outDir>/.cache/<hash>.mp4` + `<hash>.json`；命中需帧数一致；`--resume` 与缓存可叠加。
+- 黄金回归有两种模式：`--update` 写基线（本地，字体/Chrome 绑定）；`--selfcheck` 同机双跑比对（CI 用，跨机哈希不作判据）。

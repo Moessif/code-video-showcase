@@ -3,6 +3,28 @@
 本项目的版本更新记录。版本号遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)，格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
 每个版本同时发布在 [GitHub Releases](https://github.com/Moessif/code-video-showcase/releases)。
 
+## [v2.2.0] - 2026-11-11 — 批渲染 / 竖屏重排 / 任务 API / 黄金回归 / 品牌包 / 配方 13–16
+
+### 新增
+- **批渲染 worker**：`templates/render-batch.mjs`；`render-farm` 默认把选中段按 shard 交给 N 个 worker，每个 worker 只付一次静态服务器 + 一次浏览器启动；`--legacy` 保留逐段进程模式；段缓存语义不变。
+- **多画幅重排**：`big-card.html` / `segment.html` 按视口自适应（横 / 竖 / 方），竖屏是真正重排不是缩框；16:9 输出位级不变（基线哈希见 `docs/DECISIONS.md` D7）。`scripts/test-reflow-pages.mjs` 51 断言。
+- **任务 API**：`server/api.mjs`（127.0.0.1:5190）：`POST /jobs` 校验并入队、`GET /jobs/<id>` 状态与日志尾、`GET /jobs/<id>/master.mp4`（Range）、`DELETE` 取消、`GET /health`；单队列 + 子进程编译 + `build.log`。
+- **评审页**：`app/review/`（5185）播放成片、按时间码写帧级评论（localStorage）。
+- **黄金视觉回归**：`fixtures/golden/`（card / cyber / mixed 三项目 × 3 帧）+ `scripts/golden.mjs`（`--update` 写基线、`--selfcheck` 同机双跑比对、默认校验）；CI 追加 `golden` job（自一致校验，避开跨机字体/Chrome 差异）。
+- **品牌包**：`content/brand.schema.json`、`content/brands/{tech-dark,example}.json`、`scripts/brand.mjs`（`apply` / `check` / `list`；禁用词、accent APCA、logo 存在性与安全区）。28 测试。
+- **配方 13–16**：`templates/recipe-{kinetic,datarace,inkwash,8bit}.html` + `templates/recipes/util.js`；每帧 0.5–2.6ms，92 断言。
+- **测试**：`scripts/test-{brand,golden,recipes,reflow-pages,render-perf}.mjs`、`server/test-api.mjs`；`npm run test:all` 现在 206 条纯 Node 测试。
+
+### 修复
+- `render-farm` / `render-batch` 在 `outDir` 为绝对路径时与 root 二次拼接，缓存与 manifest 变成 `<root>/<root>/...`，产物与缓存写不出去（回归修复）。
+- 批次 worker 的 shard 参数 `1/1` 在 0 基索引下选空段；改为 `0/1`。
+- ink-wash 大幅半透明图层的非整数缩放造成帧间抗锯齿抖动；绘制几何取整（跨进程仍位级一致）。
+
+### 实测
+- **冷编译** 41s fixture（1230 帧，1080p30）：并发 4 为 **4m30s**，并发 2 为 **4m48s**（改造前逐段进程 9m34s，约 2.1×）；两者产物均 1230 帧、QA 0 fail。
+- **缓存重编译**：**1.9–3.2s**，23/23 段命中（含 concat）。
+- 黄金回归 9 张静帧（位级）；竖屏 51 断言；配方 92 断言；画布 48 断言；参考图上传 12 断言；纯 Node 206 测试。
+
 ## [v2.1.0] - 2026-11-11 — 编译器（spec IR / 段哈希 / 增量编译 / 画布圈选 / 入口）
 
 ### 新增

@@ -1,0 +1,354 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<link rel="stylesheet" href="/shared/fonts.css">
+<title>recipe 14 · data race</title>
+<style>
+  html, body { margin: 0; padding: 0; overflow: hidden; background: #101113; }
+  #c { display: block; }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+
+<script type="module">
+// recipe-datarace.html — 风格段 14「数据竞速 / 数字滚动 / 条形赛道」。
+//
+// 渲染契约：
+//   window.DURATION / window.renderFrame(t)（纯函数）/ window.__ready / window.__bootError
+//
+// 画幅（D7）：画布尺寸由 util.setupStage() 从 window.innerWidth / window.innerHeight
+// 取（偶数，缺省 1920×1080）；竖屏压缩标签列与数值列，赛道保持横向。
+//
+// 视觉：7 条横向赛道 + 透视网格 + 描边年份 + 数字滚动 + 末位黑马反超。
+import { createSegment, applyImpact2D, drawFlash, loadFonts, vars } from './common.js';
+import {
+  themeFromURL, getTheme, loadFontsFor, drawThemeBackground, hexToRgba, relativeLuminance,
+} from './themes.js';
+import {
+  TAU, clamp, fract, ease, setupStage, safePad, fitTextSize,
+  formatInt, drawTracked, drawHud, drawTopMeta, roundRectPath,
+} from './recipes/util.js';
+
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d', { alpha: false });
+const { W, H, portrait } = setupStage(canvas);
+const pad = safePad(W, H);
+
+const params = new URLSearchParams(location.search);
+const seg = createSegment({ duration: 3.0 });
+window.DURATION = seg.duration;
+
+const THEME = getTheme(themeFromURL(location.search));
+const TC = THEME.colors;
+const V = vars();
+const BRAND = String(V.brand || 'CVS').slice(0, 24);
+
+const isLight = THEME.mode === 'light' || relativeLuminance(TC.bg) > 0.55;
+const INK = TC.ink;
+const MUTED = hexToRgba(TC.ink, 0.55);
+const ACCENT = TC.accent;
+const ACCENT_SOFT = TC.accentSoft || TC.accent;
+
+const SANS = '"Noto Sans SC", "PingFang SC", sans-serif';
+const MONO = '"JetBrains Mono", ui-monospace, monospace';
+const FAMILIES = Array.from(new Set([
+  ...(loadFontsFor(THEME) || []),
+  'Noto Sans SC', 'JetBrains Mono', 'Inter',
+]));
+
+/* ───────────────────────────── 数据模型 ───────────────────────────── */
+
+// 单位统一（比如「万次播放」）。第 7 条是黑马：起步垫底，1.15s 后加速，约 2.45s 完成反超。
+const LANES = [
+  { name: '主站', code: 'CORE', start: 720, end: 1260, delay: 0.0 },
+  { name: '短视频', code: 'CLIPS', start: 960, end: 1420, delay: 0.08 },
+  { name: '直播', code: 'LIVE', start: 430, end: 1150, delay: 0.04 },
+  { name: '知识区', code: 'EDU', start: 610, end: 1040, delay: 0.18 },
+  { name: '音乐', code: 'AUDIO', start: 360, end: 960, delay: 0.12 },
+  { name: '游戏', code: 'GAME', start: 690, end: 1010, delay: 0.22 },
+  { name: '黑马', code: 'DARK', start: 90, end: 1620, late: true },
+];
+
+function laneValue(lane, t) {
+  if (lane.late) {
+    const p = clamp((t - 1.15) / 1.5);
+    return lane.start + (lane.end - lane.start) * ease.inCubic(p);
+  }
+  const p = clamp((t - lane.delay) / 2.35);
+  return lane.start + (lane.end - lane.start) * ease.outCubic(p);
+}
+
+function ranksOf(values) {
+  const order = values.map((v, i) => [v, i]).sort((a, b) => b[0] - a[0]);
+  const ranks = new Array(values.length);
+  for (let k = 0; k < order.length; k++) ranks[order[k][1]] = k + 1;
+  return ranks;
+}
+
+/* ───────────────────────────── 布局 ───────────────────────────── */
+
+let LAYOUT = null;
+
+function buildLayout() {
+  const rows = LANES.length;
+  const labelW = Math.round(Math.min(W * 0.24, Math.max(150, W * 0.088)));
+  const valueW = Math.round(Math.min(W * 0.2, Math.max(146, W * 0.1)));
+  const trackX = pad + labelW;
+  const trackW = Math.max(120, W - pad * 2 - labelW - valueW);
+  const top = H * (portrait ? 0.27 : 0.3);
+  const available = H * (portrait ? 0.48 : 0.5);
+  const gap = available / rows;
+  return {
+    rows,
+    labelW,
+    valueW,
+    trackX,
+    trackW,
+    top,
+    gap,
+    barH: Math.max(8, Math.round(gap * 0.34)),
+    labelSize: Math.max(11, Math.round(gap * 0.3)),
+    codeSize: Math.max(8, Math.round(gap * 0.17)),
+    valueSize: Math.max(11, Math.round(gap * 0.34)),
+    rankSize: Math.max(9, Math.round(gap * 0.22)),
+  };
+}
+
+/* ───────────────────────────── 背景 ───────────────────────────── */
+
+function drawGrid(t) {
+  const L = LAYOUT;
+  const line = hexToRgba(TC.ink, isLight ? 0.07 : 0.055);
+  const major = hexToRgba(TC.ink, isLight ? 0.11 : 0.085);
+  const step = Math.max(56, Math.round(W / 26));
+  const topY = H * 0.2;
+  ctx.save();
+  ctx.lineWidth = 1;
+  for (let x = 0, i = 0; x <= W; x += step, i++) {
+    const skew = (x - W / 2) * 0.045;
+    ctx.strokeStyle = i % 4 === 0 ? major : line;
+    ctx.beginPath();
+    ctx.moveTo(Math.round(x) + 0.5, topY);
+    ctx.lineTo(Math.round(x + skew) + 0.5, H);
+    ctx.stroke();
+  }
+  for (let y = topY; y <= H; y += step * 0.72) {
+    ctx.strokeStyle = line;
+    ctx.beginPath();
+    ctx.moveTo(0, Math.round(y) + 0.5);
+    ctx.lineTo(W, Math.round(y) + 0.5);
+    ctx.stroke();
+  }
+  // 下移的强调扫描带
+  const band = topY + ((t * 130) % Math.max(1, H - topY));
+  ctx.fillStyle = hexToRgba(ACCENT, 0.055);
+  ctx.fillRect(0, Math.round(band), W, 2);
+  ctx.restore();
+}
+
+function drawYear(t) {
+  const span = 7;
+  const f = 2019 + Math.min(span, t * (span / 3));
+  const year = Math.floor(f);
+  const pulse = Math.exp(-fract(f) * 7);
+  const size = Math.round(H * (portrait ? 0.13 : 0.2));
+  ctx.save();
+  ctx.textAlign = 'right';
+  ctx.textBaseline = 'middle';
+  ctx.font = `900 ${size}px ${SANS}`;
+  ctx.lineWidth = Math.max(1, size * 0.012);
+  ctx.strokeStyle = hexToRgba(ACCENT, 0.16 + 0.22 * pulse);
+  ctx.strokeText(String(year), W - pad, H * (portrait ? 0.165 : 0.15));
+  ctx.restore();
+}
+
+/* ───────────────────────────── 标题 ───────────────────────────── */
+
+let TITLE_SIZE = 0;
+
+function drawHeading(t) {
+  const title = String(V.title || '播放量竞速').slice(0, 12);
+  if (!TITLE_SIZE) {
+    TITLE_SIZE = fitTextSize(ctx, title, {
+      maxWidth: W * (portrait ? 0.78 : 0.52),
+      family: SANS,
+      weight: 900,
+      maxSize: Math.round(H * (portrait ? 0.085 : 0.115)),
+      minSize: 24,
+      spacing: 0.01,
+    });
+  }
+  const y = H * (portrait ? 0.075 : 0.105);
+  const ebSize = Math.max(11, Math.round(TITLE_SIZE * 0.2));
+
+  ctx.save();
+  ctx.globalAlpha = ease.outExpo(clamp((t - 0.02) / 0.35));
+  drawTracked(ctx, 'LIVE DATA · 7 SERIES', pad, y - TITLE_SIZE * 0.92, {
+    size: ebSize, family: MONO, weight: 600, color: ACCENT,
+    tracking: ebSize * 0.4, baseline: 'middle',
+  });
+
+  ctx.globalAlpha = ease.outExpo(clamp((t - 0.05) / 0.45));
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'middle';
+  ctx.font = `900 ${TITLE_SIZE}px ${SANS}`;
+  ctx.fillStyle = INK;
+  ctx.fillText(title, pad, y);
+
+  ctx.globalAlpha = ease.outCubic(clamp((t - 0.6) / 0.45));
+  ctx.font = `500 ${Math.max(13, Math.round(TITLE_SIZE * 0.19))}px ${SANS}`;
+  ctx.fillStyle = MUTED;
+  ctx.fillText('7 条赛道 · 末位反超只用 1.4 秒', pad, y + TITLE_SIZE * 0.72);
+  ctx.restore();
+}
+
+/* ───────────────────────────── 赛道 ───────────────────────────── */
+
+function drawLanes(t) {
+  const L = LAYOUT;
+  const values = LANES.map((lane) => laneValue(lane, t));
+  const prev = LANES.map((lane) => laneValue(lane, Math.max(0, t - 0.12)));
+  const ranks = ranksOf(values);
+  const prevRanks = ranksOf(prev);
+  const maxValue = Math.max(...values) * 1.06;
+
+  ctx.save();
+  ctx.textBaseline = 'middle';
+  for (let i = 0; i < LANES.length; i++) {
+    const lane = LANES[i];
+    const cy = Math.round(L.top + i * L.gap + L.gap * 0.5);
+    const value = values[i];
+    const rank = ranks[i];
+    const lead = rank === 1;
+    const justOvertook = rank < prevRanks[i];
+    const w = Math.max(L.barH, (value / maxValue) * L.trackW);
+
+    // 行分隔线
+    ctx.strokeStyle = hexToRgba(TC.ink, 0.06);
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(pad, cy + Math.round(L.gap * 0.5) + 0.5);
+    ctx.lineTo(W - pad, cy + Math.round(L.gap * 0.5) + 0.5);
+    ctx.stroke();
+
+    // 名称 + 代码
+    ctx.textAlign = 'left';
+    ctx.font = `600 ${L.labelSize}px ${SANS}`;
+    ctx.fillStyle = lead ? INK : hexToRgba(TC.ink, 0.82);
+    ctx.fillText(lane.name, pad, cy - L.codeSize * 0.62);
+    ctx.font = `500 ${L.codeSize}px ${MONO}`;
+    ctx.fillStyle = hexToRgba(TC.ink, 0.4);
+    ctx.fillText(lane.code, pad, cy + L.codeSize * 0.98);
+
+    // 名次
+    ctx.textAlign = 'right';
+    ctx.font = `700 ${L.rankSize}px ${MONO}`;
+    ctx.fillStyle = lead ? ACCENT : hexToRgba(TC.ink, 0.42);
+    ctx.fillText(`#${rank}`, L.trackX - Math.round(L.gap * 0.22), cy);
+
+    // 轨道
+    roundRectPath(ctx, L.trackX, cy - L.barH / 2, L.trackW, L.barH, L.barH / 2);
+    ctx.fillStyle = hexToRgba(TC.ink, 0.07);
+    ctx.fill();
+
+    // 刻度
+    ctx.strokeStyle = hexToRgba(TC.ink, 0.14);
+    ctx.beginPath();
+    for (let k = 1; k < 5; k++) {
+      const tx = Math.round(L.trackX + (L.trackW * k) / 5) + 0.5;
+      ctx.moveTo(tx, cy - L.barH * 0.9);
+      ctx.lineTo(tx, cy + L.barH * 0.9);
+    }
+    ctx.stroke();
+
+    // 条
+    roundRectPath(ctx, L.trackX, cy - L.barH / 2, w, L.barH, L.barH / 2);
+    ctx.fillStyle = hexToRgba(ACCENT, lead ? 0.95 : 0.5);
+    ctx.fill();
+
+    // 条头高亮
+    ctx.fillStyle = lead ? INK : hexToRgba(ACCENT_SOFT, 0.9);
+    ctx.fillRect(
+      Math.round(L.trackX + w - L.barH * 0.55),
+      cy - Math.round(L.barH * 0.72),
+      Math.max(2, Math.round(L.barH * 0.16)),
+      Math.round(L.barH * 1.44),
+    );
+
+    // 反超瞬间：整条描边
+    if (justOvertook) {
+      roundRectPath(ctx, L.trackX - 3, cy - L.barH * 0.88, Math.min(L.trackW, w) + 6, L.barH * 1.76, L.barH);
+      ctx.strokeStyle = hexToRgba(ACCENT, 0.65);
+      ctx.lineWidth = 2;
+      ctx.stroke();
+    }
+
+    // 数值：高速时上下留残影，读起来像在滚动
+    const speed = Math.abs(laneValue(lane, t) - laneValue(lane, Math.max(0, t - 1 / 30))) * 30;
+    const ghost = clamp(speed * 0.22, 0, L.valueSize * 0.45);
+    ctx.textAlign = 'right';
+    ctx.font = `600 ${L.valueSize}px ${MONO}`;
+    if (ghost > 0.6) {
+      ctx.globalAlpha = 0.22;
+      ctx.fillStyle = lead ? ACCENT_SOFT : INK;
+      ctx.fillText(formatInt(value), W - pad, cy - ghost);
+      ctx.fillText(formatInt(value), W - pad, cy + ghost);
+      ctx.globalAlpha = 1;
+    }
+    ctx.fillStyle = lead ? ACCENT : INK;
+    ctx.fillText(formatInt(value), W - pad, cy);
+  }
+  ctx.restore();
+}
+
+/* ───────────────────────────── 渲染入口 ───────────────────────────── */
+
+window.renderFrame = (u) => {
+  const { t, fx } = seg.sample(u);
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.globalAlpha = 1;
+  ctx.globalCompositeOperation = 'source-over';
+
+  ctx.save();
+  applyImpact2D(ctx, fx, W, H);
+  drawThemeBackground(ctx, THEME, W, H, t);
+  drawGrid(t);
+  drawYear(t);
+  drawHeading(t);
+  drawLanes(t);
+  drawTopMeta(ctx, {
+    W, H, pad,
+    text: `${BRAND} · ${String(THEME.nameEn || THEME.id).toUpperCase()}`,
+    sub: 'RECIPE 14 · DATA RACE',
+    color: MUTED,
+    accent: ACCENT,
+  });
+  drawHud(ctx, {
+    W, H, u, duration: seg.duration, theme: THEME,
+    label: 'STYLE 14 / 16', name: 'DATA RACE', brand: BRAND, pad,
+  });
+  ctx.restore();
+
+  drawFlash(ctx, fx.flash, W, H, TC.flash || '#ffffff');
+};
+
+/* ───────────────────────────── 启动 ───────────────────────────── */
+
+LAYOUT = buildLayout();
+window.__ready = false;
+window.__bootError = null;
+
+(async () => {
+  await loadFonts(FAMILIES);
+  window.renderFrame(0);
+  window.__ready = true;
+})().catch((err) => {
+  window.__bootError = String((err && err.stack) || err);
+});
+
+window.__seg = seg;
+</script>
+</body>
+</html>

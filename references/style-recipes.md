@@ -569,3 +569,39 @@ node templates/render-segment.mjs \
 9. **居中三件套**：标题 + 副标题 + 三行说明堆在画面中央，是 PPT 不是风格片；把参数挪到边角 HUD。
 
 41 秒单风格整片的编排（三幕、4s 事件、景别与文字密度）见 `references/long-form.md`。
+
+---
+
+## 13 动态字体「MOVE THE TYPE」
+
+- **页面**：`templates/recipe-kinetic.html`（配方 id `kinetic-type`）
+- **构图**：巨字居中，逐字入场；字距呼吸 + 基线错位 + 背景速度线；副行横移出场。
+- **动效**：per-char stagger 0.06–0.1s；scale 0.86→1；tracking 从宽收到紧；speed line 只在入场 0.4s 内出现。
+- **实现**：CJK 逐字 `measureText`（不要整句一起缩放）；几何取整避免抗锯齿抖动；`motion.js` 的 rate function 做缓动。
+- **常见错误**：整句一起缩放（应逐字）；字距不做缓动（像静态海报）；速度线常驻（抢字）。
+
+## 14 数据竞速「DATA RACE」
+
+- **页面**：`templates/recipe-datarace.html`（配方 id `data-race`）
+- **构图**：5–8 条横向赛道 + 网格底；左端标签、右端数值；末位反超后胜负条高亮。
+- **动效**：条长 `outQuart`；数字整数插值滚动；终点脉冲；排名交换时轻微回弹。
+- **实现**：条长/数值全部由 t 推导；千分位用 `formatInt`；赛道不越过安全区。
+- **常见错误**：直接显示浮点数值（抖动）；用 `Math.random` 决定名次（必须固定脚本）。
+
+## 15 水墨「INK WASH」
+
+- **页面**：`templates/recipe-inkwash.html`（配方 id `ink-wash`）
+- **构图**：纸底 + 三层墨点扩散 + 右侧竖排标题 + 印章；留白 ≥ 35%。
+- **动效**：三层 wash 交叉淡化（0.15s 起）→ 墨点 `outCubic` 扩散 → 逐字落下 → 印章 `outBack` 盖下。
+- **实现**：`paper / wash / dot / halo` 预渲染一次，`drawImage` 的目标矩形取整（否则帧间抗锯齿会漂）；墨点由确定性哈希生成。
+- **常见错误**：每帧现算墨点（必须预渲染）；缩放任其非整数（位级不稳）；标题横排（竖排才有水墨味）。
+
+## 16 8-bit「8-BIT」
+
+- **页面**：`templates/recipe-8bit.html`（配方 id `8bit`）
+- **构图**：低分辨率缓冲（480×270）→ 量化 + 最近邻放大；精灵、血条、分数、扫描线。
+- **动效**：精灵走动（2–4 帧循环）、血条扣减、分数滚动、命中闪白。
+- **实现**：与「赛博像素」共用思路但更硬：调色板更小、无 CRT 畸变、扫描线更疏。
+- **常见错误**：在 1080p 上直接画像素风（糊）；精灵用平滑缩放（必须 `imageSmoothingEnabled=false`）。
+
+四套页面的渲染契约与 `templates/segment.html` 一致（`window.DURATION` / `renderFrame(t)` / `__ready` / `__bootError`），并按 `window.innerWidth/innerHeight` 自适应画幅；验收脚本：`node scripts/test-recipes.mjs`。
