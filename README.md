@@ -45,7 +45,7 @@ node bin/cvs.mjs lint project.spec.json --root .
 node bin/cvs.mjs build project.spec.json --concurrency 4
 ```
 
-`cvs ref` extracts a palette / accent / density from a reference image (deterministic 96×96 OKLab k-means, APCA-gated, top-3 theme candidates) and writes it into `look.theme` + `look.accentOverride` — it extracts statistics, never copies pixels.
+`cvs ref` extracts a palette / accent / density from a reference image (deterministic 96×96 OKLab k-means, APCA-gated, top-3 theme candidates) and writes it into `look.theme` + `look.accentOverride` — it extracts statistics, never copies pixels. The same core (`scripts/ref-core.mjs`) runs in the browser, so the wizard accepts a dragged image directly and records `meta.reference`.
 
 | Piece | File |
 |---|---|
@@ -60,8 +60,8 @@ node bin/cvs.mjs build project.spec.json --concurrency 4
 
 | Surface | Port | Purpose |
 |---|---|---|
-| `app/wizard/` | 5181 | 8 presets + 7 cards → valid `spec.json` |
-| `app/canvas/` | 5182 | scrub + click-to-inspect + live patch |
+| `app/wizard/` | 5181 | 8 presets + 7 cards + reference-image upload → valid `spec.json` |
+| `app/canvas/` | 5182 | scrub + click-to-inspect + Shift-drag marquee + live patch |
 | `app/script/` | 5183 | storyboard table editing with overflow checks |
 | `app/versions/` | 5184 | localStorage version tree + side-by-side diff |
 

@@ -84,6 +84,8 @@ const CTA_QUICK = ['立即预约', '立即下单', '预约体验', '关注不迷
 // ── 运行时数据 ─────────────────────────────────────────────────────────────
 
 let specApi = null;
+let refApi = null;
+let lastRef = null;
 let themesDoc = null;
 let schemaDoc = null;
 let presets = [];
@@ -109,6 +111,7 @@ const state = {
   mood: 'electronic',
   brand: '{{BRAND}}',
   accent: null,
+  reference: null,
   cta: KIND_CTA.promo,
 };
 
@@ -248,11 +251,18 @@ function buildSpec(s) {
       locale: 'zh-CN',
       kind: s.kind,
       source: 'wizard',
+      ...(s.reference ? { reference: s.reference } : {}),
       notes: [],
       defaults: [],
     },
     format: { width, height, fps: 30, aspect: s.aspect, duration: Number(s.duration) },
-    look: { mode: 'showcase', style: s.style, theme: s.theme, accentOverride: accent },
+    look: {
+      mode: 'showcase',
+      style: s.style,
+      theme: s.theme,
+      accentOverride: accent,
+      ...(s.reference?.density ? { density: s.reference.density } : {}),
+    },
     audio: { mood: s.mood, bpm: MOOD_BPM[s.mood] || 120, vo: null },
     structure: fitted.structure,
     opening: { page: PAGE_SEGMENT, name: 'opening' },
@@ -560,6 +570,90 @@ function setModeCustom() {
   state.presetId = null;
 }
 
+// ── 参考图（C1） ───────────────────────────────────────────────────────────
+
+function setRefStatus(text, bad = false) {
+  const el = $('#ref-status');
+  if (!el) return;
+  el.textContent = text;
+  el.style.color = bad ? '#ff6b6b' : '';
+}
+
+function renderRefCandidates(result, activeId) {
+  const box = $('#ref-candidates');
+  if (!box) return;
+  box.replaceChildren();
+  for (const c of result.theme.candidates) {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.textContent = `${c.id === activeId ? '✓ ' : ''}${themeMeta(c.id).name} · ${c.score}`;
+    b.style.cssText = `padding:4px 10px;border-radius:999px;border:1px solid ${c.id === activeId ? '#d97757' : 'rgba(255,255,255,.25)'};background:transparent;color:${c.id === activeId ? '#d97757' : 'inherit'};cursor:pointer;font-size:12px`;
+    b.addEventListener('click', () => applyReferenceResult(result, c.id));
+    box.append(b);
+  }
+}
+
+function renderRefPreview(bitmap) {
+  const thumb = $('#ref-thumb');
+  if (!thumb || !bitmap) return;
+  const ctx = thumb.getContext('2d');
+  ctx.clearRect(0, 0, thumb.width, thumb.height);
+  const s = Math.max(thumb.width / bitmap.width, thumb.height / bitmap.height);
+  const w = bitmap.width * s;
+  const h = bitmap.height * s;
+  ctx.drawImage(bitmap, (thumb.width - w) / 2, (thumb.height - h) / 2, w, h);
+}
+
+function applyReferenceResult(result, themeId) {
+  const theme = themeId || result.theme.id;
+  state.theme = theme;
+  state.accent = result.theme.accentOverride?.accent || null;
+  state.reference = {
+    source: 'upload',
+    theme,
+    confidence: result.theme.confidence,
+    candidates: result.theme.candidates,
+    palette: result.palette.slice(0, 4),
+    density: result.hints?.density || null,
+  };
+  setModeCustom();
+  renderCustom();
+  renderPresets();
+  renderRefCandidates(result, theme);
+  const meta = themeMeta(theme);
+  setRefStatus(`识别：${meta.name}（置信度 ${result.theme.confidence.toFixed(2)}）${result.warning ? ' · 低置信，建议点候选换一个' : ''}`);
+  generateNow();
+}
+
+async function applyReferenceFile(file) {
+  if (!refApi) { setRefStatus('参考图模块未加载（请通过 serve.mjs 打开）', true); return null; }
+  if (!file || !/^image\//.test(file.type || '')) { setRefStatus('请选择图片文件（JPG/PNG）', true); return null; }
+
+  let bitmap;
+  try { bitmap = await createImageBitmap(file); }
+  catch (e) { setRefStatus(`图片解码失败：${e.message || e}`, true); return null; }
+
+  const size = refApi.REF_SAMPLE || 96;
+  const off = document.createElement('canvas');
+  off.width = size;
+  off.height = size;
+  const ctx = off.getContext('2d', { willReadFrequently: true });
+  // 与 from-reference.mjs 的 ffmpeg `scale=96:96` 保持一致：整图拉伸采样，不裁切。
+  ctx.drawImage(bitmap, 0, 0, size, size);
+
+  let result;
+  try {
+    result = refApi.analyzeImageData(ctx.getImageData(0, 0, size, size), { k: 6 });
+  } catch (e) {
+    setRefStatus(`参考图分析失败：${e.message || e}`, true);
+    return null;
+  }
+  lastRef = result;
+  renderRefPreview(bitmap);
+  applyReferenceResult(result);
+  return result;
+}
+
 // ── 状态变更 ───────────────────────────────────────────────────────────────
 
 function applyPreset(p) {
@@ -572,6 +666,11 @@ function applyPreset(p) {
   state.aspect = p.aspect;
   state.mood = p.mood;
   state.accent = null;
+  state.reference = null;
+  lastRef = null;
+  const cand = $('#ref-candidates');
+  if (cand) cand.replaceChildren();
+  setRefStatus('拖入或点击选择一张参考图（JPG/PNG）。识别后可一键套用主题与主色。');
   if (!ctaCustom) state.cta = KIND_CTA[p.kind] || state.cta;
 }
 
@@ -791,12 +890,40 @@ function bindEvents() {
 
   $('#copy').addEventListener('click', (e) => copySpec(e.currentTarget));
   $('#download').addEventListener('click', downloadSpec);
+
+  const refDrop = $('#ref-drop');
+  const refInput = $('#ref-input');
+  if (refDrop && refInput) {
+    refDrop.addEventListener('click', (e) => {
+      if (e.target.closest('#ref-candidates')) return;
+      refInput.click();
+    });
+    refInput.addEventListener('change', async () => {
+      const f = refInput.files && refInput.files[0];
+      if (f) await applyReferenceFile(f);
+      refInput.value = '';
+    });
+    refDrop.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      refDrop.style.borderColor = '#d97757';
+    });
+    refDrop.addEventListener('dragleave', () => {
+      refDrop.style.borderColor = 'rgba(255,255,255,.22)';
+    });
+    refDrop.addEventListener('drop', async (e) => {
+      e.preventDefault();
+      refDrop.style.borderColor = 'rgba(255,255,255,.22)';
+      const f = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
+      if (f) await applyReferenceFile(f);
+    });
+  }
 }
 
 async function boot() {
-  const [specLoaded, themesLoaded, schemaLoaded, presetsLoaded, combosLoaded] = await Promise.allSettled([
+  const [specLoaded, themesLoaded, refLoaded, schemaLoaded, presetsLoaded, combosLoaded] = await Promise.allSettled([
     import('/templates/spec.mjs'),
     import('/templates/themes.js'),
+    import('/scripts/ref-core.mjs'),
     fetchJson('/schema/project.spec.schema.json'),
     fetchJson('/content/presets.json'),
     fetchJson('/content/combos.json'),
@@ -804,6 +931,7 @@ async function boot() {
 
   if (specLoaded.status === 'fulfilled') specApi = specLoaded.value;
   if (themesLoaded.status === 'fulfilled') themesDoc = themesLoaded.value;
+  if (refLoaded.status === 'fulfilled') refApi = refLoaded.value;
   if (schemaLoaded.status === 'fulfilled') schemaDoc = schemaLoaded.value;
 
   if (presetsLoaded.status !== 'fulfilled' || combosLoaded.status !== 'fulfilled') {
@@ -861,6 +989,19 @@ async function boot() {
     },
     get combos() {
       return combos;
+    },
+    get reference() {
+      return lastRef;
+    },
+    applyReferenceDataUrl: async (url) => {
+      const resp = await fetch(url);
+      const blob = await resp.blob();
+      return applyReferenceFile(blob);
+    },
+    applyReferenceTheme(id) {
+      if (!lastRef) return false;
+      applyReferenceResult(lastRef, id);
+      return true;
     },
     generate: generateNow,
     applyPresetById(id) {

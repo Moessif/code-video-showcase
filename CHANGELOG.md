@@ -12,15 +12,15 @@
 - **一键编译**：`scripts/compile.mjs` = lint → plan → render → concat → qa；无音轨时走 video-only concat。
 - **spec 闸门**：`scripts/spec-lint.mjs` 校验页面存在性、主题真实性、APCA（HUD/大字按实用阈值），并输出 JSON 报告。
 - **入口**：`app/wizard/`（8 预设 + 七张卡 + 实时 spec + 下载）、`scripts/nl2spec.mjs`（确定性规则 NL→spec，20 条语料回归）、`content/presets.json`、`content/combos.json`（13×12 兼容矩阵）。
-- **画布与编辑契约**：`templates/edit-bridge.mjs` + `__spec/__inspect/__patch`；big-card 注册 6 个节点（文案/关键词/强调色/版式/编号/品牌），segment 注册 5 个（主副标题/HUD/倒计时/水印）。`app/canvas/` 支持 scrub、点选、schema 面板、patch 导出。44 条契约测试。
+- **画布与编辑契约**：`templates/edit-bridge.mjs` + `__spec/__inspect/__inspectRect/__patch/__patchMany`；big-card 注册 6 个节点（文案/关键词/强调色/版式/编号/品牌），segment 注册 5 个（主副标题/HUD/倒计时/水印）。`app/canvas/` 支持 scrub、点选、Shift+拖拽框选、多选统一改色、schema 面板、patch 导出。48 条契约测试。
 - **剧本与版本**：`app/script/` 表格编辑（就地改、超长标红、实时 JSON）、`app/versions/` localStorage 版本树 + 并排 diff + 恢复；30 条模型测试。
 - **素材与批量**：`scripts/assets.mjs`（sha256 + ffprobe + 注册表）、`scripts/variants.mjs`（笛卡尔变体矩阵 + manifest）、`templates/reflow.mjs`（16:9→9:16/1:1 spec 级重排，非裁切）。
 - **素材摄取**：`ingest/` 提供 ffprobe、场景切分、静音检测、可选 ASR 适配、打分选段、EDL、`edlToScript` 生成合法 spec；22 条纯函数测试。
 - **第 12 套画风**：`templates/styles/cyber-pixel.js` + `templates/cyber-pixel.html`（量化/Bayer 抖动/扫描线/色差/CRT/辉光，全为 t 的纯函数）；`references/long-form.md` 41 s 单风格三幕编排规则。
-- **参考图**：`scripts/from-reference.mjs`（ffmpeg 解码 + OKLab k-means + 主题色板最近邻 + APCA 闸门 + top-3 候选），支持 `--spec` 合并进 `look`；29 条真图回归。
+- **参考图**：`scripts/from-reference.mjs`（ffmpeg 解码 + OKLab k-means + 主题色板最近邻 + APCA 闸门 + top-3 候选），支持 `--spec` 合并进 `look`；`scripts/ref-core.mjs` 抽出 Node/浏览器共用核心；Wizard 支持直接拖入/选择参考图，浏览器内采样并写 `meta.reference`。29 条真图 + 11 条核心 + 12 条端到端回归。
 - **统一 CLI**：`bin/cvs.mjs`（new / ref / lint / plan / build / variant / ingest / wizard / canvas / script / versions / test / doctor），支持 `./project.spec.json` 默认值。
 - **CI**：`.github/workflows/compiler.yml` 跑全部纯 Node 测试 + spec 闸门 + plan + CLI 冒烟。
-- **测试入口**：`npm run test:all`（138 条零依赖测试）、`test:browser`（契约 + 赛博像素确定性）、`dev:wizard|canvas|script|versions`。
+- **测试入口**：`npm run test:all`（178 条零依赖测试）、`test:browser`（48 条画布契约 + 12 条参考图上传 + 赛博像素确定性）、`dev:wizard|canvas|script|versions`。
 
 ### 变更
 - 默认流程仍是 timeline v1；spec v1 为新增编译层，旧项目不传 spec 时行为不变。

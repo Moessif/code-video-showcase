@@ -10,7 +10,7 @@
  * 全部同源静态资源，无任何外部依赖 / 网络请求。
  */
 import { THEME_LIST } from '/templates/themes.js';
-import { renderInspector, renderPatches, cloneEntry } from './panel.js';
+import { renderInspector, renderMultiInspector, renderPatches, cloneEntry } from './panel.js';
 
 const $ = (id) => document.getElementById(id);
 const frame = $('frame');
@@ -31,6 +31,8 @@ const state = {
   t: 0,
   ready: false,
   entry: null,
+  selection: [],
+  suppressClick: false,
   loadToken: 0,
 };
 
@@ -82,6 +84,8 @@ window.addEventListener('resize', fit);
 function load() {
   state.ready = false;
   state.entry = null;
+  state.selection = [];
+  state.suppressClick = false;
   state.loadToken++;
   const token = state.loadToken;
   renderInspector(inspector, null);
@@ -129,15 +133,32 @@ function onReady(win, token) {
 
   const doc = win.document;
   doc.addEventListener('click', (ev) => onStageClick(win, ev));
+  installMarquee(win);
 
   fit();
   renderAt(0);
   refreshPatches();
-  setStatus(`就绪 · ${state.page} · ${frame.contentWindow.__hit ? frame.contentWindow.__hit.length : 0} 个可编辑区域`, 'ok');
+  setStatus(`就绪 · ${state.page} · ${frame.contentWindow.__hit ? frame.contentWindow.__hit.length : 0} 个可编辑区域 · Shift+拖拽框选`, 'ok');
+}
+
+// ---------- 选择（单选 / 框选多选） ----------
+function setSelection(entries) {
+  state.selection = Array.isArray(entries) ? entries : [];
+  state.entry = state.selection.length === 1 ? cloneEntry(state.selection[0]) : null;
+  if (state.selection.length > 1) {
+    renderMultiInspector(inspector, state.selection, {
+      onChange: (prop, value) => onMultiFieldChange(prop, value),
+    });
+  } else {
+    renderInspector(inspector, state.entry, {
+      onChange: (prop, value) => onFieldChange(prop, value),
+    });
+  }
 }
 
 // ---------- 点击 → inspect ----------
 function onStageClick(win, ev) {
+  if (state.suppressClick) { state.suppressClick = false; return; }
   const cv = win.document.querySelector('canvas');
   if (!cv) return;
   const r = cv.getBoundingClientRect();
@@ -149,10 +170,87 @@ function onStageClick(win, ev) {
   let hit = null;
   try { hit = win.__inspect ? win.__inspect(x, y) : null; } catch { hit = null; }
 
-  state.entry = cloneEntry(hit);
-  renderInspector(inspector, state.entry, { onChange: (prop, value) => onFieldChange(prop, value) });
+  setSelection(hit ? [hit] : []);
   if (hit) setStatus(`选中 ${hit.id} · (${x.toFixed(0)}, ${y.toFixed(0)})`, 'ok');
   else setStatus(`未命中 (${x.toFixed(0)}, ${y.toFixed(0)}) · 该处不可编辑`, '');
+}
+
+// ---------- Shift+拖拽框选 ----------
+function installMarquee(win) {
+  const doc = win.document;
+  if (doc.__cvsMarquee) return;
+  doc.__cvsMarquee = true;
+
+  doc.addEventListener('mousedown', (ev) => {
+    if (!ev.shiftKey || ev.button !== 0) return;
+    const cv = doc.querySelector('canvas');
+    if (!cv) return;
+    ev.preventDefault();
+    ev.stopPropagation();
+
+    const r = cv.getBoundingClientRect();
+    const sx = ev.clientX;
+    const sy = ev.clientY;
+    const box = doc.createElement('div');
+    box.style.cssText = [
+      'position:fixed', 'z-index:2147483647', 'pointer-events:none',
+      'border:2px dashed #4cc9f0', 'background:rgba(76,201,240,.12)',
+      'left:0', 'top:0', 'width:0', 'height:0',
+    ].join(';');
+    doc.body.appendChild(box);
+
+    let moved = false;
+    const onMove = (e) => {
+      moved = moved || Math.abs(e.clientX - sx) > 3 || Math.abs(e.clientY - sy) > 3;
+      const x = Math.min(sx, e.clientX);
+      const y = Math.min(sy, e.clientY);
+      Object.assign(box.style, {
+        left: `${x}px`, top: `${y}px`,
+        width: `${Math.abs(e.clientX - sx)}px`, height: `${Math.abs(e.clientY - sy)}px`,
+      });
+    };
+
+    const onUp = (e) => {
+      doc.removeEventListener('mousemove', onMove, true);
+      doc.removeEventListener('mouseup', onUp, true);
+      box.remove();
+      if (!moved) return; // Shift+单击：交给 click 做单选
+
+      state.suppressClick = true;
+      setTimeout(() => { state.suppressClick = false; }, 350);
+
+      const x0 = (Math.min(sx, e.clientX) - r.left) * (cv.width / r.width);
+      const y0 = (Math.min(sy, e.clientY) - r.top) * (cv.height / r.height);
+      const x1 = (Math.max(sx, e.clientX) - r.left) * (cv.width / r.width);
+      const y1 = (Math.max(sy, e.clientY) - r.top) * (cv.height / r.height);
+
+      let hits = [];
+      try { hits = win.__inspectRect ? win.__inspectRect(x0, y0, x1, y1) : []; } catch { hits = []; }
+      setSelection(hits);
+      if (hits.length > 1) setStatus(`框选 ${hits.length} 个节点 · 面板改动会全部应用`, 'ok');
+      else if (hits.length === 1) setStatus(`选中 ${hits[0].id}`, 'ok');
+      else setStatus('框选区域没有可编辑节点', '');
+    };
+
+    doc.addEventListener('mousemove', onMove, true);
+    doc.addEventListener('mouseup', onUp, true);
+  }, true);
+}
+
+// ---------- 多选统一 patch ----------
+function onMultiFieldChange(prop, value) {
+  const win = frame.contentWindow;
+  if (!state.ready || state.selection.length < 2 || typeof win.__patchMany !== 'function') return;
+  const ids = state.selection.map((e) => e.id);
+  let res = null;
+  try {
+    res = win.__patchMany(ids, { [prop]: value });
+  } catch (e) {
+    setStatus('__patchMany 失败：' + (e && e.message || e), 'err');
+    return;
+  }
+  refreshPatches();
+  setStatus(`已统一 patch ${res.count} 个节点 · ${prop} = ${JSON.stringify(value)}`, 'ok');
 }
 
 // ---------- 编辑 → patch ----------
@@ -198,6 +296,7 @@ function refreshPatches() {
       const win = frame.contentWindow;
       try { if (win.__editBridge) win.__editBridge.clearPatches(); } catch { /* ignore */ }
       state.entry = null;
+      state.selection = [];
       renderInspector(inspector, null);
       refreshPatches();
       setStatus('patches 已清空', 'ok');

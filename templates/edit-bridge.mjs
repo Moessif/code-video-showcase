@@ -204,6 +204,40 @@ export function createEditBridge({ getSpec, setPatch, renderAt, canvas, namespac
     };
   }
 
+  /** 矩形框选：返回与矩形相交的所有节点（后注册优先，保持绘制顺序）。 */
+  function inspectRect(x0, y0, x1, y1) {
+    const n = [x0, y0, x1, y1].map(Number);
+    if (!n.every(Number.isFinite)) return [];
+    const [ax, ay, bx, by] = n;
+    const rx = Math.min(ax, bx);
+    const ry = Math.min(ay, by);
+    const rw = Math.abs(bx - ax);
+    const rh = Math.abs(by - ay);
+    const out = [];
+    for (const e of entries) {
+      const [ex, ey, ew, eh] = e.rect;
+      if (ex < rx + rw && ex + ew > rx && ey < ry + rh && ey + eh > ry) out.push(cloneEntry(e));
+    }
+    return out;
+  }
+
+  /**
+   * 批量 patch：对每个目标节点应用同一组 props。
+   * targets 可以是 id 字符串数组，或 __inspectRect 返回的 entry 数组。
+   */
+  function patchMany(targets, props) {
+    if (!Array.isArray(targets)) throw new Error('__patchMany(targets, props): targets must be an array');
+    if (!props || typeof props !== 'object' || Array.isArray(props)) {
+      throw new Error('__patchMany(targets, props): props must be a plain object');
+    }
+    const results = [];
+    for (const t of targets) {
+      const id = typeof t === 'string' ? t : t && t.id;
+      if (typeof id === 'string' && id) results.push(patch(id, props));
+    }
+    return { count: results.length, results };
+  }
+
   /** 清空 patches 并重绘。 */
   function clearPatches() {
     const list = patchList();
@@ -263,7 +297,9 @@ export function createEditBridge({ getSpec, setPatch, renderAt, canvas, namespac
     if (!w) throw new Error('createEditBridge: no window to install on');
     w.__spec = () => snapshot();
     w.__inspect = (x, y) => inspect(x, y);
+    w.__inspectRect = (x0, y0, x1, y1) => inspectRect(x0, y0, x1, y1);
     w.__patch = (id, props) => patch(id, props);
+    w.__patchMany = (targets, props) => patchMany(targets, props);
     w.__hit = entries;            // 实时数组：每次 renderFrame 后内容更新，引用不变
     w.__editBridge = api;         // clientToCanvas / metrics / exportPatches / clearPatches …
     return api;
@@ -276,7 +312,9 @@ export function createEditBridge({ getSpec, setPatch, renderAt, canvas, namespac
     add,
     hit,
     inspect,
+    inspectRect,
     patch,
+    patchMany,
     clearPatches,
     spec: snapshot,
     exportPatches,

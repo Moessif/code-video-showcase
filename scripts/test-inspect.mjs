@@ -313,6 +313,24 @@ async function main() {
     check('__spec 返回副本（外部改动不污染）', snap.aLen === snap.bLen + 1, `mutated=${snap.aLen} live=${snap.bLen}`);
     console.log(`[patches] ${snap.entries.join('  ')}`);
 
+    section('__inspectRect / __patchMany（框选）');
+    const multi = await evaluate(client, sessionId, () => {
+      const canvas = document.querySelector('canvas');
+      window.renderFrame(0.8);
+      window.__editBridge.clearPatches();
+      const all = window.__inspectRect(0, 0, 1920, 1080);
+      const ids = all.map((e) => e.id);
+      const before = canvas.toDataURL('image/png');
+      const ret = window.__patchMany(['card.first', 'card.keyword'], { color: '#ff0000' });
+      const after = canvas.toDataURL('image/png');
+      const patches = window.__spec().patches.map((p) => `${p.scope}:${p.id}`);
+      return { count: all.length, ids, retCount: ret.count, changed: before !== after, patches };
+    });
+    check('__inspectRect 全屏框选 >= 3 个节点', multi.count >= 3, multi.ids.join(','));
+    check('__patchMany 命中 2 个节点', multi.retCount === 2, String(multi.retCount));
+    check('__patchMany 写入 2 条 patch', multi.patches.length === 2, multi.patches.join(' '));
+    check('框选统一改色后画面变化', multi.changed === true);
+
     section('segment.html 契约（HUD / 标题 / patch 可复现）');
     await client.send('Page.navigate', { url: `${origin}${SEGMENT_URL}` }, sessionId);
     await sleep(600);

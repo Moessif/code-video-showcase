@@ -38,15 +38,17 @@
 
   <aside class="side">
     <section id="inspector" class="card">
-      <p class="muted">未选中节点。点击画面里的可编辑区域。</p>
+      <p class="muted">未选中节点。点击画面里的可编辑区域；Shift+拖拽框选多个节点。</p>
     </section>
     <section id="patches" class="card"></section>
     <section class="card meta">
       <h3>契约</h3>
-      <pre class="mono">__spec()            → spec 快照
-__inspect(x, y)     → { id, role, rect, props, schema }
-__patch(id, props)  → { id, props, diff }
-__hit               → 当前帧命中表（后注册优先）</pre>
+      <pre class="mono">__spec()                    → spec 快照
+__inspect(x, y)             → { id, role, rect, props, schema }
+__inspectRect(x0,y0,x1,y1)  → [entry]  框选
+__patch(id, props)          → { id, props, diff }
+__patchMany(ids, props)     → { count, results }
+__hit                       → 当前帧命中表（后注册优先）</pre>
       <p class="muted">x / y 是画布位图坐标（1920×1080）。宿主已按 DPR 与 CSS 缩放换算。</p>
     </section>
   </aside>

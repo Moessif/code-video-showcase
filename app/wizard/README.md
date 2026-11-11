@@ -80,14 +80,29 @@ node app/wizard/serve.mjs
 其他安全约定：只允许 `GET/HEAD`；拒绝目录穿越；拒绝点文件（`.git` 等）；
 目录不列表；所有响应 `Cache-Control: no-store`。
 
+## 参考图上传
+
+拖入或点击「有参考图？」区域，浏览器内用 Canvas 采样 96×96，交给
+`scripts/ref-core.mjs`（与 `scripts/from-reference.mjs` 同一套 OKLab k-means +
+主题色板最近邻 + APCA 闸门）：
+
+- 自动套用 top-1 主题与提取主色（`look.accentOverride`）；
+- 显示 top-3 候选，点击可切换；
+- 结果写入 `meta.reference`（来源、置信度、候选、色板、密度），可追溯，不复制像素；
+- 置信度 < 0.15 时提示改选候选；
+- 选择推荐预设会清空参考图状态。
+
+CLI 同一算法：`node bin/cvs.mjs ref poster.jpg --spec project.spec.json --out project.spec.json`。
+
 ## 文件
 
 | 文件 | 作用 |
 |---|---|
-| `index.html` | 页面骨架：8 组预设、七张卡、右侧预览 |
-| `app.js` | 状态、枚举加载、spec 组装、normalize/validate、下载/复制 |
+| `index.html` | 页面骨架：参考图上传、8 组预设、七张卡、右侧预览 |
+| `app.js` | 状态、枚举加载、spec 组装、normalize/validate、参考图、下载/复制 |
 | `style.css` | 暗色工作台样式，响应式；`prefers-reduced-motion` 关闭动画 |
 | `serve.mjs` | 5181 静态服务 + timeline 浏览器改写 |
+| `../../scripts/ref-core.mjs` | 参考图纯函数核心（Node/浏览器共用） |
 | `../../content/presets.json` | 8 组首屏推荐预设 |
 | `../../content/combos.json` | 13×12 兼容矩阵 + `_meta` 生成规则 |
 
@@ -100,3 +115,5 @@ node app/wizard/serve.mjs
   不是完整主题渲染；它只用于辨认，不代表最终画面。
 - `look.style` 在 JSON Schema 里是自由字符串；12 个 id 的“白名单”来自
   `content/combos.json`，不是 schema 枚举。
+- 参考图是 96×96 全图拉伸采样（与 CLI 的 ffmpeg `scale=96:96` 一致）；极端长图会丢掉局部细节，
+  低置信时请手动点候选，或改用 `cvs ref` 后手工调 `look`。

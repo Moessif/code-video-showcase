@@ -105,6 +105,7 @@ function textField(prop, spec, value, onChange) {
     input.maxLength = Number(spec.maxLength);
   }
   input.value = value == null ? '' : String(value);
+  if (value == null) input.placeholder = '多值（输入以统一）';
   input.addEventListener('input', () => onChange(prop, input.value));
   return input;
 }
@@ -171,6 +172,67 @@ export function renderInspector(root, entry, { onChange = () => {} } = {}) {
     else if (type === 'enum') control = enumField(prop, spec, value, onChange);
     else if (type === 'number' || type === 'size') control = numberField(prop, spec, value, onChange);
     else control = textField(prop, spec, value, onChange);
+
+    row.append(control);
+    root.append(row);
+  }
+}
+
+/**
+ * 多选面板：框选 ≥2 个节点时，只暴露可安全统一修改的字段（color / text / enum）。
+ * number/size 不进入多选面板，避免把不同节点的字号强行压成同一个值。
+ *
+ * @param {HTMLElement} root
+ * @param {Array} entries __inspectRect 返回的节点
+ * @param {{onChange?: (prop:string, value:any)=>void}} [opts]
+ */
+export function renderMultiInspector(root, entries = [], { onChange = () => {} } = {}) {
+  root.innerHTML = '';
+  if (!entries.length) return renderInspector(root, null);
+  if (entries.length === 1) return renderInspector(root, entries[0], { onChange });
+
+  const head = el('div', 'insp-head');
+  head.append(el('strong', '', `已框选 ${entries.length} 个节点`), el('span', 'badge', 'multi'));
+  root.append(head);
+
+  const ids = el('p', 'muted mono');
+  ids.textContent = entries.map((e) => e.id).join(' · ');
+  root.append(ids);
+
+  const first = entries[0];
+  const common = {};
+  for (const [prop, specRaw] of Object.entries(first.schema || {})) {
+    const spec = (specRaw && typeof specRaw === 'object') ? specRaw : { type: 'text' };
+    const type = String(spec.type || 'text');
+    if (!['color', 'text', 'enum'].includes(type)) continue;
+    const same = entries.every((e) => {
+      const s = e.schema && e.schema[prop];
+      return s && String(s.type || 'text') === type;
+    });
+    if (same) common[prop] = spec;
+  }
+
+  const fields = Object.entries(common);
+  if (!fields.length) {
+    root.append(el('p', 'muted', '这些节点没有可统一修改的字段（只读）。'));
+    return;
+  }
+
+  root.append(el('p', 'muted', '改动会一次性应用到全部选中节点。'));
+
+  for (const [prop, spec] of fields) {
+    const type = String(spec.type || 'text');
+    const values = entries.map((e) => e.props?.[prop]);
+    const same = values.every((v) => JSON.stringify(v) === JSON.stringify(values[0]));
+    const value = same ? values[0] : (type === 'text' || type === 'color' ? '' : undefined);
+
+    const row = el('div', 'field-row');
+    row.append(el('label', '', `${spec.label || prop}（全部）`));
+
+    let control;
+    if (type === 'color') control = colorField(prop, spec, value, onChange);
+    else if (type === 'enum') control = enumField(prop, spec, value, onChange);
+    else control = textField(prop, spec, same ? value : undefined, onChange);
 
     row.append(control);
     root.append(row);
