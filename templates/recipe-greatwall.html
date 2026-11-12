@@ -1,0 +1,555 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<link rel="stylesheet" href="/shared/fonts.css">
+<title>recipe 24 · great wall</title>
+<style>
+  html, body { margin: 0; padding: 0; overflow: hidden; background: #0e1220; }
+  #c { display: block; }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+
+<script type="module">
+// recipe-greatwall.html — 风格段 24「长城 / 层峦 / 敌楼 / 晨昏」。
+//
+// 渲染契约：
+//   window.DURATION / window.renderFrame(t)（纯函数）/ window.__ready / window.__bootError
+//
+// 画幅（D7）：画布尺寸由 util.setupStage() 取视口（偶数，缺省 1920×1080）。
+//   横屏：地平线在 0.62H，城墙自左近处蜿蜒到右侧远景，四个敌楼沿脊分布。
+//   竖屏：地平线压到 0.50H，山脊更陡、城墙折返更多，标题落在下方三分之一。
+//
+// 视觉：晨昏渐变天 + 低空日轮 + 四层山脊（大气透视，越远越淡）+ 沿脊的长城
+//       （垛口 + 敌楼 + 顶面受光边）+ 近景剪影 + 雾带 + 远雁。
+//
+// 确定性：山脊波形、垛口位置、敌楼锚点全部在启动时由固定种子烘定；
+// 逐帧只做多边形填充与描边。无 Math.random / Date.now / performance.now / rAF。
+import { createSegment, applyImpact2D, drawFlash, loadFonts, vars } from './common.js';
+import {
+  themeFromURL, getTheme, loadFontsFor, hexToRgba, mix, relativeLuminance,
+} from './themes.js';
+import {
+  TAU, clamp, ease, mulberry32, setupStage, safePad,
+  fitTextSize, drawTracked, drawHud, drawTopMeta, roundRectPath,
+} from './recipes/util.js';
+
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d', { alpha: false });
+const { W, H, portrait } = setupStage(canvas);
+const pad = safePad(W, H);
+
+const params = new URLSearchParams(location.search);
+const seg = createSegment({ duration: 3.2 });
+window.DURATION = seg.duration;
+
+const THEME = getTheme(themeFromURL(location.search));
+const TC = THEME.colors;
+const V = vars();
+
+const BRAND = String(V.brand || 'CVS').slice(0, 24);
+const TITLE = String(params.get('title') || V.title || '万里长城').slice(0, 8);
+const SUB = String(V.subtitle || '不到长城非好汉').slice(0, 16);
+
+const isLight = THEME.mode === 'light' || relativeLuminance(TC.bg) > 0.55;
+
+/* ───────────────────────────── 调色 ───────────────────────────── */
+
+// 天空：上方冷、地平线暖。浅色主题走"清晨米白"，深色主题走"暮色靛蓝"。
+const SKY_TOP = isLight ? mix('#b9cfe4', TC.bg, 0.42) : mix('#0b1020', TC.bg, 0.55);
+const SKY_MID = isLight ? mix('#e6dcc8', TC.bg, 0.22) : mix('#33243a', TC.bg, 0.40);
+const SKY_HOR = mix(isLight ? '#f6d9a8' : '#c8763f', TC.accent, isLight ? 0.10 : 0.18);
+const SUN = mix('#f8c46a', TC.accent, 0.22);
+const SUN_CORE = mix('#fff3d6', SUN, 0.35);
+
+const INK = isLight ? mix('#3d4048', TC.ink, 0.35) : mix('#080b14', TC.ink, 0.18);
+const MUTED = hexToRgba(isLight ? INK : '#e8e2d6', isLight ? 0.55 : 0.46);
+// 标题块压在底部压暗带（两套主题下都是深底），所以文字固定走浅色。
+const TITLE_INK = mix('#f7f2e8', TC.accent, 0.07);
+const BOTTOM_MUTED = hexToRgba('#f2ece0', 0.74);
+const ACCENT = mix(isLight ? '#a8412c' : '#d8a24a', TC.accent, 0.30);
+
+// 大气透视：远脊几乎融进天空，近脊压成剪影。
+const ridgeColor = (k) => {
+  const haze = isLight ? mix(SKY_HOR, '#f3eada', 0.35) : mix(SKY_HOR, SKY_MID, 0.55);
+  return mix(haze, INK, k);
+};
+const FOREGROUND = isLight ? mix(INK, '#2c2f36', 0.30) : mix(INK, '#000000', 0.35);
+
+// 长城石：比所在山脊亮一档，顶面再亮一档（受光）。
+const STONE = (k) => mix(isLight ? '#efe6d2' : '#b9b0a0', ridgeColor(k), 0.42);
+const STONE_TOP = (k) => mix('#fdf6e6', STONE(k), 0.45);
+const STONE_SHADE = (k) => mix(STONE(k), INK, 0.45);
+const ROOF = (k) => mix(STONE_SHADE(k), INK, 0.35);
+
+const SERIF = '"Noto Serif SC", "Songti SC", serif';
+const MONO = '"JetBrains Mono", ui-monospace, monospace';
+const FAMILIES = Array.from(new Set([
+  ...(loadFontsFor(THEME) || []),
+  'Noto Serif SC', 'Noto Sans SC', 'JetBrains Mono', 'Inter',
+]));
+
+/* ───────────────────────────── 山脊波形 ───────────────────────────── */
+
+/**
+ * 固定种子的山脊高度场。x∈[0,1] → 归一化高度 n∈[0,1]（1=最高）。
+ * 分形正弦叠加（无噪声库、无 RNG）：同 seed 同曲线，逐帧零成本。
+ */
+function makeHeight(seed, { freq = 2, octaves = 4 } = {}) {
+  const r = mulberry32(seed);
+  const phases = Array.from({ length: octaves }, () => r() * TAU);
+  const freqs = Array.from({ length: octaves }, (_, i) => freq * Math.pow(1.87, i));
+  const amps = Array.from({ length: octaves }, (_, i) => Math.pow(0.56, i));
+  const norm = amps.reduce((a, b) => a + b, 0);
+  return (x) => {
+    let s = 0;
+    for (let i = 0; i < octaves; i++) s += Math.sin(x * freqs[i] * TAU + phases[i]) * amps[i];
+    return clamp(0.5 + (s / norm) * 0.5, 0, 1);
+  };
+}
+
+// 四层：0/1 远景，2 = 城墙脊，3 = 近景剪影。
+const RIDGE_DEFS = portrait
+  ? [
+      { seed: 8041, base: 0.46, amp: 0.13, freq: 1.5, octaves: 3, k: 0.20 },
+      { seed: 8052, base: 0.55, amp: 0.16, freq: 2.1, octaves: 4, k: 0.40 },
+      { seed: 8063, base: 0.66, amp: 0.19, freq: 1.6, octaves: 4, k: 0.60 },
+      { seed: 8074, base: 0.92, amp: 0.15, freq: 2.8, octaves: 3, k: 0.92 },
+    ]
+  : [
+      { seed: 8041, base: 0.42, amp: 0.13, freq: 1.4, octaves: 3, k: 0.18 },
+      { seed: 8052, base: 0.52, amp: 0.16, freq: 2.0, octaves: 4, k: 0.38 },
+      { seed: 8063, base: 0.63, amp: 0.19, freq: 1.7, octaves: 4, k: 0.58 },
+      { seed: 8074, base: 0.94, amp: 0.16, freq: 2.6, octaves: 3, k: 0.94 },
+    ];
+
+const WALL_LAYER = 2;
+const SAMPLES = 240;
+
+let RIDGES = null;   // [{ def, ys: Float32Array }]
+let WALL = null;     // { pts: [{x,y,t}], towers: [{x,y,scale}] }
+let L = null;        // 排版
+
+function buildRidges() {
+  return RIDGE_DEFS.map((def) => {
+    const h = makeHeight(def.seed, def);
+    const ys = new Float32Array(SAMPLES + 1);
+    for (let i = 0; i <= SAMPLES; i++) {
+      const x = i / SAMPLES;
+      // n∈[0,1] → 以 base 为中心的 ±amp 波动（y 向下，所以减）
+      ys[i] = H * (def.base - def.amp * (h(x) - 0.5) * 2) - (portrait ? 0 : H * 0.02) * def.k;
+    }
+    return { def, ys };
+  });
+}
+
+/** 在已建好的脊数组上按 x∈[0,1] 线性取样。 */
+function ridgeYAt(layer, x01) {
+  const ys = RIDGES[layer].ys;
+  const fi = clamp(x01, 0, 1) * SAMPLES;
+  const i0 = Math.floor(fi);
+  const i1 = Math.min(SAMPLES, i0 + 1);
+  const f = fi - i0;
+  return ys[i0] * (1 - f) + ys[i1] * f;
+}
+
+/**
+ * 城墙：沿墙脊取样成一条中心线，再生成受光顶边 / 阴影底边。
+ * 透视：左侧近（scale≈1），右侧远（scale≈0.46）——带宽、垛口、敌楼同步缩小。
+ */
+function buildWall() {
+  const x0 = W * 0.03;
+  const x1 = W * (portrait ? 0.97 : 0.99);
+  const n = 190;
+  const pts = [];
+  for (let i = 0; i <= n; i++) {
+    const f = i / n;
+    const x = x0 + (x1 - x0) * f;
+    const x01 = x / W;
+    const y = ridgeYAt(WALL_LAYER, x01);
+    const scale = 1 - 0.54 * f;                 // 近大远小
+    pts.push({ x, y, f, scale });
+  }
+
+  // 敌楼锚点：沿墙等距取四个，落在垛口之间。
+  const towerFs = portrait ? [0.10, 0.34, 0.60, 0.86] : [0.09, 0.32, 0.57, 0.82];
+  const towers = towerFs.map((tf) => {
+    const idx = clamp(Math.round(tf * n), 0, n);
+    const p = pts[idx];
+    return { x: p.x, y: p.y, scale: p.scale, f: p.f };
+  });
+
+  return { pts, towers, x0, x1 };
+}
+
+/* ───────────────────────────── 排版 ───────────────────────────── */
+
+function buildLayout() {
+  const short = Math.min(W, H);
+  const titleSize = Math.round(clamp(short * (portrait ? 0.115 : 0.135), 40, 260));
+  const subSize = Math.max(12, Math.round(titleSize * 0.26));
+  // 标题压在**底部剪影带**里：上面是山脊与城墙，标题落在这里不会撞画面主体，
+  // 强调线也就不会横穿城墙（v1 把标题放在 0.755H，正好切在墙脊上）。
+  // 底部留出 HUD（左下角 STYLE 行 / 右下角帧号）的高度，别和副题挤在一起。
+  const subBottom = pad * 2.2 + subSize * 0.6;
+  const titleY = Math.round(H - subBottom - subSize * 1.6);
+  const titleX = portrait ? Math.round(W * 0.5) : Math.round(pad * 1.5);
+  const ruleW = Math.round(W * (portrait ? 0.36 : 0.22));
+  return {
+    titleSize, subSize, titleY, titleX, ruleW,
+    ruleY: titleY - Math.round(titleSize * 1.02),
+    subY: titleY + Math.round(subSize * 1.7),
+    align: portrait ? 'center' : 'left',
+  };
+}
+
+/* ───────────────────────────── 绘制 ───────────────────────────── */
+
+/**
+ * 天空：渐变 + 日轮 + 光晕。与 t 无关 → 启动时烘进离屏画布，逐帧只 drawImage。
+ * g 是任意 2D 上下文，所以预热用的是离屏 canvas，不是主画布。
+ */
+function paintSky(g) {
+  const grad = g.createLinearGradient(0, 0, 0, H * 0.78);
+  grad.addColorStop(0, SKY_TOP);
+  grad.addColorStop(0.62, SKY_MID);
+  grad.addColorStop(1, SKY_HOR);
+  g.fillStyle = grad;
+  g.fillRect(0, 0, W, H);
+
+  // 日轮贴着地平线（固定位置；"升起"的动感由山脊显影 + 城墙建成承担）
+  const sunX = W * (portrait ? 0.68 : 0.74);
+  const sunY = H * (portrait ? 0.60 : 0.585);
+  const r = Math.min(W, H) * (portrait ? 0.085 : 0.075);
+
+  const halo = g.createRadialGradient(sunX, sunY, r * 0.2, sunX, sunY, r * 4.6);
+  halo.addColorStop(0, hexToRgba(SUN, isLight ? 0.42 : 0.30));
+  halo.addColorStop(0.35, hexToRgba(SUN, isLight ? 0.14 : 0.10));
+  halo.addColorStop(1, hexToRgba(SUN, 0));
+  g.fillStyle = halo;
+  g.fillRect(0, 0, W, H * 0.95);
+
+  g.fillStyle = hexToRgba(SUN_CORE, isLight ? 0.92 : 0.80);
+  g.beginPath();
+  g.arc(sunX, sunY, r, 0, TAU);
+  g.fill();
+}
+
+let SKY_CACHE = null;
+
+function buildSky() {
+  const cv = document.createElement('canvas');
+  cv.width = W;
+  cv.height = H;
+  paintSky(cv.getContext('2d', { alpha: false }));
+  return cv;
+}
+
+/** 一层山脊：从脊线铺到底，带一点点内部明暗。 */
+function drawRidge(layer, alpha) {
+  const { def, ys } = RIDGES[layer];
+  ctx.save();
+  ctx.globalAlpha = clamp(alpha);
+  const base = ridgeColor(def.k);
+  const g = ctx.createLinearGradient(0, H * (def.base - def.amp), 0, H);
+  g.addColorStop(0, mix(base, isLight ? '#ffffff' : STONE_TOP(def.k), 0.06));
+  g.addColorStop(1, mix(base, INK, 0.22));
+  ctx.fillStyle = g;
+  ctx.beginPath();
+  ctx.moveTo(0, ys[0]);
+  for (let i = 1; i <= SAMPLES; i++) ctx.lineTo((i / SAMPLES) * W, ys[i]);
+  ctx.lineTo(W, H);
+  ctx.lineTo(0, H);
+  ctx.closePath();
+  ctx.fill();
+  ctx.restore();
+}
+
+/** 层间雾带：让远山"退"下去。 */
+function drawMist(layer, alpha) {
+  const { def } = RIDGES[layer];
+  const y = H * def.base;
+  const h = H * 0.16;
+  const g = ctx.createLinearGradient(0, y - h * 0.6, 0, y + h);
+  const c = mix(SKY_HOR, isLight ? '#fffaf0' : SKY_MID, 0.4);
+  g.addColorStop(0, hexToRgba(c, 0));
+  g.addColorStop(0.45, hexToRgba(c, alpha));
+  g.addColorStop(1, hexToRgba(c, 0));
+  ctx.fillStyle = g;
+  ctx.fillRect(0, y - h * 0.6, W, h * 1.6);
+}
+
+/**
+ * 长城本体：一次性画出可见部分（prog 控制"自左向右建成"）。
+ * 结构自下而上：阴影底边 → 墙体 → 受光顶边 → 垛口。
+ */
+function drawWall(prog, k) {
+  const { pts } = WALL;
+  const n = pts.length - 1;
+  const upto = Math.floor(n * clamp(prog));
+  if (upto < 2) return;
+
+  const halfW = (f) => W * (portrait ? 0.0105 : 0.0088) * (1 - 0.54 * f);
+  const topY = (p) => p.y - halfW(p.f) * 1.35;
+  const botY = (p) => p.y + halfW(p.f) * 0.85;
+
+  // 墙体（梯形带）
+  ctx.save();
+  ctx.beginPath();
+  ctx.moveTo(pts[0].x, topY(pts[0]));
+  for (let i = 1; i <= upto; i++) ctx.lineTo(pts[i].x, topY(pts[i]));
+  for (let i = upto; i >= 0; i--) ctx.lineTo(pts[i].x, botY(pts[i]));
+  ctx.closePath();
+  ctx.fillStyle = STONE(k);
+  ctx.fill();
+  ctx.restore();
+
+  // 受光顶边
+  ctx.save();
+  ctx.beginPath();
+  ctx.moveTo(pts[0].x, topY(pts[0]));
+  for (let i = 1; i <= upto; i++) ctx.lineTo(pts[i].x, topY(pts[i]));
+  ctx.strokeStyle = STONE_TOP(k);
+  ctx.lineWidth = Math.max(1.2, W * 0.0022);
+  ctx.lineCap = 'round';
+  ctx.globalAlpha = 0.9;
+  ctx.stroke();
+  ctx.restore();
+
+  // 阴影底边（贴地那一道暗线，把墙从山脊上"抬"起来）
+  ctx.save();
+  ctx.beginPath();
+  ctx.moveTo(pts[0].x, botY(pts[0]));
+  for (let i = 1; i <= upto; i++) ctx.lineTo(pts[i].x, botY(pts[i]));
+  ctx.strokeStyle = hexToRgba(STONE_SHADE(k), 0.75);
+  ctx.lineWidth = Math.max(1, W * 0.0016);
+  ctx.stroke();
+  ctx.restore();
+
+  // 垛口：沿顶边等距的小齿（按 x 均匀，不是按采样点，所以远端不会挤在一起）
+  const step = Math.max(6, Math.round(W * (portrait ? 0.0135 : 0.0105)));
+  const xEnd = pts[upto].x;
+  ctx.save();
+  ctx.fillStyle = STONE(k);
+  for (let x = WALL.x0 + step * 0.5; x <= xEnd; x += step) {
+    const f = (x - WALL.x0) / (WALL.x1 - WALL.x0);
+    if (f < 0 || f > 1) continue;
+    const w = halfW(f);
+    const hgt = w * 1.05;
+    ctx.fillRect(x - w * 0.55, ridgeYAt(WALL_LAYER, x / W) - w * 1.35 - hgt, w * 1.1, hgt * 1.15);
+  }
+  ctx.restore();
+}
+
+/** 敌楼：梯形台身 + 出檐顶 + 两条箭窗。按 prog 逐个"建起"。 */
+function drawTowers(prog, k) {
+  for (const tw of WALL.towers) {
+    const local = clamp((prog - tw.f) / 0.10);
+    if (local <= 0.001) continue;
+    const w0 = W * (portrait ? 0.030 : 0.024) * tw.scale;
+    const h0 = w0 * 1.62;
+    const grow = ease.outBack(local);
+    const tw2 = w0 * (0.82 + 0.18 * grow);
+    const th = h0 * grow;
+    const baseY = tw.y + w0 * 0.28;
+    const topW = tw2 * 0.78;
+
+    ctx.save();
+    ctx.translate(tw.x, baseY);
+    // 台身
+    ctx.beginPath();
+    ctx.moveTo(-tw2 / 2, 0);
+    ctx.lineTo(tw2 / 2, 0);
+    ctx.lineTo(topW / 2, -th);
+    ctx.lineTo(-topW / 2, -th);
+    ctx.closePath();
+    const g = ctx.createLinearGradient(-tw2 / 2, 0, tw2 / 2, 0);
+    g.addColorStop(0, STONE(k));
+    g.addColorStop(0.55, STONE(k));
+    g.addColorStop(1, STONE_SHADE(k));
+    ctx.fillStyle = g;
+    ctx.fill();
+
+    // 出檐
+    const roofW = tw2 * 1.22;
+    const roofH = Math.max(2, th * 0.20);
+    ctx.fillStyle = ROOF(k);
+    roundRectPath(ctx, -roofW / 2, -th - roofH, roofW, roofH, roofH * 0.22);
+    ctx.fill();
+    ctx.fillStyle = hexToRgba(STONE_TOP(k), 0.75);
+    ctx.fillRect(-roofW / 2, -th - roofH, roofW, Math.max(1, roofH * 0.30));
+
+    // 箭窗
+    const slitW = Math.max(1.5, tw2 * 0.13);
+    const slitH = Math.max(2, th * 0.26);
+    ctx.fillStyle = hexToRgba(ROOF(k), 0.92);
+    ctx.fillRect(-topW * 0.24 - slitW / 2, -th + th * 0.22, slitW, slitH);
+    ctx.fillRect(topW * 0.24 - slitW / 2, -th + th * 0.22, slitW, slitH);
+    ctx.restore();
+  }
+}
+
+/** 远雁：三笔小 v，随时间缓慢横移。位置由固定种子决定。 */
+function drawBirds(t) {
+  const r = mulberry32(99117);
+  const baseY = H * (portrait ? 0.30 : 0.26);
+  ctx.save();
+  ctx.strokeStyle = hexToRgba(isLight ? mix(INK, '#6b7280', 0.4) : '#d9d3c6', 0.55);
+  ctx.lineWidth = Math.max(1.2, W * 0.0016);
+  ctx.lineCap = 'round';
+  for (let i = 0; i < 3; i++) {
+    const sy = baseY + (r() - 0.5) * H * 0.09;
+    const speed = 0.012 + r() * 0.01;
+    const x = ((r() * 1.4 - 0.2 + t * speed) % 1.4 - 0.1) * W;
+    const s = Math.min(W, H) * (0.010 + r() * 0.006);
+    const flap = Math.sin(t * 3.4 + i * 1.7) * 0.35;
+    for (const [dx, dy] of [[0, 0], [s * 2.6, -s * 0.35]]) {
+      ctx.beginPath();
+      ctx.moveTo(x + dx - s, sy + dy - s * flap);
+      ctx.lineTo(x + dx, sy + dy);
+      ctx.lineTo(x + dx + s, sy + dy - s * flap);
+      ctx.stroke();
+    }
+  }
+  ctx.restore();
+}
+
+function drawTitle(t) {
+  const chars = Array.from(TITLE);
+  ctx.save();
+  // 逐字手排 → 一律 textAlign='left'，居中交给起点 x。
+  // 否则 textAlign='center' 会和手算的起点叠加成双重居中（竖屏整体偏左）。
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'alphabetic';
+  const size = fitTextSize(ctx, TITLE, {
+    maxWidth: W - pad * 2, family: SERIF, weight: 700, maxSize: L.titleSize, minSize: 30, spacing: 0.06,
+  });
+  const tracking = size * 0.10;
+  const total = chars.length * size + (chars.length - 1) * tracking;
+  const x = L.align === 'center' ? W / 2 - total / 2 : L.titleX;
+  for (let i = 0; i < chars.length; i++) {
+    const k = ease.outExpo(clamp((t - 0.42 - i * 0.075) / 0.55));
+    if (k <= 0.001) continue;
+    ctx.globalAlpha = k;
+    ctx.fillStyle = TITLE_INK;
+    ctx.font = `700 ${size}px ${SERIF}`;
+    ctx.fillText(chars[i], x + i * (size + tracking), L.titleY - (1 - k) * size * 0.22);
+  }
+  ctx.globalAlpha = 1;
+
+  // 强调短线
+  const rk = ease.outCubic(clamp((t - 0.30) / 0.5));
+  if (rk > 0.001) {
+    ctx.globalAlpha = 0.85;
+    ctx.fillStyle = ACCENT;
+    const rx = L.align === 'center' ? W / 2 - (L.ruleW * rk) / 2 : L.titleX;
+    ctx.fillRect(rx, L.ruleY, L.ruleW * rk, Math.max(2, size * 0.045));
+  }
+
+  // 副题
+  const sk = ease.outCubic(clamp((t - 0.72) / 0.55));
+  ctx.globalAlpha = sk * 0.85;
+  drawTracked(ctx, SUB, L.align === 'center' ? W / 2 : L.titleX, L.subY, {
+    size: L.subSize, family: SERIF, weight: 500, color: BOTTOM_MUTED, tracking: 0.30,
+    align: L.align,
+  });
+  ctx.restore();
+}
+
+/** 底部压暗：给标题一块安静的底，同时把近景剪影推得更沉。 */
+function drawScrim() {
+  const y0 = H * 0.66;
+  const g = ctx.createLinearGradient(0, y0, 0, H);
+  g.addColorStop(0, hexToRgba(FOREGROUND, 0));
+  g.addColorStop(0.55, hexToRgba(FOREGROUND, isLight ? 0.40 : 0.45));
+  g.addColorStop(1, hexToRgba(FOREGROUND, isLight ? 0.80 : 0.78));
+  ctx.fillStyle = g;
+  ctx.fillRect(0, y0, W, H - y0);
+}
+
+function drawScene(t) {
+  ctx.drawImage(SKY_CACHE, 0, 0, W, H);
+  drawBirds(t);
+
+  // 山脊自远及近：远脊先显，近脊后显
+  const reveal = (i) => ease.outCubic(clamp((t - 0.04 * i) / 0.5));
+  drawRidge(0, reveal(0));
+  drawMist(0, 0.30 * reveal(1));
+  drawRidge(1, reveal(1));
+  drawMist(1, 0.26 * reveal(2));
+  drawRidge(WALL_LAYER, reveal(2));
+
+  // 城墙：横向自左向右建成，垛口/敌楼跟随
+  const wk = ease.outCubic(clamp((t - 0.14) / 1.0));
+  drawWall(wk, RIDGE_DEFS[WALL_LAYER].k);
+  drawTowers(wk, RIDGE_DEFS[WALL_LAYER].k);
+
+  // 近景剪影
+  const nk = ease.outCubic(clamp((t - 0.06) / 0.6));
+  ctx.save();
+  ctx.globalAlpha = nk;
+  ctx.fillStyle = FOREGROUND;
+  ctx.beginPath();
+  ctx.moveTo(0, RIDGES[3].ys[0]);
+  for (let i = 1; i <= SAMPLES; i++) ctx.lineTo((i / SAMPLES) * W, RIDGES[3].ys[i]);
+  ctx.lineTo(W, H);
+  ctx.lineTo(0, H);
+  ctx.closePath();
+  ctx.fill();
+  ctx.restore();
+
+  drawScrim();
+  drawTitle(t);
+}
+
+/* ───────────────────────────── 渲染入口 ───────────────────────────── */
+
+window.renderFrame = (u) => {
+  const { t, fx } = seg.sample(u);
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.globalAlpha = 1;
+  ctx.globalCompositeOperation = 'source-over';
+
+  ctx.save();
+  applyImpact2D(ctx, fx, W, H);
+  drawScene(t);
+  drawTopMeta(ctx, {
+    W, H, pad,
+    text: `${BRAND} · ${String(THEME.nameEn || THEME.id).toUpperCase()}`,
+    sub: 'RECIPE 24 · GREAT WALL',
+    color: MUTED,
+    accent: ACCENT,
+  });
+  drawHud(ctx, {
+    W, H, u, duration: seg.duration, theme: THEME,
+    label: 'STYLE 24', name: 'GREAT WALL', brand: BRAND, pad,
+    accent: ACCENT,
+  });
+  ctx.restore();
+
+  drawFlash(ctx, fx.flash, W, H, TC.flash || '#ffffff');
+};
+
+/* ───────────────────────────── 启动 ───────────────────────────── */
+
+window.__ready = false;
+window.__bootError = null;
+
+(async () => {
+  await loadFonts(FAMILIES);
+  RIDGES = buildRidges();
+  WALL = buildWall();
+  L = buildLayout();
+  SKY_CACHE = buildSky();
+  window.renderFrame(0);
+  window.__ready = true;
+})().catch((err) => {
+  window.__bootError = String((err && err.stack) || err);
+});
+
+window.__seg = seg;
+</script>
+</body>
+</html>

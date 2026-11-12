@@ -3,6 +3,34 @@
 本项目的版本更新记录。版本号遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)，格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
 每个版本同时发布在 [GitHub Releases](https://github.com/Moessif/code-video-showcase/releases)。
 
+## [v2.3.3] - 2026-11-12 — 新画风「长城 / GREAT WALL」+ 配方页 24
+
+用"画一个长城"当验收题：从一句自然语言到成套图片，全程走产品入口，不改任何管线代码。
+
+### 新增
+- **配方页 24 `templates/recipe-greatwall.html`**：纯 Canvas 画出的长城晨昏景。
+  - **四层山脊**：`makeHeight()` 用固定种子的分形正弦叠加（`mulberry32`，无噪声库、无 RNG），每层独立 seed/freq/octaves；远脊融进天空、近脊压成剪影（大气透视）。
+  - **长城本体**：沿墙脊取样成中心线 → 受光顶边 + 阴影底边 + 梯形墙带；**垛口**按 x 均匀排布（不是按采样点，远端不会挤成一坨）；**敌楼**四个，台身梯形 + 出檐 + 两条箭窗；透视近大远小（`scale` 1 → 0.46）。
+  - **晨昏天**：渐变 + 日轮 + 径向光晕，与 t 无关 → 启动时烘进离屏画布，逐帧只 `drawImage`。
+  - **入场**：山脊自远及近显影 → 城墙自左向右建成 → 垛口/敌楼跟随抵达 → 标题逐字升起 → 底部压暗带就位。
+  - 竖屏真重排（地平线抬高、山脊更陡、标题居中下移），不是把横屏压扁。
+- **新画风 `great-wall`**：`STYLE_IDS` / `STYLE_LABEL`（长城）/ `STYLE_RULES` 关键词（长城 · 关隘 · 边塞 · 山海关 · 嘉峪关 · 万里长城 · great wall · fortress · rampart）/ `STYLE_PAGES` / `STYLE_RECIPE_IDS` / `STYLE_MOTION`（`dynamic`，雄浑壮阔走强档）。画风总数 12 → 13。
+- `scripts/test-style-pages-render.mjs` 纳入 greatwall（真机 16:9 + 9:16 + 确定性 + 真重排）。
+
+### 实测（一句话 → 一套图）
+```bash
+node scripts/nl2spec.mjs "画一条万里长城的品牌宣传片，主打雄浑壮阔" --out out/gw3/gw.spec.json
+#   style: great-wall | motion: dynamic（由 promo × great-wall 推导）| page: templates/recipe-greatwall.html
+node bin/cvs.mjs image --spec out/gw3/gw.spec.json --set cover,card,poster,story --out out/gw3/set
+#   cover 480KB / card 342KB / poster 440KB / story 526KB，8.0s，四次运行哈希稳定
+```
+关键词「万里长城」直接命中 `great-wall`，无需 `--style`。
+
+### 修复（本页自查出来的三处）
+- **强调线横穿城墙**：标题原本放在 `0.755H`，正好切在墙脊上。改为压在**底部剪影带**内（`pad*2.2` 起算），强调线随之离开画面主体。
+- **竖屏标题整体偏左**：`ctx.textAlign='center'` 与手算的居中起点 `W/2 - total/2` 叠加成双重居中。改为逐字手排一律 `textAlign='left'`，居中只由起点负责。
+- **副题与底部 HUD 挤在一起**（4:5 / 9:16 明显）：标题块整体上移，留出 HUD 高度。
+
 ## [v2.3.2] - 2026-11-12 — 代码生图：`cvs image`（spec → 图片集）
 
 把"代码逐帧画"的能力正式开到**图片**产品面。渲染管线本来就是 Chrome 抓帧出 PNG/JPEG（`render-segment --still`、golden 回归都在用），技术上早就通了；缺的是产品入口——没有命令、没有成套社媒尺寸、没有清单。这个版本补上。

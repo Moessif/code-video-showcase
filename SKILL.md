@@ -35,7 +35,7 @@ node scripts/compile.mjs --spec project.spec.json --root . --concurrency 4
 - **统一入口**：`node bin/cvs.mjs <new|ref|lint|plan|build|variant|ingest|motion|wizard|canvas|script|versions|test>`。
 - **参考图**：`node bin/cvs.mjs ref poster.jpg --spec project.spec.json --out project.spec.json`（只提取色板/强调色/密度与 top-3 主题候选，不复制像素）。Wizard 也支持直接拖入参考图；结果写 `meta.reference`。
 - **动效档位**：`look.motion` 选 `calm|standard|dynamic|maximal`，不写就按「类型 × 画风」自动推导（赛博像素/故障→maximal，发布会/极简/水墨→calm，知识科普→standard）。`node bin/cvs.mjs motion matrix` 看推导表，`motion show <档位>` 看参数。换档位会改变画面并触发重渲染（档位进段哈希）；不写 / 写 `standard` 则与旧成片逐像素一致。
-- **画风 → 页面**：`templates/style-pages.mjs` 是唯一真值——12 个画风各自映射到真实渲染页（`guofeng` → `recipe-guofeng.html`、`cyber-glitch` → `recipe-glitch.html` …）。生成端（`nl2spec` / wizard）按这张表填 `style.page`；`?recipe=` 只是页内提示，**不再决定用哪个页面**。未知画风回落通用场景页；新增配方页只需在这张表加一行。
+- **画风 → 页面**：`templates/style-pages.mjs` 是唯一真值——13 个画风各自映射到真实渲染页（`guofeng` → `recipe-guofeng.html`、`cyber-glitch` → `recipe-glitch.html` …）。生成端（`nl2spec` / wizard）按这张表填 `style.page`；`?recipe=` 只是页内提示，**不再决定用哪个页面**。未知画风回落通用场景页；新增配方页只需在这张表加一行。
 - **强调色覆盖**：`look.accentOverride`（`cvs brand apply` 的品牌色，或 `_meta.accentFix` 的对比度安全主色）由 plan 展开成每段 URL 的 `?accent=` / `?accentInk=` / `?accentSoft=`，页面经 `themeFromURL()` 应用。没有覆盖时 URL 不变，旧成片逐像素不变；覆盖值进 `segmentHash`，换品牌色必重渲染。v2.3.1 之前这条通路是断的（品牌色根本不出现在成片里）。
 - **代码生图**：`cvs image --spec project.spec.json` 用**同一个 spec** 出一套图（默认 `cover 1920×1080 / card 1080×1080 / poster 1080×1350 / story 1080×1920`，另有 `wide`、`avatar`；`--list` 看全部）。默认取画风段的 78% 处那一帧（`--at` 可指定），走的是 plan 的段 URL，所以配色/档位与成片一致。产物带 `image-manifest.json`（含每张 sha256）。这不是新渲染器——`render-segment --still` 一直在做这件事，这里只是把它变成产品入口。
 - **spec 是不可信输入**：`rounds[].id` 必须匹配 `^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$`（它会变成文件名与 ffmpeg concat 清单的一行）；页面路径不许是绝对 URL（`E_PAGE_REMOTE`，要开须 `render.allowRemotePages:true`）或绝对文件路径（`E_PAGE_ABS`）；`flash.count`≤256、单段≤600s、总帧数≤18000。`server/api.mjs` 默认同源（`--cors <origin>` 放行）、队列≤32、历史 job≤200、错误信息抹掉本机绝对路径；三个静态服务器拒绝点文件。
@@ -45,7 +45,7 @@ node scripts/compile.mjs --spec project.spec.json --root . --concurrency 4
 - **渲染**：`render-farm` 默认 batch 模式——一个 worker 一个浏览器跑一个 shard，段缓存语义不变；`--legacy` 回退逐段进程。
 - **服务**：`server/api.mjs`（5190，`POST /jobs` → 编译 → `master.mp4`）、`app/review/`（5185，播放 + 帧级评论）。
 - **质量闸门**：`npm run test:all`（纯 Node）、`npm run test:browser`（画布/参考图/竖屏/配方）、`npm run golden`（9 张静帧位级回归）、`npm run brand -- check …`。
-- **配方页**：13–16 kinetic-type / data-race / ink-wash / 8bit；17–23 cyber-glitch / guofeng / whiteboard / three-d / screencast / flat / minimal（均在 `templates/recipe-*.html`）。
+- **配方页**：13–16 kinetic-type / data-race / ink-wash / 8bit；17–23 cyber-glitch / guofeng / whiteboard / three-d / screencast / flat / minimal；24 great-wall（长城）——均在 `templates/recipe-*.html`。
 - **实拍素材**：`node ingest/cli.mjs --input <file|dir> --target 60 --out out/ingest` 产出 EDL + spec 草稿；选段质量是启发式，需人工审。
 - **禁止**：让 LLM 直接生成 HTML/CSS/JS，或绕过 spec 直接改像素。模型只填枚举与文案。
 

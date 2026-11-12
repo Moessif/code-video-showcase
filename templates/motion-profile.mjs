@@ -139,6 +139,7 @@ const STYLE_MOTION = {
   'pixel-8bit': 'dynamic',
   'ink-wash': 'calm',
   guofeng: 'calm',
+  'great-wall': 'dynamic',
   whiteboard: 'calm',
   'three-d': 'dynamic',
   'data-viz': 'standard',

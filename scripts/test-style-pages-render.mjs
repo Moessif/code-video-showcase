@@ -5,8 +5,8 @@
  *   CHROME_EXE="C:/Program Files/Google/Chrome/Application/chrome.exe" \
  *     node scripts/test-style-pages-render.mjs
  *
- * 对 7 个 v2.3.1 新增页面（glitch / guofeng / whiteboard / threed / screencast /
- * flat / minimal）逐个断言：
+ * 对 v2.3.1+ 新增的配方页（glitch / guofeng / greatwall / whiteboard / threed /
+ * screencast / flat / minimal）逐个断言：
  *   1. 16:9（1920×1080）与 9:16（1080×1920）都能渲染出 PNG；
  *   2. PNG 不是纯色/空白（字节数 > 30 KB，纯色 1080p PNG 通常 < 12 KB）；
  *   3. 同一 t 连渲两次，SHA-256 完全一致（确定性）；
@@ -32,6 +32,7 @@ const MIN_BYTES = 30 * 1024;
 const PAGES = [
   { id: 'glitch', page: 'templates/recipe-glitch.html', theme: 'cyber-neon' },
   { id: 'guofeng', page: 'templates/recipe-guofeng.html', theme: 'celadon-paper' },
+  { id: 'greatwall', page: 'templates/recipe-greatwall.html', theme: 'dark-gold-cinema' },
   { id: 'whiteboard', page: 'templates/recipe-whiteboard.html', theme: 'paper-journal' },
   { id: 'threed', page: 'templates/recipe-threed.html', theme: 'cyber-neon' },
   { id: 'screencast', page: 'templates/recipe-screencast.html', theme: 'coral-noir' },
