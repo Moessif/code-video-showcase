@@ -62,6 +62,13 @@ export function createStaticServer(root = DEFAULT_ROOT) {
       const hadSlash = pathname.endsWith('/');
       if (hadSlash) pathname += 'index.html';
 
+      // 点文件（.git/、.env、.zcode/…）一律不提供。
+      // 之前这里能直接 GET /.git/config 拿到仓库配置。
+      if (pathname.split('/').some((seg) => seg.startsWith('.') && seg !== '.' && seg !== '..')) {
+        res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' }).end('404');
+        return;
+      }
+
       let file = path.resolve(ROOT, '.' + pathname);
       if (file !== ROOT && !file.startsWith(ROOT + path.sep)) {
         res.writeHead(403).end('forbidden');

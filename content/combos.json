@@ -81,13 +81,23 @@
     "accentFix": {
       "aqua-morandi": {
         "accent": "#6e9fae",
-        "accentInk": "#142225",
-        "note": "原 accentInk #223134 的 APCA 42.6 < 45；压深字色到 #142225（APCA 46.0），主色不变。"
+        "accentInk": "#10262d",
+        "note": "原 accentInk #223134 的 APCA 42.6 < 45；压深字色到 #10262d（APCA 45.3），主色不变。"
       },
       "graphite-signal": {
         "accent": "#d93b10",
         "accentInk": "#ffffff",
         "note": "原 #ff4a1f 配任何深色字的 APCA 上限 44.5 < 45；主色加深到 #d93b10 后白字 APCA 75.8，accent/bg 30.1。"
+      },
+      "claude-light": {
+        "accent": "#c2410c",
+        "accentInk": "#fff8f0",
+        "note": "原 #d97757 配原 accentInk 的 APCA 43.7 < 45；主色加深到 #c2410c 后暖白字 APCA 75.9，accent/bg 64.4。"
+      },
+      "crimson-theater": {
+        "accent": "#d33a40",
+        "accentInk": "#ffffff",
+        "note": "原 #b11226 的 accent/bg APCA 仅 19.4 < 30；提亮主色到 #d33a40 后白字 APCA 76.9，accent/bg 30.1。"
       }
     }
   },

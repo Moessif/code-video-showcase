@@ -19,6 +19,28 @@ export const ENGINE_VERSION = 1;
 
 const HEX = /^#([0-9a-f]{3}|[0-9a-f]{6})$/i;
 
+/**
+ * 段 id 白名单：round.id 会变成文件名与 ffmpeg concat 清单的一行，
+ * 所以只允许「安全文件名字符」，长度上限 64。
+ * 挡掉：路径逃逸（`..`、绝对路径、分隔符）、换行注入 concat 清单、
+ *      Windows 保留字符、引号与空格。
+ */
+const SAFE_ID_RE = /^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/;
+
+/** 远程页面（http/https）。渲染器会直接 navigate 过去 → 默认禁止（SSRF）。 */
+const ABS_URL_RE = /^https?:\/\//i;
+
+/**
+ * 绝对文件系统路径：POSIX（/…）、Windows 盘符（C:\… / C:/…）、UNC（\\host\share）。
+ * 纯正则实现——spec.mjs 要能在浏览器里跑，不能 import path/fs。
+ */
+const ABS_PATH_RE = /^(?:\/|[A-Za-z]:[\\/]|\\\\)/;
+
+/** 资源上限（防止一个 spec 排出天文数字的段与帧）。 */
+export const MAX_FLASH_COUNT = 256;
+export const MAX_SEGMENT_SECONDS = 600;   // 单段最长 10 分钟
+export const MAX_TOTAL_FRAMES = 18000;    // 30fps 下约 10 分钟成片
+
 export const DEFAULT_STRUCTURE = {
   opening: 8,
   round: 4,
@@ -52,7 +74,7 @@ const DEFAULTS = {
   script: null,
   assets: [],
   patches: [],
-  render: { quality: 'master', preset: 'bilibili', concurrency: 4, outDir: 'out' },
+  render: { quality: 'master', preset: 'bilibili', concurrency: 4, outDir: 'out', allowRemotePages: false },
 };
 
 const PRESETS = ['bilibili', 'douyin', 'youtube', 'wechat', 'master', 'square'];
@@ -71,6 +93,22 @@ function deepMerge(base, over) {
 }
 
 const isHex = (v) => typeof v === 'string' && HEX.test(v);
+
+/**
+ * 把 `look.accentOverride`（字符串或 `{accent,accentInk,accentSoft}`）规范成
+ * 只含合法 #hex 的对象；一个合法键都没有时返回 null。
+ * 部分覆盖是合法的（schema 允许只给 accentInk），所以不要要求必须有 accent。
+ * 结果由 specToTimeline 放进 meta.accent，再下发到每页 URL 的 ?accent=…。
+ */
+export function normalizeAccentOverride(input) {
+  if (input == null) return null;
+  const a = typeof input === 'string' ? { accent: input } : input;
+  if (!a || typeof a !== 'object') return null;
+  const out = {};
+  for (const k of ['accent', 'accentInk', 'accentSoft']) if (isHex(a[k])) out[k] = a[k];
+  return Object.keys(out).length ? out : null;
+}
+
 const cjkLength = (s) => [...String(s ?? '')].length;
 const aspectOf = (w, h) => (Math.abs(w / h - 16 / 9) < 0.01 ? '16:9' : Math.abs(w / h - 9 / 16) < 0.01 ? '9:16' : Math.abs(w / h - 1) < 0.01 ? '1:1' : `${w}:${h}`);
 
@@ -282,12 +320,38 @@ export function validateSpec(spec) {
   if (Number(st.flash.count) > 0 && !(Number(st.flash.each) > 0)) err('E_FLASH', 'structure.flash.each', 'flash.each must be > 0');
   if (Number(st.flash.count) > 16) warn('W_FLASH_MAX', 'structure.flash', 'more than 16 flashes is visually noisy');
 
+  // 资源上限：structure 直接决定段数与帧数。
+  // flash.count=100000 → 10 万段；structure.round=1e9 → 300 亿帧。
+  // 两者都会把巨大的 plan 写盘并交给 N 个渲染 worker，必须挡住。
+  if (Number(st.flash.count) > MAX_FLASH_COUNT) {
+    err('E_FLASH_MAX', 'structure.flash.count', `flash.count must be <= ${MAX_FLASH_COUNT}, got ${st.flash.count}`);
+  }
+  for (const k of ['opening', 'round', 'card', 'ending', 'moreCard']) {
+    if (Number(st[k]) > MAX_SEGMENT_SECONDS) {
+      err('E_STRUCTURE_MAX', `structure.${k}`, `${k} must be <= ${MAX_SEGMENT_SECONDS}s, got ${st[k]}`);
+    }
+  }
+  // 总帧数上限（30 fps 下约 10 分钟成片）
+  if (Number.isFinite(Number(duration)) && Number(duration) * Number(fps) > MAX_TOTAL_FRAMES) {
+    err('E_DURATION_MAX', 'format.duration',
+      `duration ${duration}s @ ${fps}fps exceeds the ${MAX_TOTAL_FRAMES}-frame limit (~${Math.round(MAX_TOTAL_FRAMES / Number(fps))}s)`);
+  }
+
   const ids = new Set();
   spec.rounds.forEach((r, i) => {
     const at = `rounds[${i}]`;
-    if (!r.id) err('E_ROUND_ID', at, 'round.id is required');
-    else if (ids.has(r.id)) err('E_ROUND_ID', `${at}.id`, `duplicate round id "${r.id}"`);
-    else ids.add(r.id);
+    if (!r.id) {
+      err('E_ROUND_ID', at, 'round.id is required');
+    } else if (ids.has(r.id)) {
+      err('E_ROUND_ID', `${at}.id`, `duplicate round id "${r.id}"`);
+    } else if (!SAFE_ID_RE.test(r.id)) {
+      // round.id 会变成段文件名（<outDir>/<id>-card.mp4）并进 ffmpeg concat 清单，
+      // 所以必须限制成安全的文件名字符：挡掉路径逃逸（../）与换行注入 concat 清单。
+      err('E_ROUND_ID', `${at}.id`,
+        `round.id must match ${SAFE_ID_RE} (letters, digits, dash, underscore; <= 64 chars) — it becomes a segment filename`);
+    } else {
+      ids.add(r.id);
+    }
     if (!r.style?.page && !r.style?.recipe) err('E_STYLE_PAGE', `${at}.style`, 'style.page or style.recipe is required');
     if (r.style?.speed !== undefined && !(Number(r.style.speed) > 0)) err('E_SPEED', `${at}.style.speed`, 'speed must be > 0');
     if (r.card?.color && !isHex(r.card.color)) warn('W_CARD_COLOR', `${at}.card.color`, `"${r.card.color}" is not #rgb/#rrggbb`);
@@ -298,6 +362,38 @@ export function validateSpec(spec) {
   const computed = specDuration(spec);
   if (Number.isFinite(Number(duration)) && Math.abs(Number(duration) - computed) > 0.5 / Number(fps)) {
     err('E_DURATION', 'format.duration', `duration ${duration}s != structure total ${computed}s (opening + N×round + more + flashes + ending)`);
+  }
+
+  // 页面路径闸门：page 会被渲染器当成 URL 打开（http://127.0.0.1:<port>/<page>），
+  // 所以绝对 URL（SSRF）与绝对文件路径（越出项目根）都必须挡掉。
+  // 远程页面只有显式 opt-in（render.allowRemotePages）才允许。
+  const allowRemote = spec.render?.allowRemotePages === true;
+  const pageEntries = [
+    ['opening.page', spec.opening?.page],
+    ...spec.rounds.flatMap((r, i) => [
+      [`rounds[${i}].card.page`, r.card?.page],
+      [`rounds[${i}].style.page`, r.style?.page],
+    ]),
+    ['moreCard.page', spec.moreCard?.page],
+    ['flash.page', spec.flash?.page],
+    ['ending.page', spec.ending?.page],
+  ];
+  for (const [label, page] of pageEntries) {
+    if (!page) continue;
+    const raw = String(page);
+    if (ABS_URL_RE.test(raw)) {
+      if (!allowRemote) {
+        err('E_PAGE_REMOTE', label,
+          `remote page "${raw}" is not allowed; set render.allowRemotePages=true to opt in`);
+      }
+      continue;
+    }
+    // 绝对文件系统路径：path.resolve(root, p) 会忽略 root
+    const bare = raw.split('?')[0].split('#')[0];
+    if (ABS_PATH_RE.test(bare)) {
+      err('E_PAGE_ABS', label,
+        `absolute page path "${bare}" escapes the project root; use a path relative to the project root`);
+    }
   }
 
   if (!spec.look?.theme) err('E_THEME', 'look.theme', 'theme id is required');
@@ -349,6 +445,9 @@ export function specToTimeline(spec, { root, outDir } = {}) {
     title: spec.meta.name,
     brand: spec.meta.brand,
     theme: spec.look.theme,
+    // 强调色覆盖（品牌色 / accentFix）：页面读不到 spec，必须由 plan 下发到 URL 的
+    // ?accent= / ?accentInk= / ?accentSoft=。没有覆盖时保持 null → URL 不带这些参数。
+    accent: normalizeAccentOverride(spec.look?.accentOverride),
     motion,
     bpm: spec.audio.bpm,
     fps: spec.format.fps,

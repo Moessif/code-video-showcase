@@ -1,9 +1,9 @@
 {
-  "chrome": "Google Chrome 157.0.8103.50",
+  "chrome": "Google Chrome 157.0.8103.51",
   "engineVersion": 1,
   "format": "png",
   "generatedBy": "scripts/golden.mjs",
-  "git": "8f18a67",
+  "git": "8b1e0c2",
   "manifestVersion": 1,
   "specs": [
     {
@@ -19,7 +19,7 @@
           "hash": "312ef5823e2e1872bb90c9f22b26dedf5ccb5bd7195ad670af494464f92c849d",
           "kind": "opening",
           "local": 0.3,
-          "page": "templates/segment.html?theme=coral-noir",
+          "page": "templates/segment.html?theme=coral-noir&mp=standard",
           "sceneT": 0.3,
           "segment": "00-opening",
           "t": 0.3
@@ -30,7 +30,7 @@
           "hash": "407ddbdc5723cd7d0c4b1238151c468c174c1b7820bbc86308ad95ae8e3903dc",
           "kind": "card",
           "local": 0.2,
-          "page": "templates/big-card.html?theme=coral-noir&layout=0&index=1&total=1&first=%E6%83%B3%E5%81%9A&keyword=%E9%BB%84%E9%87%91%E5%9F%BA%E7%BA%BF%EF%BC%9F&color=%23ffcf5c&brand=Golden+Labs&seconds=0.4",
+          "page": "templates/big-card.html?theme=coral-noir&mp=standard&layout=0&index=1&total=1&first=%E6%83%B3%E5%81%9A&keyword=%E9%BB%84%E9%87%91%E5%9F%BA%E7%BA%BF%EF%BC%9F&color=%23ffcf5c&brand=Golden+Labs&seconds=0.4",
           "sceneT": 0.2,
           "segment": "r01-card",
           "t": 1
@@ -41,7 +41,7 @@
           "hash": "d3b14ca1c77a8986bdfd1536edd259e4b1411a14fad2f68f934f147386732938",
           "kind": "more",
           "local": 0.1,
-          "page": "templates/big-card.html?theme=coral-noir&layout=1&index=2&total=2&first=%E8%BF%98%E6%9C%89&keyword=%E6%9B%B4%E5%A4%9A%EF%BC%9F&color=%23ffcf5c&brand=Golden+Labs&seconds=0.2",
+          "page": "templates/big-card.html?theme=coral-noir&mp=standard&layout=1&index=2&total=2&first=%E8%BF%98%E6%9C%89&keyword=%E6%9B%B4%E5%A4%9A%EF%BC%9F&color=%23ffcf5c&brand=Golden+Labs&seconds=0.2",
           "sceneT": 0.1,
           "segment": "99-more",
           "t": 1.7
@@ -62,7 +62,7 @@
           "hash": "16b8658b5e8e2a83ae470c01222eacea38a1e5c076fd27d6c03afd12f1b0bcd1",
           "kind": "opening",
           "local": 0.45,
-          "page": "templates/cyber-pixel.html?theme=cyber-neon",
+          "page": "templates/cyber-pixel.html?theme=cyber-neon&mp=standard",
           "sceneT": 0.45,
           "segment": "00-opening",
           "t": 0.45
@@ -73,7 +73,7 @@
           "hash": "1e8cb9f6b04aa55e31c93e603d9372ad981ba3c710e5a9132467ce3f8262717e",
           "kind": "style",
           "local": 0.7,
-          "page": "templates/cyber-pixel.html?recipe=cyber-pixel&theme=cyber-neon",
+          "page": "templates/cyber-pixel.html?recipe=cyber-pixel&theme=cyber-neon&mp=standard",
           "sceneT": 0.8,
           "segment": "r01-style",
           "t": 1.5
@@ -84,7 +84,7 @@
           "hash": "713e178229938aba4742da0176855aa9f3019958493ba9e7693508f634a6e56f",
           "kind": "style",
           "local": 0.55,
-          "page": "templates/cyber-pixel.html?recipe=cyber-pixel&theme=cyber-neon",
+          "page": "templates/cyber-pixel.html?recipe=cyber-pixel&theme=cyber-neon&mp=standard",
           "sceneT": 1.115,
           "segment": "r02-style",
           "t": 2.55
@@ -105,29 +105,29 @@
           "hash": "ff45485a9fc460df861fa98caa3470b125fe0035298e39397dc59d7dd5160c8c",
           "kind": "card",
           "local": 0.15,
-          "page": "templates/big-card.html?theme=aqua-morandi&layout=1&index=1&total=2&first=%E6%83%B3%E5%81%9A&keyword=%E5%93%81%E7%89%8C%E7%89%87%EF%BC%9F&color=%23ffcf5c&brand=Golden+Labs&seconds=0.4",
+          "page": "templates/big-card.html?theme=aqua-morandi&mp=standard&accentInk=%23151d1f&layout=1&index=1&total=2&first=%E6%83%B3%E5%81%9A&keyword=%E5%93%81%E7%89%8C%E7%89%87%EF%BC%9F&color=%23ffcf5c&brand=Golden+Labs&seconds=0.4",
           "sceneT": 0.15,
           "segment": "r01-card",
           "t": 0.75
         },
         {
-          "bytes": 3407859,
+          "bytes": 3416287,
           "file": "mixed/02-t2.500.png",
-          "hash": "74f7b9220baf6f14c52e86488ca76248572e870446cd275e694ecdc498c6897f",
+          "hash": "917215e3e8d622823444dc4b4725c6c9dc0dfba5571902a91d7ba9b4b07be59f",
           "kind": "style",
           "local": 0.1,
-          "page": "templates/segment.html?theme=aqua-morandi",
+          "page": "templates/segment.html?theme=aqua-morandi&mp=standard&accentInk=%23151d1f",
           "sceneT": 0.475,
           "segment": "r02-style",
           "t": 2.5
         },
         {
-          "bytes": 3108312,
+          "bytes": 3116246,
           "file": "mixed/03-t4.250.png",
-          "hash": "27f14b92f4462eadbb12ee04ca3044983efda2f536c9a193a1f68b40052e1bf6",
+          "hash": "b51af6d1044fcaa27e89d8af59c115b2b12933812c61975b8adc3ee62fa7e8df",
           "kind": "ending",
           "local": 0.05,
-          "page": "templates/segment.html?theme=aqua-morandi",
+          "page": "templates/segment.html?theme=aqua-morandi&mp=standard&accentInk=%23151d1f",
           "sceneT": 0.05,
           "segment": "99-ending",
           "t": 4.25

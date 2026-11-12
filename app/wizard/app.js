@@ -92,6 +92,24 @@ function deriveMotionProfile({ kind, style }) {
   return MOTION_FALLBACK;
 }
 
+/**
+ * 画风 → 渲染页（v2.3.1）。
+ * 真值在 templates/style-pages.mjs；模块没加载成功时回落到通用场景页。
+ */
+let stylePagesApi = null;
+function stylePageFor(styleId) {
+  if (stylePagesApi && typeof stylePagesApi.stylePageFor === 'function') {
+    return stylePagesApi.stylePageFor(styleId);
+  }
+  return PAGE_SEGMENT;
+}
+function styleRecipeIdFor(styleId) {
+  if (stylePagesApi && typeof stylePagesApi.styleRecipeIdFor === 'function') {
+    return stylePagesApi.styleRecipeIdFor(styleId);
+  }
+  return styleId;
+}
+
 const CTA_QUICK = ['立即预约', '立即下单', '预约体验', '关注不迷路', '投递简历', '了解更多', '获取完整报告', '明年见'];
 
 // ── 运行时数据 ─────────────────────────────────────────────────────────────
@@ -218,6 +236,9 @@ function fitStructure(duration, roundCount) {
 
 function buildRounds(count, kind, style) {
   const [first, keyword, color] = KIND_COPY[kind] || KIND_COPY.promo;
+  // v2.3.1：画风 → 真实页面（与 nl2spec 共用 templates/style-pages.mjs）。
+  const page = stylePageFor(style);
+  const recipe = styleRecipeIdFor(style) || style;
   return Array.from({ length: count }, (_, i) => ({
     id: `r${String(i + 1).padStart(2, '0')}`,
     name: `${optionLabel(KIND_OPTIONS, kind)} / ${optionLabel(styleOptions, style)}`,
@@ -231,8 +252,8 @@ function buildRounds(count, kind, style) {
       color,
     },
     style: {
-      page: PAGE_SEGMENT,
-      recipe: style,
+      page,
+      recipe,
       t0: [0.3, 0.5, 0, 0.3][i % 4],
       speed: [1.4, 1.45, 1, 1.3][i % 4],
     },
@@ -939,7 +960,7 @@ function bindEvents() {
 }
 
 async function boot() {
-  const [specLoaded, themesLoaded, refLoaded, schemaLoaded, presetsLoaded, combosLoaded, motionLoaded] = await Promise.allSettled([
+  const [specLoaded, themesLoaded, refLoaded, schemaLoaded, presetsLoaded, combosLoaded, motionLoaded, stylePagesLoaded] = await Promise.allSettled([
     import('/templates/spec.mjs'),
     import('/templates/themes.js'),
     import('/scripts/ref-core.mjs'),
@@ -947,6 +968,7 @@ async function boot() {
     fetchJson('/content/presets.json'),
     fetchJson('/content/combos.json'),
     import('/templates/motion-profile.mjs'),
+    import('/templates/style-pages.mjs'),
   ]);
 
   if (specLoaded.status === 'fulfilled') specApi = specLoaded.value;
@@ -954,6 +976,7 @@ async function boot() {
   if (refLoaded.status === 'fulfilled') refApi = refLoaded.value;
   if (schemaLoaded.status === 'fulfilled') schemaDoc = schemaLoaded.value;
   if (motionLoaded.status === 'fulfilled') motionApi = motionLoaded.value;
+  if (stylePagesLoaded.status === 'fulfilled') stylePagesApi = stylePagesLoaded.value;
 
   if (presetsLoaded.status !== 'fulfilled' || combosLoaded.status !== 'fulfilled') {
     const why = [presetsLoaded, combosLoaded]

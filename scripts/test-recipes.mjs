@@ -204,7 +204,9 @@ async function renderVideos() {
     const file = path.join(ROOT, outRel);
     fs.rmSync(file, { force: true });
     console.log(`\n[render] ${r.id}  ${r.page}?theme=${r.theme}  (${FPS} frames)`);
-    const res = await runNode([
+    // 连续起 Chrome 时偶发冷启动超时（CDP Page.navigate / __ready 等待）；
+    // 失败后退避 1.5s 重试一次——真实工作流里 `compile --resume` 也是这个做法。
+    const renderVideo = async () => runNode([
       'templates/render-segment.mjs',
       '--page', `${r.page}?theme=${r.theme}`,
       '--out', outRel,
@@ -213,6 +215,13 @@ async function renderVideos() {
       '--root', '.',
       '--timeout', '180000',
     ], { env: { CHROME_EXE: CHROME }, echo: true });
+    let res = await renderVideo();
+    if (res.code !== 0) {
+      console.log(`  (retry ${r.id} after ${res.timedOut ? 'timeout' : `exit=${res.code}`})`);
+      await new Promise((r2) => setTimeout(r2, 1500));
+      fs.rmSync(file, { force: true });
+      res = await renderVideo();
+    }
 
     check(`${r.id} render-segment 退出码 0`, res.code === 0, res.timedOut ? 'timeout' : `exit=${res.code}`);
     const hasBootError = /page boot error/i.test(res.stdout + res.stderr);

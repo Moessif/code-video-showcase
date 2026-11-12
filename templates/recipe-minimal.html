@@ -1,0 +1,206 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<link rel="stylesheet" href="/shared/fonts.css">
+<title>recipe 23 · minimal</title>
+<style>
+  html, body { margin: 0; padding: 0; overflow: hidden; background: #0e0e0d; }
+  #c { display: block; }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+
+<script type="module">
+// recipe-minimal.html — 风格段 23「极简大字 / 发布会 / 克制留白」。
+//
+// 渲染契约：
+//   window.DURATION / window.renderFrame(t)（纯函数）/ window.__ready / window.__bootError
+//
+// 画幅（D7）：画布尺寸由 util.setupStage() 从 window.innerWidth / window.innerHeight
+// 取（偶数，缺省 1920×1080）。竖屏不是把横屏压扁，而是重排：标题换行宽度变窄、
+// 字号按短边重算、细线与说明文字与标题一起重新居中。
+//
+// 视觉：几乎什么都不画——一行极大的标题、一条细线、一行小注。
+// 入场是 "fade + 12px 上移"，用 outExpo，0.62s 内完成；之后只有极缓慢的呼吸位移。
+//
+// 确定性：所有动效都是 t 的纯函数，无 Math.random / Date.now / rAF。
+import { createSegment, applyImpact2D, drawFlash, loadFonts, vars } from './common.js';
+import {
+  themeFromURL, getTheme, loadFontsFor, hexToRgba, relativeLuminance,
+} from './themes.js';
+import {
+  TAU, clamp, ease, smooth, setupStage, safePad,
+  fitTextSize, drawTracked, drawHud, drawTopMeta,
+} from './recipes/util.js';
+
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d', { alpha: false });
+const { W, H, portrait } = setupStage(canvas);
+const pad = safePad(W, H);
+
+const params = new URLSearchParams(location.search);
+const seg = createSegment({ duration: 3.0 });
+window.DURATION = seg.duration;
+
+const THEME = getTheme(themeFromURL(location.search));
+const TC = THEME.colors;
+const V = vars();
+
+const BRAND = String(V.brand || 'CVS').slice(0, 24);
+const TITLE = String(params.get('title') || V.title || '少即是多').slice(0, 20);
+const SUB = String(V.subtitle || 'THE QUIETEST FRAME WINS').slice(0, 48);
+const CAPTION = String(V.caption || '极简原则 · 一页只说一件事').slice(0, 40);
+
+const isLight = THEME.mode === 'light' || relativeLuminance(TC.bg) > 0.55;
+const INK = isLight ? TC.ink : TC.paper;
+const MUTED = hexToRgba(INK, 0.52);
+const ACCENT = TC.accent;
+const RULE = hexToRgba(INK, 0.28);
+
+const SANS = '"Noto Sans SC", "PingFang SC", sans-serif';
+const MONO = '"JetBrains Mono", ui-monospace, monospace';
+const FAMILIES = Array.from(new Set([
+  ...(loadFontsFor(THEME) || []),
+  'Noto Sans SC', 'Noto Serif SC', 'JetBrains Mono', 'Inter',
+]));
+
+/* ───────────────────────────── 布局 ───────────────────────────── */
+
+let L = null;
+
+function buildLayout() {
+  const maxW = (W - pad * 2) * (portrait ? 0.96 : 0.78);
+  const sizeCap = portrait ? Math.round(H * 0.15) : Math.round(H * 0.2);
+  const size = fitTextSize(ctx, TITLE, {
+    maxWidth: maxW, family: SANS, weight: 800, maxSize: sizeCap, minSize: 40, spacing: 0.03,
+  });
+  const subSize = Math.max(13, Math.round(size * 0.2));
+  const capSize = Math.max(12, Math.round(size * 0.16));
+  const ruleLen = Math.round(Math.min(maxW, size * 4.6));
+  const gapRule = Math.round(size * 0.62);
+  const gapSub = Math.round(subSize * 2.1);
+
+  // 标题 / 细线 / 副题 三件一组，整组垂直居中，再整体上移一点点（视觉重心）。
+  const blockH = size * 1.06 + gapRule + subSize * 1.2;
+  const top = Math.round(H / 2 - blockH / 2 - H * 0.02);
+  const cx = portrait ? W / 2 : Math.round(W * 0.5 - maxW / 2 + maxW * 0.5);
+
+  return {
+    size, subSize, capSize, ruleLen, maxW,
+    titleX: cx,
+    titleY: top + size * 0.53,
+    ruleY: top + size * 1.06 + gapRule,
+    subY: top + size * 1.06 + gapRule + subSize * 1.2 + gapSub * 0.35,
+    capX: pad,
+    capY: H - pad * 2.5,
+    align: 'center',
+  };
+}
+
+/* ───────────────────────────── 场景 ───────────────────────────── */
+
+function drawScene(t) {
+  // 入场：0.62s，fade + 12px 上移（outExpo）。之后只剩极缓慢的呼吸。
+  const k = ease.outExpo(clamp(t / 0.62));
+  const rise = (1 - k) * 12 * (portrait ? 0.8 : 1);
+  const breathe = Math.sin(t * 0.5) * 1.5;
+
+  ctx.save();
+  ctx.globalAlpha = k;
+
+  // 标题
+  ctx.textAlign = L.align;
+  ctx.textBaseline = 'middle';
+  ctx.fillStyle = INK;
+  ctx.font = `800 ${L.size}px ${SANS}`;
+  ctx.fillText(TITLE, L.titleX, L.titleY + rise + breathe);
+
+  // 细线：宽度从 0 长到 ruleLen（0.3s 起跑，outCubic）
+  const rk = ease.outCubic(clamp((t - 0.3) / 0.5));
+  if (rk > 0.001) {
+    const w = L.ruleLen * rk;
+    const x0 = L.align === 'center' ? L.titleX - w / 2 : L.titleX;
+    ctx.fillStyle = RULE;
+    ctx.fillRect(Math.round(x0), Math.round(L.ruleY + rise * 0.5), Math.round(w), Math.max(1, Math.round(L.size * 0.018)));
+  }
+
+  // 副题（等宽、字距拉开）
+  const sk = ease.outCubic(clamp((t - 0.44) / 0.5));
+  if (sk > 0.001) {
+    ctx.globalAlpha = k * sk;
+    drawTracked(ctx, SUB, L.titleX, L.subY + rise * 0.5, {
+      size: L.subSize, family: MONO, weight: 500, color: MUTED,
+      tracking: L.subSize * 0.34, align: L.align, baseline: 'middle',
+    });
+  }
+
+  // 左下角小注（唯一的第二信息）
+  ctx.globalAlpha = ease.outCubic(clamp((t - 0.7) / 0.6)) * 0.9;
+  ctx.textAlign = 'left';
+  ctx.font = `500 ${L.capSize}px ${MONO}`;
+  ctx.fillStyle = MUTED;
+  ctx.textBaseline = 'alphabetic';
+  ctx.fillText(CAPTION, L.capX, L.capY);
+
+  // 一个极小的强调色方块，作为唯一的彩色锚点
+  ctx.globalAlpha = k;
+  ctx.fillStyle = ACCENT;
+  const d = Math.max(6, Math.round(L.capSize * 0.5));
+  ctx.fillRect(L.capX, L.capY - L.capSize - d * 2.4, d, d);
+
+  ctx.restore();
+}
+
+/* ───────────────────────────── 渲染入口 ───────────────────────────── */
+
+window.renderFrame = (u) => {
+  const { t, fx } = seg.sample(u);
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.globalAlpha = 1;
+  ctx.globalCompositeOperation = 'source-over';
+
+  ctx.save();
+  applyImpact2D(ctx, fx, W, H);
+
+  // 底：纯色，不加任何图案（极简）
+  ctx.fillStyle = TC.bg;
+  ctx.fillRect(-W, -H, W * 3, H * 3);
+
+  drawScene(t);
+
+  drawTopMeta(ctx, {
+    W, H, pad,
+    text: `${BRAND} · ${String(THEME.nameEn || THEME.id).toUpperCase()}`,
+    sub: 'RECIPE 23 · MINIMAL',
+    color: MUTED,
+    accent: ACCENT,
+  });
+  drawHud(ctx, {
+    W, H, u, duration: seg.duration, theme: THEME,
+    label: 'STYLE 23 / 23', name: 'MINIMAL', brand: BRAND, pad,
+  });
+  ctx.restore();
+
+  drawFlash(ctx, fx.flash, W, H, TC.flash || '#ffffff');
+};
+
+/* ───────────────────────────── 启动 ───────────────────────────── */
+
+window.__ready = false;
+window.__bootError = null;
+
+(async () => {
+  await loadFonts(FAMILIES);
+  L = buildLayout();
+  window.renderFrame(0);
+  window.__ready = true;
+})().catch((err) => {
+  window.__bootError = String((err && err.stack) || err);
+});
+
+window.__seg = seg;
+</script>
+</body>
+</html>

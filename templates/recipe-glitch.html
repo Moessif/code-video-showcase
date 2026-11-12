@@ -1,0 +1,324 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<link rel="stylesheet" href="/shared/fonts.css">
+<title>recipe 17 · cyber glitch</title>
+<style>
+  html, body { margin: 0; padding: 0; overflow: hidden; background: #06070a; }
+  #c { display: block; }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+
+<script type="module">
+// recipe-glitch.html — 风格段 17「赛博故障 / RGB 切片 / 信号错位」。
+//
+// 渲染契约：
+//   window.DURATION / window.renderFrame(t)（纯函数）/ window.__ready / window.__bootError
+//
+// 画幅（D7）：画布尺寸由 util.setupStage() 取视口（偶数，缺省 1920×1080）。
+// 横屏：标题左对齐、左侧色条；竖屏：标题居中、色条移到顶部，字号按短边重算。
+//
+// 视觉：先把「正常画面」烘到离屏 BASE，再逐帧做三件事——
+//   1. 水平切片位移（每桶时间换一次种子，不是每帧乱跳）；
+//   2. 红/青通道分离（source-in 着色后 lighter 叠加）；
+//   3. 少量扫描撕裂亮线 + 一条滚动的亮度带。
+// 所以画面在抖，但抖动是 t 的确定性函数。
+//
+// 确定性：切片偏移 = hash01(切片号, 时间桶 + 种子)，无 Math.random / Date.now / rAF。
+import { createSegment, applyImpact2D, drawFlash, loadFonts, vars } from './common.js';
+import {
+  themeFromURL, getTheme, loadFontsFor, hexToRgba, mix, relativeLuminance,
+} from './themes.js';
+import {
+  TAU, clamp, ease, smooth, hash01, setupStage, safePad,
+  fitTextSize, drawTracked, drawHud, drawTopMeta, roundRectPath,
+} from './recipes/util.js';
+
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d', { alpha: false });
+const { W, H, portrait } = setupStage(canvas);
+const pad = safePad(W, H);
+
+const params = new URLSearchParams(location.search);
+const seg = createSegment({ duration: 3.0 });
+window.DURATION = seg.duration;
+
+const THEME = getTheme(themeFromURL(location.search));
+const TC = THEME.colors;
+const V = vars();
+
+const BRAND = String(V.brand || 'CVS').slice(0, 24);
+const TITLE = String(params.get('title') || V.title || '信号异常').slice(0, 10);
+const SUB = String(V.subtitle || 'SYSTEM // SIGNAL LOST').slice(0, 40);
+
+const isLight = THEME.mode === 'light' || relativeLuminance(TC.bg) > 0.55;
+const INK = isLight ? TC.ink : TC.paper;
+const MUTED = hexToRgba(INK, 0.52);
+const ACCENT = TC.accent;
+const HOT = mix(ACCENT, '#ffffff', 0.35);
+
+// 故障通道用的红/青：与主题强调色混一点，避免和其他配方的纯 RGB 撞色。
+const CH_R = mix('#ff2a4a', TC.accent, 0.18);
+const CH_C = mix('#22e6ff', TC.accent, 0.18);
+
+const SANS = '"Noto Sans SC", "PingFang SC", sans-serif';
+const MONO = '"JetBrains Mono", ui-monospace, monospace';
+const FAMILIES = Array.from(new Set([
+  ...(loadFontsFor(THEME) || []),
+  'Noto Sans SC', 'JetBrains Mono', 'Inter',
+]));
+
+/* ───────────────────────────── 布局 ───────────────────────────── */
+
+let L = null;
+
+function buildLayout() {
+  const short = Math.min(W, H);
+  const titleMaxW = (W - pad * 2) * (portrait ? 0.94 : 0.66);
+  const titleSize = fitTextSize(ctx, TITLE, {
+    maxWidth: titleMaxW, family: SANS, weight: 900,
+    maxSize: Math.round(H * (portrait ? 0.15 : 0.19)), minSize: 40, spacing: 0.02,
+  });
+  const subSize = Math.max(13, Math.round(titleSize * 0.17));
+  if (portrait) {
+    return {
+      titleSize, subSize,
+      titleX: W / 2, titleY: Math.round(H * 0.44), align: 'center',
+      subX: W / 2, subY: Math.round(H * 0.44 + titleSize * 0.95), subAlign: 'center',
+      bar: { x: 0, y: 0, w: W, h: Math.max(6, Math.round(short * 0.016)) },
+      tagX: pad, tagY: pad * 2.1, tagAlign: 'left',
+    };
+  }
+  const x = pad * 1.2;
+  return {
+    titleSize, subSize,
+    titleX: x, titleY: Math.round(H * 0.46), align: 'left',
+    subX: x, subY: Math.round(H * 0.46 + titleSize * 1.0), subAlign: 'left',
+    bar: { x: 0, y: 0, w: Math.max(8, Math.round(short * 0.018)), h: H },
+    tagX: x, tagY: Math.round(H * 0.46 - titleSize * 0.95), tagAlign: 'left',
+  };
+}
+
+/* ───────────────────────────── 离屏缓冲 ───────────────────────────── */
+
+function makeCanvas(w, h) {
+  const c = document.createElement('canvas');
+  c.width = Math.max(1, Math.round(w));
+  c.height = Math.max(1, Math.round(h));
+  return c;
+}
+
+let BASE = null;      // 正常画面
+let TMP = null;       // 切片合成
+let CHR = null;       // 红通道
+let CHC = null;       // 青通道
+let TMP_G = null, CHR_G = null, CHC_G = null;
+
+/** 把 BASE 烘出来：底 + 网格 + 色条 + 标题 + 副题。 */
+function buildBase() {
+  const cv = makeCanvas(W, H);
+  const g = cv.getContext('2d');
+  g.fillStyle = TC.bg;
+  g.fillRect(0, 0, W, H);
+
+  // 轻微暗角，给画面一点纵深
+  const vg = g.createRadialGradient(W / 2, H / 2, Math.min(W, H) * 0.2, W / 2, H / 2, Math.max(W, H) * 0.75);
+  vg.addColorStop(0, 'rgba(0,0,0,0)');
+  vg.addColorStop(1, 'rgba(0,0,0,0.45)');
+  g.fillStyle = vg;
+  g.fillRect(0, 0, W, H);
+
+  // 网格（细线，低透明度）
+  const step = Math.round(Math.min(W, H) * 0.055);
+  g.strokeStyle = hexToRgba(ACCENT, isLight ? 0.10 : 0.14);
+  g.lineWidth = 1;
+  g.beginPath();
+  for (let x = step; x < W; x += step) { g.moveTo(x + 0.5, 0); g.lineTo(x + 0.5, H); }
+  for (let y = step; y < H; y += step) { g.moveTo(0, y + 0.5); g.lineTo(W, y + 0.5); }
+  g.stroke();
+
+  // 主题色条
+  g.fillStyle = ACCENT;
+  g.fillRect(L.bar.x, L.bar.y, L.bar.w, L.bar.h);
+
+  // 标题
+  g.textAlign = L.align;
+  g.textBaseline = 'middle';
+  g.fillStyle = INK;
+  g.font = `900 ${L.titleSize}px ${SANS}`;
+  g.fillText(TITLE, L.titleX, L.titleY);
+
+  // 标题下一层错位描边（静态的"重影"，让 BASE 本身就带一点故障感）
+  g.globalAlpha = 0.35;
+  g.fillStyle = ACCENT;
+  g.fillText(TITLE, L.titleX + L.titleSize * 0.028, L.titleY - L.titleSize * 0.014);
+  g.globalAlpha = 1;
+
+  // 副题
+  drawTracked(g, SUB, L.subX, L.subY, {
+    size: L.subSize, family: MONO, weight: 500, color: MUTED,
+    tracking: L.subSize * 0.22, align: L.subAlign === 'center' ? 'center' : 'left', baseline: 'middle',
+  });
+
+  // 左上角的小标签
+  g.textAlign = L.tagAlign;
+  g.fillStyle = ACCENT;
+  g.font = `600 ${Math.round(L.subSize * 0.92)}px ${MONO}`;
+  g.fillText('CH-03 // NO SIGNAL', L.tagX, L.tagY);
+
+  return cv;
+}
+
+function tintInto(dstG, src, color) {
+  dstG.globalCompositeOperation = 'source-over';
+  dstG.clearRect(0, 0, W, H);
+  dstG.drawImage(src, 0, 0);
+  dstG.globalCompositeOperation = 'source-in';
+  dstG.fillStyle = color;
+  dstG.fillRect(0, 0, W, H);
+  dstG.globalCompositeOperation = 'source-over';
+}
+
+/* ───────────────────────────── 故障合成 ───────────────────────────── */
+
+const SLICES = 28;
+
+/**
+ * 把 BASE 按水平切片画到 TMP，每个切片带一个确定性位移。
+ * 时间桶 12Hz：抖动以 12 次/秒的节奏变化，而不是每帧乱跳。
+ */
+function composeGlitch(t) {
+  const bucket = Math.floor(t * 12);
+  const amp = Math.min(W, H) * 0.035;
+
+  TMP_G.globalCompositeOperation = 'source-over';
+  TMP_G.clearRect(0, 0, W, H);
+  TMP_G.fillStyle = TC.bg;
+  TMP_G.fillRect(0, 0, W, H);
+
+  for (let i = 0; i < SLICES; i++) {
+    const y0 = Math.round((i * H) / SLICES);
+    const y1 = Math.round(((i + 1) * H) / SLICES);
+    const h = y1 - y0;
+    if (h <= 0) continue;
+
+    const a = hash01(i * 131 + bucket * 17, 3);
+    let dx = 0;
+    if (a > 0.76) {
+      // 大位移只给少数切片，幅度也更大
+      const mag = a > 0.95 ? amp * 3.2 : amp;
+      dx = Math.round((hash01(i * 7 + bucket * 29, 11) - 0.5) * 2 * mag);
+    }
+    TMP_G.drawImage(BASE, 0, y0, W, h, dx, y0, W, h);
+  }
+}
+
+function drawTears(t) {
+  const bucket = Math.floor(t * 12);
+  const n = 3;
+  for (let i = 0; i < n; i++) {
+    const y = Math.round(hash01(i * 37 + bucket * 53, 21) * H);
+    const h = Math.max(2, Math.round(H * (0.002 + hash01(i, bucket) * 0.004)));
+    const x = Math.round(hash01(i * 11 + bucket, 31) * W * 0.5);
+    const w = Math.round(W * (0.25 + hash01(i * 3, bucket) * 0.6));
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    ctx.globalAlpha = 0.18 + hash01(i * 5, bucket) * 0.22;
+    ctx.fillStyle = i % 2 ? CH_C : CH_R;
+    ctx.fillRect(x, y, w, h);
+    ctx.restore();
+  }
+}
+
+/* ───────────────────────────── 场景 ───────────────────────────── */
+
+function drawScene(t) {
+  composeGlitch(t);
+  // 通道分离要对**切片之后**的画面做，否则红/青不会跟着切片一起错位。
+  tintInto(CHR_G, TMP, CH_R);
+  tintInto(CHC_G, TMP, CH_C);
+
+  // 主画面
+  ctx.drawImage(TMP, 0, 0);
+
+  // 通道分离：红左、青右，用 lighter 叠回去
+  const split = Math.max(2, Math.round(Math.min(W, H) * 0.0022));
+  const active = 0.55 + 0.45 * (0.5 + 0.5 * Math.sin(t * 3.1));
+  ctx.save();
+  ctx.globalCompositeOperation = 'lighter';
+  ctx.globalAlpha = 0.30 * active;
+  ctx.drawImage(CHR, -split, 0);
+  ctx.drawImage(CHC, split, 0);
+  ctx.restore();
+
+  drawTears(t);
+
+  // 滚动亮度带（缓慢向下扫）
+  const bandY = ((t * 0.22) % 1.2 - 0.1) * H;
+  const bandH = Math.max(20, Math.round(H * 0.06));
+  const grad = ctx.createLinearGradient(0, bandY, 0, bandY + bandH);
+  grad.addColorStop(0, hexToRgba('#ffffff', 0));
+  grad.addColorStop(0.5, hexToRgba(HOT, isLight ? 0.05 : 0.08));
+  grad.addColorStop(1, hexToRgba('#ffffff', 0));
+  ctx.save();
+  ctx.globalCompositeOperation = 'lighter';
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, bandY, W, bandH);
+  ctx.restore();
+}
+
+/* ───────────────────────────── 渲染入口 ───────────────────────────── */
+
+window.renderFrame = (u) => {
+  const { t, fx } = seg.sample(u);
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.globalAlpha = 1;
+  ctx.globalCompositeOperation = 'source-over';
+
+  ctx.save();
+  applyImpact2D(ctx, fx, W, H);
+
+  drawScene(t);
+
+  // HUD 不参与故障处理，保证时间码与风格名始终可读
+  drawTopMeta(ctx, {
+    W, H, pad,
+    text: `${BRAND} · ${String(THEME.nameEn || THEME.id).toUpperCase()}`,
+    sub: 'RECIPE 17 · CYBER GLITCH',
+    color: MUTED,
+    accent: ACCENT,
+  });
+  drawHud(ctx, {
+    W, H, u, duration: seg.duration, theme: THEME,
+    label: 'STYLE 17 / 23', name: 'CYBER GLITCH', brand: BRAND, pad,
+  });
+  ctx.restore();
+
+  drawFlash(ctx, fx.flash, W, H, TC.flash || '#ffffff');
+};
+
+/* ───────────────────────────── 启动 ───────────────────────────── */
+
+window.__ready = false;
+window.__bootError = null;
+
+(async () => {
+  await loadFonts(FAMILIES);
+  L = buildLayout();
+  BASE = buildBase();
+  TMP = makeCanvas(W, H); TMP_G = TMP.getContext('2d', { alpha: false });
+  CHR = makeCanvas(W, H); CHR_G = CHR.getContext('2d');
+  CHC = makeCanvas(W, H); CHC_G = CHC.getContext('2d');
+  window.renderFrame(0);
+  window.__ready = true;
+})().catch((err) => {
+  window.__bootError = String((err && err.stack) || err);
+});
+
+window.__seg = seg;
+</script>
+</body>
+</html>

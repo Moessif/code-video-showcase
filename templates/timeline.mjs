@@ -167,13 +167,22 @@ export function buildPlan(spec, { root = process.cwd(), outDir } = {}) {
   // 动效档位（v2.3）：与 theme 一样按页下发，页面自己按档位名展开参数。
   // 没写 motion 时不传 → 页面回退 standard → 与 v2.2 逐像素一致。
   const motionParams = meta.motion ? { mp: meta.motion } : {};
+  // 强调色覆盖（品牌色 / accentFix）：theme 只给 id，页面拿不到 spec 里的覆盖值，
+  // 所以把实际颜色一并下发。没覆盖时为空 → URL 不变。部分覆盖（只给 accentInk）也是合法的。
+  const accentParams = meta.accent
+    ? {
+        ...(meta.accent.accent ? { accent: meta.accent.accent } : {}),
+        ...(meta.accent.accentInk ? { accentInk: meta.accent.accentInk } : {}),
+        ...(meta.accent.accentSoft ? { accentSoft: meta.accent.accentSoft } : {}),
+      }
+    : {};
 
   // 1) nominal segments in order
   const nominal = [];
   const opening = spec.opening || {};
   nominal.push({
     id: '00-opening', kind: 'opening', index: 0, label: opening.name || 'opening',
-    page: query(opening.page || DEFAULT_PAGES.opening, { ...themeParams, ...motionParams }),
+    page: query(opening.page || DEFAULT_PAGES.opening, { ...themeParams, ...motionParams, ...accentParams }),
     duration: Number(st.opening),
   });
 
@@ -185,6 +194,7 @@ export function buildPlan(spec, { root = process.cwd(), outDir } = {}) {
     const cardParams = {
       ...themeParams,
       ...motionParams,
+      ...accentParams,
       layout: card.layout ?? i % 4,
       index: card.index ?? idx,
       total: card.total ?? totalRounds,
@@ -205,7 +215,7 @@ export function buildPlan(spec, { root = process.cwd(), outDir } = {}) {
     const style = r.style || {};
     nominal.push({
       id: `${rid}-style`, kind: 'style', index: idx, label: style.name || r.name || rid,
-      page: query(style.page, { ...themeParams, ...motionParams }),
+      page: query(style.page, { ...themeParams, ...motionParams, ...accentParams }),
       duration: Number(st.round) - Number(st.card),
       t0: Number(style.t0 ?? 0),
       speed: Number(style.speed ?? 1),
@@ -219,6 +229,7 @@ export function buildPlan(spec, { root = process.cwd(), outDir } = {}) {
     page: query(more.page || DEFAULT_PAGES.more, {
       ...themeParams,
       ...motionParams,
+      ...accentParams,
       layout: more.layout ?? (totalRounds + 1) % 4,
       index: totalRounds + 1,
       total: totalRounds + 1,
@@ -241,6 +252,7 @@ export function buildPlan(spec, { root = process.cwd(), outDir } = {}) {
         page: query(flash.page || DEFAULT_PAGES.flash, {
           ...themeParams,
           ...motionParams,
+          ...accentParams,
           item: i,
           count: flashCount,
           ...(flash.params || {}),
@@ -254,7 +266,7 @@ export function buildPlan(spec, { root = process.cwd(), outDir } = {}) {
   const ending = spec.ending || {};
   nominal.push({
     id: '99-ending', kind: 'ending', index: nominal.length, label: ending.name || 'ending',
-    page: query(ending.page || DEFAULT_PAGES.ending, { ...themeParams, ...motionParams }),
+    page: query(ending.page || DEFAULT_PAGES.ending, { ...themeParams, ...motionParams, ...accentParams }),
     duration: Number(st.ending),
   });
 

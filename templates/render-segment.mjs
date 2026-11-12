@@ -192,6 +192,10 @@ export function startStaticServer(root, port = 0) {
         let urlPath = decodeURIComponent(new URL(req.url, 'http://x').pathname);
         if (urlPath === '/favicon.ico') { res.writeHead(204).end(); return; }
         if (urlPath.endsWith('/')) urlPath += 'index.html';
+        // 点文件（.git/、.env…）不提供——渲染服务器也会被外部请求碰到。
+        if (urlPath.split('/').some((seg) => seg.startsWith('.') && seg !== '.' && seg !== '..')) {
+          res.writeHead(404).end('404'); return;
+        }
         const file = path.resolve(ROOT, '.' + urlPath);
         if (file !== ROOT && !file.startsWith(ROOT + path.sep)) { res.writeHead(403).end('forbidden'); return; }
         fs.stat(file, (err, st) => {

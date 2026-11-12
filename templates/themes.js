@@ -787,7 +787,19 @@ export function themeFromURL(search) {
   let q = search;
   if (q == null && typeof location !== 'undefined') q = location.search;
   const params = new URLSearchParams(q || '');
-  return getTheme(params.get('theme') || params.get('t') || DEFAULT_THEME);
+  const theme = getTheme(params.get('theme') || params.get('t') || DEFAULT_THEME);
+  // `?accent=` / `?accentInk=` / `?accentSoft=`：由 `spec.look.accentOverride` 下发
+  // （品牌色 `cvs brand apply`、以及 accentFix 给出的对比度安全主色）。
+  // 页面读不到 spec，所以覆盖值必须走 URL；不传 → 原样返回主题，逐像素不变。
+  const accent = params.get('accent');
+  const accentInk = params.get('accentInk');
+  const accentSoft = params.get('accentSoft');
+  if (!accent && !accentInk && !accentSoft) return theme;
+  return accentOverride(theme, {
+    accent: accent || undefined,
+    accentInk: accentInk || undefined,
+    accentSoft: accentSoft || undefined,
+  });
 }
 
 /**

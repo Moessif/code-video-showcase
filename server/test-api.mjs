@@ -15,6 +15,9 @@
  *   8. POST 非法 spec → 400 + issues[]
  *   9. job id 路径穿越尝试 → 404
  *  10. DELETE 运行中的 job → cancelled，子进程被清理
+ *  11. CORS 默认关闭：带 Origin 的请求不回 Access-Control-Allow-Origin
+ *  12. CORS 显式放行（--cors/opts.cors）：白名单 origin 回显 + Vary: Origin，非白名单不回
+ *  13. 越界 Range → 416 + Content-Range: bytes *​/size
  *
  * 退出码 0/1。只连本机 127.0.0.1，随机端口，不联网。
  */
@@ -190,6 +193,19 @@ async function main() {
       assert.equal(body.error, 'job not found');
     });
 
+    await test('越界 Range 返回 416 且带 Content-Range', async () => {
+      assert.ok(jobId, 'no job id');
+      const res = await fetch(`${base}/jobs/${jobId}/master.mp4`, { headers: { Range: 'bytes=99999999999-' } });
+      assert.equal(res.status, 416, `got ${res.status}`);
+      assert.match(res.headers.get('content-range') || '', /^bytes \*\/\d+$/);
+    });
+
+    await test('CORS 默认关闭：带 Origin 的请求不回 ACAO', async () => {
+      const res = await fetch(`${base}/health`, { headers: { Origin: 'http://evil.example' } });
+      assert.equal(res.status, 200);
+      assert.equal(res.headers.get('access-control-allow-origin'), null, 'ACAO must be absent by default');
+    });
+
     await test('POST invalid spec returns 400 with issues[]', async () => {
       const { res, body } = await jsonFetch(`${base}/jobs`, {
         method: 'POST',
@@ -226,6 +242,34 @@ async function main() {
     });
   } finally {
     await boot.server.shutdown();
+  }
+
+  // ── CORS 显式放行（单进程内第二个 server：白名单按 server 生效） ────────────
+  {
+    const boot2 = await startServer({ port: 0, host: '127.0.0.1', root: ROOT, cors: ['http://ok.example'] });
+    try {
+      await test('CORS 放行白名单 origin 并带 Vary: Origin', async () => {
+        const res = await fetch(`${boot2.url}/health`, { headers: { Origin: 'http://ok.example' } });
+        assert.equal(res.status, 200);
+        assert.equal(res.headers.get('access-control-allow-origin'), 'http://ok.example');
+        assert.equal(res.headers.get('vary'), 'Origin');
+      });
+
+      await test('CORS 不放行非白名单 origin', async () => {
+        const res = await fetch(`${boot2.url}/health`, { headers: { Origin: 'http://nope.example' } });
+        assert.equal(res.headers.get('access-control-allow-origin'), null);
+      });
+
+      await test('OPTIONS 预检：白名单回 CORS 头，非白名单不回', async () => {
+        const ok = await fetch(`${boot2.url}/jobs`, { method: 'OPTIONS', headers: { Origin: 'http://ok.example' } });
+        assert.equal(ok.status, 204);
+        assert.equal(ok.headers.get('access-control-allow-origin'), 'http://ok.example');
+        const no = await fetch(`${boot2.url}/jobs`, { method: 'OPTIONS', headers: { Origin: 'http://nope.example' } });
+        assert.equal(no.headers.get('access-control-allow-origin'), null);
+      });
+    } finally {
+      await boot2.server.shutdown();
+    }
   }
 
   const total = passed + failed;

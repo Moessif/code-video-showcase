@@ -1,0 +1,343 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<link rel="stylesheet" href="/shared/fonts.css">
+<title>recipe 18 · guofeng</title>
+<style>
+  html, body { margin: 0; padding: 0; overflow: hidden; background: #f2e8d5; }
+  #c { display: block; }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+
+<script type="module">
+// recipe-guofeng.html — 风格段 18「国风 / 东方纹样 / 印章 / 竖排」。
+//
+// 渲染契约：
+//   window.DURATION / window.renderFrame(t)（纯函数）/ window.__ready / window.__bootError
+//
+// 画幅（D7）：画布尺寸由 util.setupStage() 取视口（偶数，缺省 1920×1080）。
+// 横屏：竖排标题落在右侧三分之一，印章在标题列下方，云纹横贯左侧。
+// 竖屏：标题列移到中间偏右，字号按短边缩小，印章收在列尾；云纹改为竖向流动。
+//
+// 视觉：宣纸底（预渲染纤维）+ 极淡云纹 + 竖排标题 + 朱红印章 + 一条金线。
+//
+// 确定性：纸纹、云纹在启动时烘成离屏图；逐帧只做 drawImage + 竖排文字 + 印章。
+import { createSegment, applyImpact2D, drawFlash, loadFonts, vars } from './common.js';
+import {
+  themeFromURL, getTheme, loadFontsFor, hexToRgba, mix, relativeLuminance,
+} from './themes.js';
+import {
+  TAU, clamp, ease, smooth, hash01, mulberry32, setupStage, safePad,
+  fitTextSize, drawTracked, drawHud, drawTopMeta, roundRectPath,
+} from './recipes/util.js';
+
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d', { alpha: false });
+const { W, H, portrait } = setupStage(canvas);
+const pad = safePad(W, H);
+
+const params = new URLSearchParams(location.search);
+const seg = createSegment({ duration: 3.0 });
+window.DURATION = seg.duration;
+
+const THEME = getTheme(themeFromURL(location.search));
+const TC = THEME.colors;
+const V = vars();
+
+const BRAND = String(V.brand || 'CVS').slice(0, 24);
+const TITLE = String(params.get('title') || V.title || '东方既白').slice(0, 8);
+const SUB = String(V.subtitle || '山水有相逢').slice(0, 12);
+
+const isLight = THEME.mode === 'light' || relativeLuminance(TC.bg) > 0.55;
+// 宣纸：浅色主题直接用纸色；深色主题往暖米色混，保持"纸"的语汇。
+const PAPER = isLight ? TC.paper : mix('#f2e8d5', TC.bg, 0.12);
+const INK = mix('#2b2620', TC.ink, isLight ? 0.12 : 0.08);
+const MUTED = hexToRgba(INK, 0.48);
+const SEAL = mix('#b5342b', TC.accent, 0.22);          // 朱红，略带主题色相
+const SEAL_INK = mix('#f7efe0', PAPER, 0.35);          // 印章上的字
+const GOLD = mix('#b08a3e', TC.accent, 0.18);
+
+const SERIF = '"Noto Serif SC", "Songti SC", serif';
+const MONO = '"JetBrains Mono", ui-monospace, monospace';
+const FAMILIES = Array.from(new Set([
+  ...(loadFontsFor(THEME) || []),
+  'Noto Serif SC', 'Noto Sans SC', 'JetBrains Mono', 'Inter',
+]));
+
+/* ───────────────────────────── 布局 ───────────────────────────── */
+
+let L = null;
+
+function buildLayout() {
+  const short = Math.min(W, H);
+  const titleSize = Math.round(clamp(short * (portrait ? 0.105 : 0.125), 44, 220));
+  const lineH = Math.round(titleSize * 1.28);
+  const colX = portrait ? Math.round(W * 0.62) : Math.round(W * 0.70);
+  const colTop = Math.round(H * (portrait ? 0.14 : 0.16));
+  const sealSize = Math.round(titleSize * 1.05);
+  // 印章落在末字左侧（落款位置），并夹在安全区内——之前放在列底会掉出画面。
+  const lastCharY = colTop + (TITLE.length - 1) * lineH + titleSize / 2;
+  const sealX = Math.round(colX - titleSize * 0.62 - sealSize);
+  const sealY = Math.round(Math.max(pad * 1.4, Math.min(
+    lastCharY - sealSize / 2,
+    H - pad * 2.6 - sealSize,
+  )));
+  const subSize = Math.max(13, Math.round(titleSize * 0.28));
+  const subX = portrait ? Math.round(W * 0.30) : Math.round(W * 0.20);
+  const subTop = Math.round(H * (portrait ? 0.18 : 0.22));
+  return {
+    titleSize, lineH, colX, colTop, sealSize, sealX, sealY,
+    subSize, subX, subTop,
+    ruleX1: Math.round(pad * 1.2),
+    ruleX2: Math.round(colX - titleSize * 1.4),
+    ruleY: Math.round(H * 0.5),
+  };
+}
+
+/* ───────────────────────────── 预渲染：纸纹 + 云纹 ───────────────────────────── */
+
+function makeCanvas(w, h) {
+  const c = document.createElement('canvas');
+  c.width = Math.max(1, Math.round(w));
+  c.height = Math.max(1, Math.round(h));
+  return c;
+}
+
+let PAPER_LAYER = null;
+let CLOUD_LAYER = null;
+
+function buildPaper() {
+  const cv = makeCanvas(W, H);
+  const g = cv.getContext('2d');
+  g.fillStyle = PAPER;
+  g.fillRect(0, 0, W, H);
+  // 纤维：短横线，密度随面积；种子固定。
+  const rand = mulberry32(20240118);
+  const n = Math.round((W * H) / 5200);
+  g.strokeStyle = hexToRgba(INK, 0.035);
+  g.lineWidth = 1;
+  for (let i = 0; i < n; i++) {
+    const x = rand() * W;
+    const y = rand() * H;
+    const len = 6 + rand() * 34;
+    g.beginPath();
+    g.moveTo(x, y);
+    g.lineTo(x + len, y + (rand() - 0.5) * 1.6);
+    g.stroke();
+  }
+  // 四角压暗，像旧纸
+  const vg = g.createRadialGradient(W / 2, H / 2, Math.min(W, H) * 0.25, W / 2, H / 2, Math.max(W, H) * 0.78);
+  vg.addColorStop(0, 'rgba(0,0,0,0)');
+  vg.addColorStop(1, hexToRgba(INK, 0.09));
+  g.fillStyle = vg;
+  g.fillRect(0, 0, W, H);
+  return cv;
+}
+
+/** 卷云纹：几组同心圆弧 + 一条引导线，极淡。 */
+function drawCloud(g, cx, cy, r, seed, alpha) {
+  const rand = mulberry32(seed);
+  g.save();
+  g.globalAlpha = alpha;
+  g.strokeStyle = GOLD;
+  g.lineWidth = Math.max(1.2, r * 0.012);
+  g.lineCap = 'round';
+  for (let k = 0; k < 3; k++) {
+    const rr = r * (0.55 + k * 0.22);
+    g.beginPath();
+    g.arc(cx, cy, rr, Math.PI * (0.85 + k * 0.04), Math.PI * (1.75 + k * 0.03));
+    g.stroke();
+  }
+  // 尾部的小螺旋
+  const sx = cx - r * 0.9, sy = cy + r * 0.28;
+  g.beginPath();
+  for (let i = 0; i <= 40; i++) {
+    const a = (i / 40) * Math.PI * 2.2;
+    const rr = r * 0.02 + (i / 40) * r * 0.20;
+    const px = sx + Math.cos(a) * rr;
+    const py = sy + Math.sin(a) * rr;
+    if (i === 0) g.moveTo(px, py); else g.lineTo(px, py);
+  }
+  g.stroke();
+  g.restore();
+}
+
+function buildClouds() {
+  const cv = makeCanvas(W, H);
+  const g = cv.getContext('2d');
+  const short = Math.min(W, H);
+  if (portrait) {
+    drawCloud(g, W * 0.34, H * 0.20, short * 0.16, 11, 0.22);
+    drawCloud(g, W * 0.66, H * 0.52, short * 0.12, 23, 0.16);
+    drawCloud(g, W * 0.30, H * 0.80, short * 0.15, 37, 0.18);
+  } else {
+    drawCloud(g, W * 0.24, H * 0.28, short * 0.18, 11, 0.24);
+    drawCloud(g, W * 0.40, H * 0.66, short * 0.13, 23, 0.17);
+    drawCloud(g, W * 0.13, H * 0.78, short * 0.10, 37, 0.15);
+  }
+  return cv;
+}
+
+/* ───────────────────────────── 竖排文字 ───────────────────────────── */
+
+/** 从 (x, yTop) 向下逐字排；size 是字号，lineH 是行距。 */
+function drawVertical(text, x, yTop, { size, lineH, color, family = SERIF, weight = 600 }) {
+  ctx.save();
+  ctx.fillStyle = color;
+  ctx.font = `${weight} ${size}px ${family}`;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  const chars = Array.from(text);
+  for (let i = 0; i < chars.length; i++) {
+    ctx.fillText(chars[i], x, yTop + i * lineH + size / 2);
+  }
+  ctx.restore();
+}
+
+/* ───────────────────────────── 印章 ───────────────────────────── */
+
+function drawSeal(t) {
+  const k = ease.outBack(clamp((t - 0.85) / 0.42));
+  if (k <= 0.001) return;
+  const s = L.sealSize;
+  const x = L.sealX;
+  const y = L.sealY;
+  ctx.save();
+  ctx.globalAlpha = clamp(k * 1.2);
+  // 盖章：从略大缩到正常，带一点旋转
+  const sc = 1 + (1 - k) * 0.35;
+  ctx.translate(x + s / 2, y + s / 2);
+  ctx.scale(sc, sc);
+  ctx.rotate(-0.035);
+  ctx.translate(-(x + s / 2), -(y + s / 2));
+
+  // 印底
+  ctx.fillStyle = SEAL;
+  roundRectPath(ctx, x, y, s, s, s * 0.08);
+  ctx.fill();
+  // 边线（内框）
+  ctx.strokeStyle = hexToRgba(SEAL_INK, 0.55);
+  ctx.lineWidth = Math.max(1.5, s * 0.022);
+  roundRectPath(ctx, x + s * 0.09, y + s * 0.09, s * 0.82, s * 0.82, s * 0.05);
+  ctx.stroke();
+
+  // 印文：品牌前两字（竖排），没有就写「印」
+  const chars = Array.from(BRAND && BRAND !== '{{BRAND}}' ? BRAND : '印').slice(0, 2);
+  const fs = Math.round(s * (chars.length > 1 ? 0.34 : 0.44));
+  ctx.fillStyle = SEAL_INK;
+  ctx.font = `700 ${fs}px ${SERIF}`;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  if (chars.length > 1) {
+    ctx.fillText(chars[0], x + s / 2, y + s * 0.32);
+    ctx.fillText(chars[1], x + s / 2, y + s * 0.68);
+  } else {
+    ctx.fillText(chars[0], x + s / 2, y + s / 2);
+  }
+  ctx.restore();
+}
+
+/* ───────────────────────────── 场景 ───────────────────────────── */
+
+function drawScene(t) {
+  ctx.drawImage(PAPER_LAYER, 0, 0, W, H);
+  ctx.drawImage(CLOUD_LAYER, 0, 0, W, H);
+
+  // 竖排标题：逐字落下（0.05s 起，每字 0.075s）
+  const chars = Array.from(TITLE);
+  for (let i = 0; i < chars.length; i++) {
+    const k = ease.outExpo(clamp((t - 0.05 - i * 0.075) / 0.4));
+    if (k <= 0.001) continue;
+    ctx.save();
+    ctx.globalAlpha = k;
+    ctx.fillStyle = INK;
+    ctx.font = `600 ${L.titleSize}px ${SERIF}`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(chars[i], L.colX, L.colTop + i * L.lineH + L.titleSize / 2 - (1 - k) * 18);
+    ctx.restore();
+  }
+
+  // 副题：小竖排，左侧
+  const sk = ease.outCubic(clamp((t - 0.5) / 0.5));
+  if (sk > 0.001) {
+    ctx.save();
+    ctx.globalAlpha = sk * 0.9;
+    drawVertical(SUB, L.subX, L.subTop, {
+      size: L.subSize, lineH: Math.round(L.subSize * 1.5), color: MUTED, weight: 500,
+    });
+    ctx.restore();
+  }
+
+  // 金线：从中间向两侧展开
+  const rk = ease.outCubic(clamp((t - 0.35) / 0.55));
+  if (rk > 0.001) {
+    const mid = (L.ruleX1 + L.ruleX2) / 2;
+    const half = ((L.ruleX2 - L.ruleX1) / 2) * rk;
+    ctx.save();
+    ctx.globalAlpha = 0.55;
+    ctx.strokeStyle = GOLD;
+    ctx.lineWidth = Math.max(1.2, L.titleSize * 0.012);
+    ctx.beginPath();
+    ctx.moveTo(mid - half, L.ruleY + 0.5);
+    ctx.lineTo(mid + half, L.ruleY + 0.5);
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  drawSeal(t);
+}
+
+/* ───────────────────────────── 渲染入口 ───────────────────────────── */
+
+window.renderFrame = (u) => {
+  const { t, fx } = seg.sample(u);
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.globalAlpha = 1;
+  ctx.globalCompositeOperation = 'source-over';
+
+  ctx.save();
+  applyImpact2D(ctx, fx, W, H);
+
+  drawScene(t);
+
+  drawTopMeta(ctx, {
+    W, H, pad,
+    text: `${BRAND} · ${String(THEME.nameEn || THEME.id).toUpperCase()}`,
+    sub: 'RECIPE 18 · GUOFENG',
+    color: MUTED,
+    accent: SEAL,
+  });
+  drawHud(ctx, {
+    W, H, u, duration: seg.duration, theme: THEME,
+    label: 'STYLE 18 / 23', name: 'GUOFENG', brand: BRAND, pad,
+    accent: SEAL,
+  });
+  ctx.restore();
+
+  drawFlash(ctx, fx.flash, W, H, TC.flash || '#ffffff');
+};
+
+/* ───────────────────────────── 启动 ───────────────────────────── */
+
+window.__ready = false;
+window.__bootError = null;
+
+(async () => {
+  await loadFonts(FAMILIES);
+  L = buildLayout();
+  PAPER_LAYER = buildPaper();
+  CLOUD_LAYER = buildClouds();
+  window.renderFrame(0);
+  window.__ready = true;
+})().catch((err) => {
+  window.__bootError = String((err && err.stack) || err);
+});
+
+window.__seg = seg;
+</script>
+</body>
+</html>

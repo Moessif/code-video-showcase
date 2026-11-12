@@ -102,3 +102,20 @@ window.__patch   = (id, props) => diff;   // 改内存 spec → renderFrame(curr
 - **进哈希**：`motion` 进入 `segmentHash`，所以换档位必须重渲染，缓存不会错误复用（已实测：换档位后 5/5 段重渲染，缓存条目 5 → 10）。
 - **不动 16:9 基线**：D7 冻结哈希在 v2.3 仍然成立（`test-reflow-pages` 51/51、golden 9/9 逐字节一致）。
 
+
+## D12 画风→页面 与 spec 不可信输入（v2.3.1 定稿）
+
+- **画风→页面是唯一真值**：`templates/style-pages.mjs` 的 `STYLE_PAGES` 决定「某画风用哪个页面渲染」。生成端（`scripts/nl2spec.mjs`、`app/wizard/app.js`）只从这里取页面并填 `style.page`；`?recipe=` 降级为**页内提示**，不参与页面选择。理由：v2.3 审计发现 `?recipe=` 是死参数——`segment.html` 从不读它，于是所有画风都渲染占位骨架（"替换 drawScene()"）。让「谁决定页面」只有一个答案，这类断链才不会再出现。
+- **新增画风/配方页的流程**：① 在 `templates/recipe-*.html` 加页面（必须实现 `window.renderFrame` + `window.__ready`，且不含 `Math.random`/`Date.now`/`performance.now`/`requestAnimationFrame`）；② 在 `style-pages.mjs` 的 `STYLE_PAGES`/`STYLE_RECIPE_IDS` 各加一行；③ `node scripts/test-style-pages.mjs` 与 `node scripts/test-style-pages-render.mjs` 必须全过。忘加第 ② 步会被测试抓住。
+- **未知画风回落通用场景页**（`GENERIC_PAGE = templates/segment.html`），**不回落占位骨架**。`vertical` 是有意走通用页的例外。
+- **spec 是不可信输入**：`spec.json` 可来自用户、表单或 API body，所以 `templates/spec.mjs` 同时是安全边界：
+  - `rounds[].id` → 段文件名 + ffmpeg concat 清单的一行 ⇒ 必须匹配 `/^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/`（挡 `../` 路径逃逸与 `\n` 清单注入），非法报 `E_ROUND_ID`；
+  - `*.page` → 渲染器直接 navigate ⇒ 绝对 URL 默认拒绝（`E_PAGE_REMOTE`，须 `render.allowRemotePages:true`），绝对文件路径拒绝（`E_PAGE_ABS`，POSIX/盘符/UNC 三形态，纯正则以便 spec.mjs 在浏览器跑）；
+  - 资源上限 ⇒ `MAX_FLASH_COUNT=256`（`E_FLASH_MAX`）、`MAX_SEGMENT_SECONDS=600`（`E_STRUCTURE_MAX`）、`MAX_TOTAL_FRAMES=18000`（`E_DURATION_MAX`）。上限只挡病态输入，正常片远低于。
+- **服务端**：`server/api.mjs` 默认**同源** CORS（`--cors <origin>` 显式放行，带 `Vary: Origin`）；`MAX_QUEUE=32`（队满 `429 E_QUEUE_FULL`）、`MAX_JOBS=200` + `evictOldJobs()`；错误信息经 `scrubMessage()` 抹掉本机绝对路径。理由：API 只监听回环，但通配 CORS 让**任意网页**都能对它灌任务、读 spec/日志、下载成片。
+- **静态服务**：`app/canvas/serve.mjs`、`app/script/serve.mjs`、`templates/render-segment.mjs` 的静态服务器对任何以 `.` 开头的路径段返回 404（此前可 `GET /.git/config`）。`.` / `..` 仍放行给现有的归一化+前缀检查处理。
+- **强调色覆盖必须走 URL（v2.3.1 新增，修 F3）**：页面只读 `?theme=<id>`，读不到 spec，所以 `spec.look.accentOverride` 必须被 plan 展开成 `?accent=/#…&accentInk=/#…&accentSoft=/#…` 下发：
+  - `spec.look.accentOverride`（字符串或部分对象）→ `normalizeAccentOverride()` → `specToTimeline.meta.accent` → `buildPlan` 的 `accentParams` → **每一类段**（opening / card / style / more / flash / ending）的 URL；
+  - `themeFromURL()` 读回三个参数并调用 `accentOverride()`；不传时逐字段原样返回主题（旧成片逐像素不变）；
+  - `accent` 进 `segmentHash`，换品牌色必然重渲染。
+  - 反例（v2.3 之前的真实状态）：`cvs brand apply` 写 `look.accentOverride`、`spec-lint` 拿它算 APCA，但没有任何页面收到它——品牌色在成片里完全不出现，accentFix 只是让 lint 闭嘴。测试 `scripts/test-accent-route.mjs` 锁死这条通路（19 断言）。

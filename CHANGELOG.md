@@ -3,6 +3,52 @@
 本项目的版本更新记录。版本号遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)，格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
 每个版本同时发布在 [GitHub Releases](https://github.com/Moessif/code-video-showcase/releases)。
 
+## [v2.3.1] - 2026-11-12 — 画风真出片（F1）+ 全仓安全加固
+
+一次以**审计**驱动的版本：v2.3 收尾时对全仓做了一轮检查，修掉一条产品级断链（F1）、一处主题配色不合规（F2），以及 7 类安全/健壮性问题（C/H/M/L）。
+
+### 新增
+- **画风 → 渲染页 单一真值** `templates/style-pages.mjs`：`STYLE_PAGES`（12 个画风 → 页面）、`STYLE_RECIPE_IDS`（`?recipe=` 页内提示）、`stylePageFor()` / `styleRecipeIdFor()` / `styleQueryFor()`。未知画风回落**通用场景页**，不再回落占位骨架。新增配方页只需在这里加一行。
+- **7 个新配方页**（都实现 `window.renderFrame` + `__ready`，零非确定性 API）：
+  - `recipe-glitch.html` — 切片位移 + RGB 通道分离 + 撕裂线 + 滚动扫描带；
+  - `recipe-guofeng.html` — 宣纸纤维 + 云纹弧线 + 竖排标题 + 朱印（贴在末字左侧、带边界钳制）+ 金线；
+  - `recipe-whiteboard.html` — 手绘矩形/箭头/圆圈/下划线，抖动由 `hash01` 驱动（无 RNG）；
+  - `recipe-threed.html` — 等距投影 `project()`（`ISO_X=cos30°`），单位坐标 + 顶面高光扫掠 + 环绕光源；
+  - `recipe-screencast.html` — 编辑器面板 + 逐 token 布局 + 打字计数 + 闪烁光标；
+  - `recipe-flat.html` — 预排版扁平插画，色带贴合标题宽度，`ease.outBack` 落入；
+  - `recipe-minimal.html` — `fade + 12px 上浮`，规则线擦除，说明文字留在 HUD 之下。
+- **测试**：`scripts/test-style-pages.mjs`（14 断言，纯 Node：枚举对齐、文件存在、页面契约、无 RNG、回落、nl2spec 端到端、plan 通过）；`scripts/test-style-pages-render.mjs`（28 断言，真机 Chrome：7 页 × 16:9/9:16 双画幅、非空白、同参确定、竖屏真重排哈希不同）。
+- **死导出审计** `scripts/audit-exports.mjs`：扫描每个 `export` 的生产调用点，输出死导出清单（v2.3.1 用它确认 `motion.js` 已 0 死导出）。
+- **API 跨源白名单**：`node server/api.mjs --cors <origin[,origin]>`。
+
+### 修复
+- **F1（产品级断链）**：`?recipe=` 是死参数——`segment.html` 从不读它，于是 `cyber-glitch` / `ink-wash` / `guofeng` 等所有画风出片都是占位骨架（"替换 drawScene() 开始做真正的画面"）。现在 `nl2spec` / wizard 按 `style-pages.mjs` 填 `style.page`，且 `templates/spec.mjs` 会校验页面存在。已用一条国风片端到端复核：style 段渲染的是竖排标题 + 朱印 + 云纹的真实国风页。
+- **F2（配色不合规）**：`aqua-morandi` / `graphite-signal` / `claude-light` / `crimson-theater` 四主题的 accent 过不了 APCA。修在 `content/combos.json` 的 `_meta.accentFix`（含每个颜色的取值理由），`nl2spec` 从数据读取而不是再抄一份硬编码表。
+- **F3（产品级断链，比 F2 更严重）**：`look.accentOverride` **从来没有到达任何页面**——页面只读 `?theme=<id>`，`themeFromURL()` 也不认 accent。后果有两个：① F2 的 accentFix 只让 lint 闭嘴，画面仍是原配色；② `cvs brand apply` 写入的品牌色在成片里根本不出现。修法：`normalizeAccentOverride()` → `specToTimeline.meta.accent` → `buildPlan` 把 `?accent=` / `?accentInk=` / `?accentSoft=` 拼进**每一类段**的 URL（opening/card/style/more/flash/ending）→ `themeFromURL()` 读回并调用 `accentOverride()`。无覆盖时 URL 不变，旧成片逐像素不变。实测同一页带/不带 `?accent=#00d4ff`：**76.6% 像素不同**（背景/辉光/HUD 都派生自 accent），确认这条通路此前是彻底断的。
+- **C-1 路径逃逸**：`rounds[].id` 直接变成段文件名与 ffmpeg concat 清单的一行，`../` 可写越 `outDir`。加 `SAFE_ID_RE = /^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/`，非法报 `E_ROUND_ID`。
+- **C-2 换行注入**：同一个闸门顺带挡掉 id 里的换行/引号/空格——它们会往 concat 清单里注入额外条目。
+- **H-1 远程页面（SSRF）**：`*.page` 会被渲染器当 URL 直接 navigate，`http(s)://…` 可探测内网。现在默认拒绝（`E_PAGE_REMOTE`），要开须显式 `render.allowRemotePages: true`。
+- **H-2 绝对路径逃逸**：`path.resolve(root, p)` 遇到 `/x` 或 `C:\x` 会忽略 root。抓 POSIX/盘符/UNC 三种形态，报 `E_PAGE_ABS`（纯正则实现，spec.mjs 可在浏览器跑）。
+- **M-1 通配 CORS**：API 此前回 `Access-Control-Allow-Origin: *`，任何网页都能对 `127.0.0.1:5190` 灌任务、读 spec 与日志、下载成片。改为**默认同源**（不发 CORS 头），需要跨源用 `--cors <origin>` 白名单（带 `Vary: Origin`）；`OPTIONS` 预检只在白名单命中时回 CORS 头。
+- **M-2/M-3 资源上限**：`MAX_QUEUE=32`（队满回 `429 E_QUEUE_FULL`）、`MAX_JOBS=200` + `evictOldJobs()`（只淘汰已结束的）；spec 侧 `MAX_FLASH_COUNT=256`（`E_FLASH_MAX`）、`MAX_SEGMENT_SECONDS=600`（`E_STRUCTURE_MAX`）、`MAX_TOTAL_FRAMES=18000`（`E_DURATION_MAX`）。此前 `flash.count=100000` 或 `structure.round=1e9` 能排出天文数字的段与帧。
+- **M-4 绝对路径泄露**：错误响应里的本机目录替换成 `<path>`（`scrubMessage()`），既保住"是哪个文件"又不暴露目录结构。
+- **L-1 点文件泄露**：`app/canvas/serve.mjs`、`app/script/serve.mjs`、`templates/render-segment.mjs` 三个静态服务器此前可 `GET /.git/config`。现在路径任一段以 `.` 开头即 404（`.` / `..` 仍放行给归一化处理）。
+- **内部缺陷**：`server/api.mjs` 的 `416 Range Not Satisfiable` 分支把 `req` 传成了第 5 个参数（`{}` 占了 `req` 位），CORS 头在该分支失效。已修正实参顺序。
+
+### 变更
+- `templates/spec.mjs` 新增闸门常量导出（`MAX_FLASH_COUNT` / `MAX_SEGMENT_SECONDS` / `MAX_TOTAL_FRAMES`）、`normalizeAccentOverride()` 与 `render.allowRemotePages`（默认 `false`）。
+- `templates/themes.js` 的 `themeFromURL()` 现在接受 `?accent=` / `?accentInk=` / `?accentSoft=`（只影响传入覆盖的页面；不传时逐字段原样返回）。
+- `segmentHash` 加入 `accent`：换品牌色/换 accentFix 必然重渲染，缓存不会错误复用。
+- **golden 基线**：`fixtures/golden/mixed` 的 2 张静帧（`02-t2.500` / `03-t4.250`）按新行为重生成——它是唯一带 `accentOverride` 的 fixture，此前那行配置被静默忽略。`card` / `cyber` 的 7 张哈希不变；`manifest.json` 里的 `page` 字段顺带补上了 v2.3 的 `?mp=standard`（元数据此前滞后，不影响哈希比对）。
+- `bin/cvs.mjs` / `package.json` 测试清单加入 `test-style-pages.mjs`、`test-style-pages-render.mjs`、`test-spec-security.mjs`、`test-accent-route.mjs`。
+
+### 实测
+- **F1 端到端**：国风片编译通过，style 段帧里是真实国风画面（竖排标题 + 朱印 + 云纹），不是占位骨架。
+- **F3 端到端**：同一页 `?theme=coral-noir` 与 `?theme=coral-noir&accent=%2300d4ff&accentInk=%23001016` 的静帧，**76.62% 像素不同**（`max channel-sum delta 478`），证明覆盖值真的进了渲染；`cvs brand apply` 的品牌色现在出现在每个段的 URL 与页面的 `THEME.colors.accent` 里。
+- **golden**：`card` / `cyber` 7 张哈希不变，`mixed` 2 张按新行为更新（唯一带 accentOverride 的 fixture）；`npm run golden` 与 `--selfcheck` 均 9/9。
+- **渲染一致性交叉验证**：同参下「静帧 PNG」与「视频帧」逐像素对齐——`coral-noir` 静帧 = 直渲视频帧 30（ink bbox `w=1600`）；`celadon-paper` 静帧 = `render-batch` 视频帧 30（`w=1552`），平均绝对差 `2.81`（x264 有损编码的正常振铃，锐边处最大 34，占比 0.004%）。批量 worker 路径与单进程路径产出一致。
+- **测试**：画风页真机渲染 28 断言、画风契约 14 断言、spec 安全闸门 25 断言、强调色通路 19 断言、API 16 断言全过；`audit-exports` 确认 `motion.js` 死导出 0。
+
 ## [v2.3.0] - 2026-11-12 — 动效档位接入管线（motion profile → spec → plan → 页面）
 
 ### 新增

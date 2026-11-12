@@ -1,0 +1,348 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<link rel="stylesheet" href="/shared/fonts.css">
+<title>recipe 19 · whiteboard</title>
+<style>
+  html, body { margin: 0; padding: 0; overflow: hidden; background: #f3f1ea; }
+  #c { display: block; }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+
+<script type="module">
+// recipe-whiteboard.html — 风格段 19「白板手绘 / 标注 / 流程图」。
+//
+// 渲染契约：
+//   window.DURATION / window.renderFrame(t)（纯函数）/ window.__ready / window.__bootError
+//
+// 画幅（D7）：画布尺寸由 util.setupStage() 取视口（偶数，缺省 1920×1080）。
+// 横屏：三个节点横向排列、箭头向右；竖屏：节点改为纵向排列、箭头向下，
+// 字号按短边重算，说明文字改到标题下方。真重排，不是把横屏压扁。
+//
+// 视觉：白板底 + 马克笔手绘框（每个顶点带确定性抖动，描两遍更像手写）+
+// 箭头 + 一个手绘圈注。所有抖动来自 hash01(seed)，不是随机。
+//
+// 确定性：全部是 t 的纯函数；框的抖动与笔画长度都由显式 seed 推导。
+import { createSegment, applyImpact2D, drawFlash, loadFonts, vars } from './common.js';
+import {
+  themeFromURL, getTheme, loadFontsFor, hexToRgba, mix, relativeLuminance,
+} from './themes.js';
+import {
+  TAU, clamp, ease, smooth, hash01, setupStage, safePad,
+  fitTextSize, drawTracked, drawHud, drawTopMeta, roundRectPath,
+} from './recipes/util.js';
+
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d', { alpha: false });
+const { W, H, portrait } = setupStage(canvas);
+const pad = safePad(W, H);
+
+const params = new URLSearchParams(location.search);
+const seg = createSegment({ duration: 3.0 });
+window.DURATION = seg.duration;
+
+const THEME = getTheme(themeFromURL(location.search));
+const TC = THEME.colors;
+const V = vars();
+
+const BRAND = String(V.brand || 'CVS').slice(0, 24);
+const TITLE = String(params.get('title') || V.title || '讲清楚三件事').slice(0, 14);
+
+// 白板始终是浅底；深色主题下把板面往主题底混一点点，避免刺眼纯白。
+const isLight = THEME.mode === 'light' || relativeLuminance(TC.bg) > 0.55;
+const BOARD = isLight ? TC.paper : mix('#f7f4ec', TC.bg, 0.07);
+const BOARD_INK = mix('#23262e', TC.ink, isLight ? 0.18 : 0.06);
+const MUTED = hexToRgba(BOARD_INK, 0.55);
+// 马克笔强调色：在浅板上要够深；深色主题的主题强调色往往偏亮，压暗一点。
+const MARK = isLight ? TC.accent : mix(TC.accent, '#000000', 0.18);
+const MARK_SOFT = hexToRgba(MARK, 0.16);
+
+const HAND = '"Xiaolai SC", "Noto Sans SC", "PingFang SC", sans-serif';
+const MONO = '"JetBrains Mono", ui-monospace, monospace';
+const FAMILIES = Array.from(new Set([
+  ...(loadFontsFor(THEME) || []),
+  'Noto Sans SC', 'JetBrains Mono', 'Inter',
+]));
+
+/* ───────────────────────────── 手绘工具 ───────────────────────────── */
+
+/** 确定性抖动：把 (i, seed) 映射到 [-1,1]。 */
+const jit = (i, seed) => hash01(i, seed) * 2 - 1;
+
+/**
+ * 手绘矩形：四个角各自轻微抖动，边用直线连接（不是曲线——曲线会把矩形画成叶子），
+ * 描两遍（第一遍略偏）像手画。
+ */
+function sketchRect(g, x, y, w, h, seed, ink, lw) {
+  const base = [
+    [x, y], [x + w, y], [x + w, y + h], [x, y + h],
+  ];
+  const pass = (off, jitSeed, alpha, width) => {
+    g.save();
+    g.globalAlpha = alpha;
+    g.strokeStyle = ink;
+    g.lineWidth = width;
+    g.lineJoin = 'round';
+    g.lineCap = 'round';
+    g.beginPath();
+    for (let i = 0; i < 4; i++) {
+      const [px, py] = base[i];
+      const jx = jit(jitSeed + i * 2, 7) * 2.4 + off;
+      const jy = jit(jitSeed + i * 2 + 1, 7) * 2.4 + off;
+      if (i === 0) g.moveTo(px + jx, py + jy);
+      else g.lineTo(px + jx, py + jy);
+    }
+    g.closePath();
+    g.stroke();
+    g.restore();
+  };
+  pass(-1.1, seed * 3, 0.5, lw * 0.75);
+  pass(0, seed * 3 + 40, 1, lw);
+}
+
+/** 手绘箭头：一条微微弯曲的线 + 两笔箭头。 */
+function sketchArrow(g, x1, y1, x2, y2, seed, ink, lw, progress = 1) {
+  const k = clamp(progress);
+  if (k <= 0.001) return;
+  const ex = x1 + (x2 - x1) * k;
+  const ey = y1 + (y2 - y1) * k;
+  const midx = (x1 + ex) / 2 + jit(seed + 1, 13) * 6;
+  const midy = (y1 + ey) / 2 + jit(seed + 2, 13) * 6;
+  const ang = Math.atan2(ey - y1, ex - x1);
+  g.save();
+  g.strokeStyle = ink;
+  g.lineWidth = lw;
+  g.lineCap = 'round';
+  g.lineJoin = 'round';
+  g.beginPath();
+  g.moveTo(x1, y1);
+  g.quadraticCurveTo(midx, midy, ex - Math.cos(ang) * lw * 2, ey - Math.sin(ang) * lw * 2);
+  g.stroke();
+  if (k > 0.96) {
+    const a = lw * 5.2;
+    for (const d of [2.6, -2.6]) {
+      g.beginPath();
+      g.moveTo(ex, ey);
+      g.lineTo(ex - Math.cos(ang + d * 0.32) * a, ey - Math.sin(ang + d * 0.32) * a);
+      g.stroke();
+    }
+  }
+  g.restore();
+}
+
+/** 手绘圈注：不闭合的椭圆，起止留个缺口，像随手圈一圈。 */
+function sketchCircle(g, cx, cy, rx, ry, seed, ink, lw, progress = 1) {
+  const k = clamp(progress);
+  if (k <= 0.001) return;
+  const start = -0.35 + jit(seed + 1, 17) * 0.2;
+  const span = TAU * 0.94 * k;
+  g.save();
+  g.strokeStyle = ink;
+  g.lineWidth = lw;
+  g.lineCap = 'round';
+  g.beginPath();
+  const N = 48;
+  for (let i = 0; i <= N; i++) {
+    const a = start + (span * i) / N;
+    const wob = 1 + jit(seed + i, 19) * 0.012;
+    const px = cx + Math.cos(a) * rx * wob;
+    const py = cy + Math.sin(a) * ry * wob;
+    if (i === 0) g.moveTo(px, py); else g.lineTo(px, py);
+  }
+  g.stroke();
+  g.restore();
+}
+
+/** 马克笔下划线：一条略带起伏的粗线。 */
+function sketchUnderline(g, x, y, w, seed, ink, lw, progress = 1) {
+  const k = clamp(progress);
+  if (k <= 0.01) return;
+  const ww = w * k;
+  g.save();
+  g.strokeStyle = ink;
+  g.lineWidth = lw;
+  g.lineCap = 'round';
+  g.beginPath();
+  const N = 16;
+  for (let i = 0; i <= N; i++) {
+    const px = x + (ww * i) / N;
+    const py = y + Math.sin((i / N) * Math.PI * 2.2 + seed) * lw * 0.5;
+    if (i === 0) g.moveTo(px, py); else g.lineTo(px, py);
+  }
+  g.stroke();
+  g.restore();
+}
+
+/* ───────────────────────────── 布局 ───────────────────────────── */
+
+let L = null;
+
+function buildLayout() {
+  const nodes = ['选题', '脚本', '出片'];
+  const titleMaxW = (W - pad * 2) * (portrait ? 0.9 : 0.62);
+  const titleSize = fitTextSize(ctx, TITLE, {
+    maxWidth: titleMaxW, family: HAND, weight: 700,
+    maxSize: Math.round(H * (portrait ? 0.085 : 0.105)), minSize: 30, spacing: 0.01,
+  });
+
+  const availH = H - pad * 2;
+  const titleY = Math.round(pad * 1.5 + titleSize * 0.7);
+  const bodyTop = titleY + titleSize * (portrait ? 1.5 : 1.6);
+  const bodyBottom = H - pad * 2.4;
+  const bodyH = Math.max(120, bodyBottom - bodyTop);
+
+  if (portrait) {
+    const bw = Math.round((W - pad * 2) * 0.62);
+    const bh = Math.round(Math.min(bodyH * 0.20, H * 0.11));
+    const gap = Math.round((bodyH - bh * nodes.length) / (nodes.length + 0.5));
+    const bx = Math.round((W - bw) / 2);
+    const boxes = nodes.map((label, i) => ({
+      label, x: bx, y: Math.round(bodyTop + gap * (i + 0.5) + bh * i), w: bw, h: bh,
+    }));
+    return { titleSize, titleX: pad, titleY, boxes, vertical: true, marker: 'main' };
+  }
+
+  const bw = Math.round(Math.min((W - pad * 2) * 0.26, H * 0.34));
+  const bh = Math.round(bw * 0.5);
+  const totalW = bw * nodes.length;
+  const gap = Math.round(((W - pad * 2) - totalW) / (nodes.length + 1));
+  const by = Math.round(bodyTop + bodyH * 0.36);
+  const boxes = nodes.map((label, i) => ({
+    label, x: Math.round(pad + gap * (i + 1) + bw * i), y: by, w: bw, h: bh,
+  }));
+  return { titleSize, titleX: pad, titleY, boxes, vertical: false, marker: 'main' };
+}
+
+/* ───────────────────────────── 场景 ───────────────────────────── */
+
+const APP_START = 0.35;   // 框开始画的时间
+const APP_EACH = 0.34;    // 每个框的绘制时长
+const ARROW_START = 0.9;
+
+function drawScene(t, u) {
+  // 标题：手写感 undefined——直接用衬线/黑体，加一条马克笔下划线
+  ctx.save();
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'middle';
+  ctx.fillStyle = BOARD_INK;
+  ctx.font = `700 ${L.titleSize}px ${HAND}`;
+  ctx.fillText(TITLE, L.titleX, L.titleY);
+
+  const uw = Math.min((W - pad * 2) * (portrait ? 0.86 : 0.5), L.titleSize * (TITLE.length * 0.9 + 1.2));
+  sketchUnderline(ctx, L.titleX, L.titleY + L.titleSize * 0.72, uw, 3, MARK, Math.max(3, L.titleSize * 0.075),
+    ease.outCubic(clamp((t - 0.18) / 0.4)));
+  ctx.restore();
+
+  const lw = Math.max(2.5, Math.min(W, H) * 0.0035);
+  const labelSize = Math.round(L.boxes[0].h * 0.34);
+
+  // 节点框 + 文字
+  L.boxes.forEach((b, i) => {
+    const start = APP_START + i * APP_EACH;
+    const k = ease.outCubic(clamp((t - start) / APP_EACH));
+    if (k <= 0.001) return;
+    ctx.save();
+    ctx.globalAlpha = clamp(k * 1.6);
+    // 框：用「画到 k」的方式——先画完整框再裁剪一条从 0 到 k 的宽带来模拟手画
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(b.x - 8, b.y - 8, b.w + 16, (b.h + 16) * k);
+    ctx.clip();
+    sketchRect(ctx, b.x, b.y, b.w, b.h, 100 + i * 7, BOARD_INK, lw);
+    ctx.restore();
+
+    // 文字：框画到 70% 后出现
+    const tk = clamp((k - 0.7) / 0.3);
+    if (tk > 0.001) {
+      ctx.globalAlpha = tk;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillStyle = BOARD_INK;
+      ctx.font = `600 ${labelSize}px ${HAND}`;
+      ctx.fillText(b.label, b.x + b.w / 2, b.y + b.h / 2 + 1);
+    }
+    ctx.restore();
+  });
+
+  // 箭头：竖屏在框之间向下，横屏在框之间向右
+  L.boxes.forEach((b, i) => {
+    if (i === L.boxes.length - 1) return;
+    const n = L.boxes[i + 1];
+    const start = ARROW_START + i * APP_EACH;
+    const k = ease.outCubic(clamp((t - start) / 0.4));
+    if (L.vertical) {
+      sketchArrow(ctx, b.x + b.w / 2, b.y + b.h + lw * 2, n.x + n.w / 2, n.y - lw * 4, 200 + i * 5, MARK, lw * 1.1, k);
+    } else {
+      sketchArrow(ctx, b.x + b.w + lw * 2, b.y + b.h / 2, n.x - lw * 4, n.y + n.h / 2, 200 + i * 5, MARK, lw * 1.1, k);
+    }
+  });
+
+  // 圈注：最后一个框画完后圈一圈（强调"出片"）
+  const last = L.boxes[L.boxes.length - 1];
+  const ck = ease.outCubic(clamp((t - (ARROW_START + (L.boxes.length - 1) * APP_EACH + 0.2)) / 0.55));
+  if (ck > 0.001) {
+    ctx.save();
+    ctx.globalAlpha = clamp(ck * 1.2);
+    // 先垫一层很淡的强调色块，再圈
+    ctx.fillStyle = MARK_SOFT;
+    roundRectPath(ctx, last.x - lw * 3, last.y - lw * 3, last.w + lw * 6, last.h + lw * 6, lw * 3);
+    ctx.fill();
+    sketchCircle(ctx, last.x + last.w / 2, last.y + last.h / 2, last.w * 0.66, last.h * 0.82, 300, MARK, lw * 1.6, ck);
+    ctx.restore();
+  }
+}
+
+/* ───────────────────────────── 渲染入口 ───────────────────────────── */
+
+window.renderFrame = (u) => {
+  const { t, fx } = seg.sample(u);
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.globalAlpha = 1;
+  ctx.globalCompositeOperation = 'source-over';
+
+  ctx.save();
+  applyImpact2D(ctx, fx, W, H);
+
+  ctx.fillStyle = BOARD;
+  ctx.fillRect(-W, -H, W * 3, H * 3);
+
+  drawScene(t, u);
+
+  drawTopMeta(ctx, {
+    W, H, pad,
+    text: `${BRAND} · ${String(THEME.nameEn || THEME.id).toUpperCase()}`,
+    sub: 'RECIPE 19 · WHITEBOARD',
+    color: MUTED,
+    accent: MARK,
+  });
+  drawHud(ctx, {
+    W, H, u, duration: seg.duration, theme: THEME,
+    label: 'STYLE 19 / 23', name: 'WHITEBOARD', brand: BRAND, pad,
+    accent: MARK,
+  });
+  ctx.restore();
+
+  drawFlash(ctx, fx.flash, W, H, TC.flash || '#ffffff');
+};
+
+/* ───────────────────────────── 启动 ───────────────────────────── */
+
+window.__ready = false;
+window.__bootError = null;
+
+(async () => {
+  await loadFonts(FAMILIES);
+  L = buildLayout();
+  window.renderFrame(0);
+  window.__ready = true;
+})().catch((err) => {
+  window.__bootError = String((err && err.stack) || err);
+});
+
+window.__seg = seg;
+</script>
+</body>
+</html>

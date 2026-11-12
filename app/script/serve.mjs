@@ -53,6 +53,11 @@ export function resolveInside(root, pathname) {
   } catch {
     return null; // 非法 %xx
   }
+  // 点文件（.git/、.env、.zcode/…）一律不提供。
+  // 之前这里能直接 GET /.git/config 拿到仓库配置。
+  if (decoded.split('/').some((seg) => seg.startsWith('.') && seg !== '.' && seg !== '..')) {
+    return null;
+  }
   const full = path.resolve(root, '.' + path.posix.normalize(decoded));
   const base = path.resolve(root);
   if (full !== base && !full.startsWith(base + path.sep)) return null;

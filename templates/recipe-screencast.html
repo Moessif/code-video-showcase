@@ -1,0 +1,478 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<link rel="stylesheet" href="/shared/fonts.css">
+<title>recipe 21 · screencast</title>
+<style>
+  html, body { margin: 0; padding: 0; overflow: hidden; background: #0e0e0d; }
+  #c { display: block; }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+
+<script type="module">
+// recipe-screencast.html — 风格段 21「代码录屏 / 逐字打字 / 等宽字体 / 语法高亮」。
+//
+// 渲染契约：
+//   window.DURATION / window.renderFrame(t)（纯函数）/ window.__ready / window.__bootError
+//
+// 画幅（D7）：画布尺寸由 util.setupStage() 从 window.innerWidth / window.innerHeight
+// 取（偶数，缺省 1920×1080）。竖屏不是把横屏压扁，而是重排：窗口变窄、字号按可用
+// 宽度重算、行距与卡片高度按竖屏可用高度重新分配、卡片与说明文字整体垂直居中。
+//
+// 性能：主题底 + 柔光、编辑器外壳（标题栏 / 三点 / 行号槽 / 状态栏）、扫描线图案
+// 全部在启动时预渲染成离屏画布；逐帧只做 drawImage + 逐 token 文字 + 一个光标块。
+//
+// 确定性：打字进度是 t 的纯函数（已打字符数 = floor((t - t0) * cps)）；
+// 光标闪烁用 floor(t * k) 取整，不用 Math.random / Date.now / performance.now。
+import { createSegment, applyImpact2D, drawFlash, loadFonts, vars } from './common.js';
+import {
+  themeFromURL, getTheme, loadFontsFor, hexToRgba, mix, relativeLuminance,
+} from './themes.js';
+import {
+  TAU, clamp, ease, smooth, setupStage, safePad,
+  drawTracked, drawHud, drawTopMeta, roundRectPath,
+} from './recipes/util.js';
+
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d', { alpha: false });
+const { W, H, portrait } = setupStage(canvas);
+const pad = safePad(W, H);
+
+const params = new URLSearchParams(location.search);
+const seg = createSegment({ duration: 3.0 });
+window.DURATION = seg.duration;
+
+const THEME = getTheme(themeFromURL(location.search));
+const TC = THEME.colors;
+const V = vars();
+const BRAND = String(V.brand || 'CVS').slice(0, 24);
+
+const isLight = THEME.mode === 'light' || relativeLuminance(TC.bg) > 0.55;
+
+// ── 编辑器配色 ──────────────────────────────────────────────────────────────
+// 编辑器面板在任何主题下都保持深色（录屏语汇），但每个角色色都从主题派生：
+// 浅色主题（paper-journal）下强调色被提亮到同一支色相，保证在深色面板上的对比度。
+const ED_BG = mix('#0f1218', TC.bg, 0.10);
+const ED_BAR = mix('#181d26', TC.bg, 0.10);
+const ED_GUT = mix('#12161e', TC.bg, 0.10);
+const ED_STATUS = mix('#141922', TC.bg, 0.10);
+const ED_EDGE = hexToRgba('#ffffff', 0.09);
+const ED_TEXT = mix('#d7dae0', TC.ink, 0.2);
+const ED_MUTED = mix(ED_BG, ED_TEXT, 0.42);
+const ACCENT_ON_ED = isLight ? mix(TC.accent, '#ffffff', 0.32) : TC.accent;
+
+const accents = (THEME.accents || []).map((a) => a.hex).filter(Boolean);
+const KW = ACCENT_ON_ED;                                                   // 关键字
+const FN = mix(accents[2] || TC.accent, '#ffffff', 0.42);                   // 函数名
+const STR = mix(accents[0] || TC.accentSoft || TC.accent, '#ffffff', 0.34); // 字符串
+const NUM = mix(accents[1] || TC.accentSoft || TC.accent, '#ffffff', 0.42); // 数字
+const COLOR = {
+  cmt: mix(ED_BG, ED_TEXT, 0.40),
+  kw: KW,
+  fn: FN,
+  str: STR,
+  num: NUM,
+  plain: ED_TEXT,
+};
+
+const MONO = '"JetBrains Mono", ui-monospace, monospace';
+const FAMILIES = Array.from(new Set([
+  ...(loadFontsFor(THEME) || []),
+  'Noto Sans SC', 'JetBrains Mono', 'Inter',
+]));
+
+const CAPTION = 't = 当前时间（秒），每帧都在变';
+const TYPE_START = 0.12;   // 第一个字符出现的时间（秒）
+const CPS = 138;           // 每秒字符数
+
+/* ───────────────────────────── 代码样本 ───────────────────────────── */
+
+const SRC = [
+  [['// 逐帧渲染：t 是片段内的局部时间（秒）', 'cmt']],
+  [['function ', 'kw'], ['renderFrame', 'fn'], ['(t) {', 'plain']],
+  [['  const r = ', 'plain'], ['340', 'num'], [' + ', 'plain'], ['60', 'num'], [' * Math.sin(t * 2);', 'plain']],
+  [['  const x = ', 'plain'], ['960', 'num'], [' + r * Math.cos(t * 3);', 'plain']],
+  [['  const y = ', 'plain'], ['540', 'num'], [' + r * Math.sin(t * 6);', 'plain']],
+  [['  ctx.fillStyle = ', 'plain'], ['`hsl(', 'str'], ['${(t * 60) % 360}', 'str'], [' 80% 60%)`', 'str'], [';', 'plain']],
+  [['  ctx.beginPath();', 'plain']],
+  [['  ctx.arc(x, y, 26, 0, Math.PI * 2);', 'plain']],
+  [['  ctx.fill();', 'plain']],
+  [['}', 'plain']],
+];
+
+/* ───────────────────────────── 代码排版 ───────────────────────────── */
+
+// 每行 = 一串 token；token 记前缀宽度（measureText(text.slice(0,i))），
+// 这样切字位置与浏览器实际排版一致（等宽 + 连字都不会错位）。
+function layoutCode(size) {
+  ctx.save();
+  ctx.font = `500 ${size}px ${MONO}`;
+  const lines = [];
+  let charBase = 0;
+  let maxWidth = 0;
+  for (const raw of SRC) {
+    const tokens = [];
+    let x = 0;
+    let chars = 0;
+    for (const [text, kind] of raw) {
+      const offsets = new Float64Array(text.length + 1);
+      for (let i = 0; i < text.length; i++) offsets[i + 1] = ctx.measureText(text.slice(0, i + 1)).width;
+      tokens.push({ text, kind, x, offsets, chars: text.length });
+      x += offsets[text.length];
+      chars += text.length;
+    }
+    lines.push({ tokens, chars, start: charBase, width: x });
+    if (x > maxWidth) maxWidth = x;
+    charBase += chars;
+  }
+  ctx.restore();
+  return { lines, total: charBase, maxWidth };
+}
+
+let CODE = null;   // 排版结果（启动后固定）
+
+function typedCount(t) {
+  return Math.max(0, Math.min(CODE.total, Math.floor((t - TYPE_START) * CPS)));
+}
+
+function caretAt(T) {
+  let li = 0;
+  let local = 0;
+  for (let i = 0; i < CODE.lines.length; i++) {
+    const line = CODE.lines[i];
+    if (T >= line.start) {
+      li = i;
+      local = Math.min(T - line.start, line.chars);
+    }
+  }
+  return { li, local };
+}
+
+function xAt(line, local) {
+  let left = local;
+  for (const tok of line.tokens) {
+    if (left <= 0) break;
+    const take = Math.min(left, tok.chars);
+    left -= take;
+    if (left <= 0) return tok.x + tok.offsets[take];
+  }
+  return line.width;
+}
+
+/* ───────────────────────────── 布局 ───────────────────────────── */
+
+let LAYOUT = null;
+
+function computeFontSize(cardW, availCardH) {
+  const REF = 100;
+  const ref = layoutCode(REF);
+  const unit = REF / ref.maxWidth;                 // 每像素参考宽度
+  let fs = Math.floor(Math.min(cardW * unit, 44));
+  fs = Math.max(12, fs);
+  for (let k = 0; k < 60; k++) {
+    const lineH = fs * 1.72;
+    const titleH = Math.round(fs * 2.2);
+    const statusH = Math.round(fs * 1.9);
+    const padIn = Math.round(fs * 0.9);
+    const cardH = titleH + padIn + SRC.length * lineH + padIn + statusH;
+    const gutter = Math.round(fs * 3.4);
+    const inner = fs * 1.8;
+    const fitsW = ref.maxWidth * (fs / REF) <= cardW - gutter - inner - 8;
+    if (fitsW && cardH <= availCardH) break;
+    fs -= 1;
+    if (fs <= 11) break;
+  }
+  return Math.max(11, fs);
+}
+
+function buildLayout() {
+  const cardW = W - pad * 2;
+  const topLimit = pad * 1.7;
+  const bottomLimit = H - pad * 2.7;
+  const availCardH = Math.max(200, bottomLimit - topLimit);
+
+  const fs = computeFontSize(cardW, availCardH);
+  const lineH = fs * 1.72;
+  const titleH = Math.round(fs * 2.2);
+  const statusH = Math.round(fs * 1.9);
+  const padIn = Math.round(fs * 0.9);
+  const gutterW = Math.round(fs * 3.4);
+  const cardH = Math.round(titleH + padIn + SRC.length * lineH + padIn + statusH);
+
+  const capSize = Math.max(12, Math.round(fs * 0.52));
+  const capH = capSize * 2.4;
+  const groupH = cardH + capH;
+
+  // 竖屏：卡片窄而高，整组（卡片 + 说明）垂直居中；横屏：整组略微上移。
+  const cardY = portrait
+    ? Math.round((H - groupH) / 2)
+    : Math.round(Math.max(topLimit, (H - groupH) / 2 - H * 0.02));
+  const cardX = Math.round((W - cardW) / 2);
+
+  return {
+    fs, lineH, titleH, statusH, padIn, gutterW,
+    cardX, cardY, cardW, cardH,
+    radius: Math.round(fs * 0.62),
+    codeX: cardX + gutterW,
+    codeTop: cardY + titleH + padIn + fs * 0.98,
+    codeW: cardW - gutterW - padIn,
+    capSize,
+    capY: cardY + cardH + capSize * 1.5,
+    capX: cardX + cardW / 2,
+  };
+}
+
+/* ───────────────────────────── 预渲染图层 ───────────────────────────── */
+
+function makeCanvas(w, h) {
+  const c = document.createElement('canvas');
+  c.width = Math.max(1, Math.round(w));
+  c.height = Math.max(1, Math.round(h));
+  return c;
+}
+
+let BACKDROP = null;
+let CARD = null;
+let SCAN = null;
+
+function buildBackdrop() {
+  const cv = makeCanvas(W, H);
+  const g = cv.getContext('2d');
+  g.fillStyle = TC.bg;
+  g.fillRect(0, 0, W, H);
+  // 主题柔光：启动时烘一次，逐帧不再建渐变。
+  const glowColor = isLight ? TC.accent : ACCENT_ON_ED;
+  const grad = g.createRadialGradient(W * 0.5, H * 0.34, 0, W * 0.5, H * 0.34, Math.max(W, H) * 0.72);
+  grad.addColorStop(0, hexToRgba(glowColor, isLight ? 0.12 : 0.15));
+  grad.addColorStop(0.55, hexToRgba(glowColor, isLight ? 0.05 : 0.06));
+  grad.addColorStop(1, hexToRgba(glowColor, 0));
+  g.fillStyle = grad;
+  g.fillRect(0, 0, W, H);
+  return cv;
+}
+
+function buildCard() {
+  const L = LAYOUT;
+  const SH = Math.max(10, Math.round(L.fs * 0.7));
+  const cv = makeCanvas(L.cardW + SH * 2, L.cardH + SH * 2);
+  const g = cv.getContext('2d');
+  const x = SH;
+  const y = SH;
+  const w = L.cardW;
+  const h = L.cardH;
+
+  // 投影：纯色偏移，无渐变（扁平 UI 语汇）
+  g.fillStyle = hexToRgba('#000000', 0.45);
+  roundRectPath(g, x + 6, y + 10, w, h, L.radius);
+  g.fill();
+
+  g.fillStyle = ED_BG;
+  roundRectPath(g, x, y, w, h, L.radius);
+  g.fill();
+
+  g.save();
+  roundRectPath(g, x, y, w, h, L.radius);
+  g.clip();
+  g.fillStyle = ED_BAR;
+  g.fillRect(x, y, w, L.titleH);
+  g.fillStyle = ED_GUT;
+  g.fillRect(x, y + L.titleH, L.gutterW, h - L.titleH);
+  g.fillStyle = ED_STATUS;
+  g.fillRect(x, y + h - L.statusH, w, L.statusH);
+  g.restore();
+
+  g.strokeStyle = ED_EDGE;
+  g.lineWidth = 1;
+  roundRectPath(g, x + 0.5, y + 0.5, w - 1, h - 1, L.radius);
+  g.stroke();
+
+  g.strokeStyle = ED_EDGE;
+  g.beginPath();
+  g.moveTo(x, y + L.titleH + 0.5);
+  g.lineTo(x + w, y + L.titleH + 0.5);
+  g.moveTo(x + L.gutterW + 0.5, y + L.titleH);
+  g.lineTo(x + L.gutterW + 0.5, y + h - L.statusH);
+  g.moveTo(x, y + h - L.statusH + 0.5);
+  g.lineTo(x + w, y + h - L.statusH + 0.5);
+  g.stroke();
+
+  // 三个窗口圆点
+  const dr = Math.max(4, Math.round(L.titleH * 0.15));
+  const dots = ['#ff5f57', '#febc2e', '#28c840'];
+  for (let i = 0; i < 3; i++) {
+    g.fillStyle = dots[i];
+    g.beginPath();
+    g.arc(x + L.padIn + i * dr * 2.7, y + L.titleH / 2, dr, 0, TAU);
+    g.fill();
+  }
+
+  // 标题栏文字
+  g.fillStyle = ED_TEXT;
+  g.font = `600 ${Math.round(L.titleH * 0.34)}px ${MONO}`;
+  g.textBaseline = 'middle';
+  g.textAlign = 'left';
+  g.fillText('RECIPE 21 · SCREENCAST', x + L.padIn + dr * 10, y + L.titleH / 2 + 0.5);
+
+  // 状态栏左侧文件名
+  g.fillStyle = ED_MUTED;
+  g.font = `500 ${Math.round(L.statusH * 0.44)}px ${MONO}`;
+  g.fillText('renderFrame.js', x + L.padIn, y + h - L.statusH / 2 + 0.5);
+
+  return { canvas: cv, offset: SH };
+}
+
+function buildScanlines() {
+  const tile = makeCanvas(1, 3);
+  const g = tile.getContext('2d');
+  g.fillStyle = 'rgba(0,0,0,0.62)';
+  g.fillRect(0, 0, 1, 1);
+  return tile;
+}
+
+/* ───────────────────────────── 场景 ───────────────────────────── */
+
+function drawCode(t) {
+  const L = LAYOUT;
+  const typed = typedCount(t);
+  const caret = caretAt(typed);
+
+  // 当前行高亮
+  const curY = L.codeTop + caret.li * L.lineH;
+  ctx.fillStyle = hexToRgba('#ffffff', 0.055);
+  ctx.fillRect(L.codeX, curY - L.fs * 1.16, L.codeW, L.lineH);
+
+  const numSize = Math.round(L.fs * 0.6);
+  for (let i = 0; i < CODE.lines.length; i++) {
+    const line = CODE.lines[i];
+    const local = typed - line.start;
+    if (local <= 0) break;
+    const take = Math.min(local, line.chars);
+    const y = L.codeTop + i * L.lineH;
+
+    // 行号
+    ctx.font = `400 ${numSize}px ${MONO}`;
+    ctx.textAlign = 'right';
+    ctx.textBaseline = 'alphabetic';
+    ctx.fillStyle = ED_MUTED;
+    ctx.fillText(String(i + 1), L.cardX + L.gutterW - L.padIn * 0.55, y);
+
+    // 代码 token
+    ctx.font = `500 ${L.fs}px ${MONO}`;
+    ctx.textAlign = 'left';
+    let left = take;
+    for (const tok of line.tokens) {
+      if (left <= 0) break;
+      const n = Math.min(left, tok.chars);
+      ctx.fillStyle = COLOR[tok.kind] || ED_TEXT;
+      ctx.fillText(tok.text.slice(0, n), L.codeX + tok.x, y);
+      left -= n;
+    }
+  }
+
+  // 块状光标（闪烁用 floor 取整，保证同 t 逐位一致）
+  const line = CODE.lines[caret.li];
+  const cx = Math.round(L.codeX + xAt(line, caret.local));
+  const on = Math.floor(t * 2.4) % 2 === 0;
+  ctx.fillStyle = hexToRgba(ACCENT_ON_ED, on ? 0.85 : 0.22);
+  ctx.fillRect(cx, Math.round(curY - L.fs * 0.94), Math.max(2, Math.round(L.fs * 0.58)), Math.round(L.fs * 1.06));
+
+  return caret;
+}
+
+function drawStatus(caret) {
+  const L = LAYOUT;
+  const size = Math.round(L.statusH * 0.44);
+  ctx.font = `500 ${size}px ${MONO}`;
+  ctx.textAlign = 'right';
+  ctx.textBaseline = 'middle';
+  ctx.fillStyle = ED_MUTED;
+  ctx.fillText(
+    `Ln ${caret.li + 1}, Col ${caret.local + 1}   UTF-8   LF   JavaScript`,
+    L.cardX + L.cardW - L.padIn,
+    L.cardY + L.cardH - L.statusH / 2 + 0.5,
+  );
+}
+
+function drawCaption() {
+  const L = LAYOUT;
+  const a = smooth((0 - 0) / 1);           // 占位：说明文字始终可读
+  ctx.globalAlpha = 1 * a;
+  drawTracked(ctx, CAPTION, L.capX, L.capY, {
+    size: L.capSize, family: MONO, weight: 500,
+    color: hexToRgba(isLight ? TC.ink : TC.paper, 0.55),
+    tracking: L.capSize * 0.08, align: 'center', baseline: 'middle',
+  });
+  ctx.globalAlpha = 1;
+}
+
+/* ───────────────────────────── 渲染入口 ───────────────────────────── */
+
+window.renderFrame = (u) => {
+  const { t, fx } = seg.sample(u);
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.globalAlpha = 1;
+  ctx.globalCompositeOperation = 'source-over';
+
+  ctx.save();
+  applyImpact2D(ctx, fx, W, H);
+
+  ctx.drawImage(BACKDROP, 0, 0, W, H);
+  ctx.drawImage(CARD.canvas, LAYOUT.cardX - CARD.offset, LAYOUT.cardY - CARD.offset);
+
+  const caret = drawCode(t);
+  drawStatus(caret);
+
+  // 扫描线：只在编辑器窗口内叠，页面底保持干净
+  const pat = ctx.createPattern(SCAN, 'repeat');
+  if (pat) {
+    ctx.save();
+    ctx.globalAlpha = 0.09;
+    ctx.fillStyle = pat;
+    ctx.fillRect(LAYOUT.cardX, LAYOUT.cardY, LAYOUT.cardW, LAYOUT.cardH);
+    ctx.restore();
+  }
+
+  drawCaption();
+
+  drawTopMeta(ctx, {
+    W, H, pad,
+    text: `${BRAND} · ${String(THEME.nameEn || THEME.id).toUpperCase()}`,
+    sub: 'RECIPE 21 · SCREENCAST',
+    color: hexToRgba(isLight ? TC.ink : TC.paper, 0.5),
+    accent: ACCENT_ON_ED,
+  });
+  drawHud(ctx, {
+    W, H, u, duration: seg.duration, theme: THEME,
+    label: 'STYLE 21 / 23', name: 'SCREENCAST', brand: BRAND, pad,
+  });
+  ctx.restore();
+
+  drawFlash(ctx, fx.flash, W, H, TC.flash || '#ffffff');
+};
+
+/* ───────────────────────────── 启动 ───────────────────────────── */
+
+window.__ready = false;
+window.__bootError = null;
+
+(async () => {
+  await loadFonts(FAMILIES);
+  CODE = layoutCode(computeFontSize(W - pad * 2, Math.max(200, H - pad * 4.4)));
+  LAYOUT = buildLayout();
+  CODE = layoutCode(LAYOUT.fs);
+  CARD = buildCard();
+  BACKDROP = buildBackdrop();
+  SCAN = buildScanlines();
+  window.renderFrame(0);
+  window.__ready = true;
+})().catch((err) => {
+  window.__bootError = String((err && err.stack) || err);
+});
+
+window.__seg = seg;
+</script>
+</body>
+</html>

@@ -32,12 +32,45 @@ export const ID_RE = /^[a-z0-9-]+$/;
 const ID_MAX = 128;
 const LOG_TAIL_BYTES = 16 * 1024;
 
+/** 队列上限：防止一个页面（或一个脚本）无限灌任务把磁盘和 CPU 吃光。 */
+export const MAX_QUEUE = 32;
+/** 历史上保留的 job 数上限（超出后淘汰最老的已完成 job）。 */
+export const MAX_JOBS = 200;
+
+/**
+ * CORS：默认**不开**。
+ *
+ * 之前是 `Access-Control-Allow-Origin: *`，意味着用户在浏览器里随便打开一个
+ * 恶意页面，它就能往 127.0.0.1:5190 灌 job、读 spec 与 build.log、甚至下载
+ * 成片。服务只监听回环地址，但 CORS 头让别的源也能访问它。
+ *
+ * 现在默认同源（不发 CORS 头）。需要跨源时用 --cors <origin> 显式指定。
+ */
 const CORS_HEADERS = {
-  'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Methods': 'GET, POST, DELETE, HEAD, OPTIONS',
   'Access-Control-Allow-Headers': 'Content-Type, Range',
   'Access-Control-Expose-Headers': 'Content-Range, Accept-Ranges, Content-Length',
 };
+
+/** 允许的跨源白名单（空 = 不允许跨源）。 */
+let ALLOWED_ORIGINS = new Set();
+
+/** 当前请求允许的 CORS 头：白名单命中才发。 */
+function corsHeaders(req) {
+  const origin = req && req.headers && req.headers.origin;
+  if (!origin || !ALLOWED_ORIGINS.has(origin)) return {};
+  return { 'Access-Control-Allow-Origin': origin, Vary: 'Origin' };
+}
+
+/**
+ * 剥掉可能泄露的绝对路径：把 `E:\...` / `/home/user/...` 之类替换成占位符。
+ * 错误信息对使用者仍然有用（知道是哪个文件），但不暴露本机目录结构。
+ */
+export function scrubMessage(msg) {
+  return String(msg == null ? '' : msg)
+    .replace(/[A-Za-z]:[\\/][^\s'"]*/g, '<path>')
+    .replace(/(?:\/home\/|\/Users\/|\/var\/|\/tmp\/|\/root\/)[^\s'"]*/g, '<path>');
+}
 
 // ── 子进程清理（进程退出兜底） ───────────────────────────────────────────────
 
@@ -86,10 +119,11 @@ function isInside(parent, child) {
   return rel === '' || (!!rel && !rel.startsWith('..') && !path.isAbsolute(rel));
 }
 
-function sendJson(res, status, body, extra = {}) {
+function sendJson(res, status, body, extra = {}, req = null) {
   const data = Buffer.from(JSON.stringify(body));
   res.writeHead(status, {
     ...CORS_HEADERS,
+    ...corsHeaders(req),
     ...extra,
     'Content-Type': 'application/json; charset=utf-8',
     'Content-Length': data.length,
@@ -220,12 +254,19 @@ function createQueue({ concurrency, onRun, onError }) {
  * @param {string} [opts.root]        仓库根（页面/脚本解析基准）
  * @param {string} [opts.outDir]      job 目录，默认 <root>/out/api
  * @param {number} [opts.concurrency] 并发编译数，默认 1
+ * @param {string|string[]} [opts.cors] 允许的跨源 origin（默认空 = 同源）
  */
 export function createJobServer(opts = {}) {
   const root = path.resolve(opts.root || DEFAULT_ROOT);
   const jobsDir = path.resolve(opts.outDir || path.join(root, 'out', 'api'));
   const concurrency = Math.max(1, Math.min(16, Math.floor(Number(opts.concurrency)) || 1));
   const compileScript = path.join(root, 'scripts', 'compile.mjs');
+
+  // CORS 白名单：默认空（同源）。--cors <origin[,origin]> / opts.cors 显式放行。
+  if (opts.cors) {
+    const list = Array.isArray(opts.cors) ? opts.cors : String(opts.cors).split(',');
+    ALLOWED_ORIGINS = new Set(list.map((s) => String(s).trim()).filter(Boolean));
+  }
 
   /** @type {Map<string, any>} */
   const jobs = new Map();
@@ -471,13 +512,21 @@ export function createJobServer(opts = {}) {
       const issues = Array.isArray(e && e.issues) && e.issues.length
         ? e.issues
         : [{ code: (e && e.code) || 'E_SPEC', path: '', message: String((e && e.message) || e), level: 'error' }];
-      sendJson(res, 400, { error: 'invalid spec', issues });
+      sendJson(res, 400, { error: 'invalid spec', issues }, {}, req);
       return;
     }
 
     const id = newJobId(built.spec);
     const dir = path.join(jobsDir, id);
     if (!isInside(jobsDir, dir)) throw new HttpError(400, 'bad job id', 'E_JOB_ID');
+
+    // 队列上限：挡住「无限灌任务」的脚本/页面。每个排队任务都要落 1 MB spec
+    // 并最终起一个渲染子进程，没有上限就能把磁盘和 CPU 打满。
+    const counts = queue.counts();
+    if (counts.queued + counts.running >= MAX_QUEUE) {
+      throw new HttpError(429, `queue is full (${MAX_QUEUE} jobs); retry later`, 'E_QUEUE_FULL');
+    }
+
     fs.mkdirSync(dir, { recursive: true });
     fs.writeFileSync(path.join(dir, 'project.spec.json'), JSON.stringify(built.spec, null, 2) + '\n');
 
@@ -494,9 +543,24 @@ export function createJobServer(opts = {}) {
       cancelRequested: false,
     };
     jobs.set(id, job);
+    evictOldJobs();
     persist(job);
     queue.push(job);
-    sendJson(res, 202, { id, status: 'queued' });
+    sendJson(res, 202, { id, status: 'queued' }, {}, req);
+  }
+
+  /** 淘汰超出 MAX_JOBS 的历史 job（只清已完成/已取消的，运行中的不动）。 */
+  function evictOldJobs() {
+    if (jobs.size <= MAX_JOBS) return;
+    const finished = [...jobs.values()]
+      .filter((j) => j.status === 'done' || j.status === 'failed' || j.status === 'cancelled')
+      .sort((a, b) => String(a.finishedAt || '').localeCompare(String(b.finishedAt || '')));
+    let excess = jobs.size - MAX_JOBS;
+    for (const j of finished) {
+      if (excess <= 0) break;
+      jobs.delete(j.id);
+      excess--;
+    }
   }
 
   function getJobOr404(id) {
@@ -508,21 +572,21 @@ export function createJobServer(opts = {}) {
 
   function serveMaster(req, res, job) {
     if (job.status !== 'done') {
-      sendJson(res, 409, { error: 'job not finished', id: job.id, status: job.status });
+      sendJson(res, 409, { error: 'job not finished', id: job.id, status: job.status }, {}, req);
       return;
     }
     const file = path.join(job.dir, 'master.mp4');
     if (!isInside(jobsDir, file)) {
-      sendJson(res, 404, { error: 'master.mp4 not found', id: job.id, status: job.status });
+      sendJson(res, 404, { error: 'master.mp4 not found', id: job.id, status: job.status }, {}, req);
       return;
     }
     let st;
     try { st = fs.statSync(file); } catch {
-      sendJson(res, 404, { error: 'master.mp4 not found', id: job.id, status: job.status });
+      sendJson(res, 404, { error: 'master.mp4 not found', id: job.id, status: job.status }, {}, req);
       return;
     }
     if (!st.isFile()) {
-      sendJson(res, 404, { error: 'master.mp4 not found', id: job.id, status: job.status });
+      sendJson(res, 404, { error: 'master.mp4 not found', id: job.id, status: job.status }, {}, req);
       return;
     }
 
@@ -535,7 +599,7 @@ export function createJobServer(opts = {}) {
     if (rangeHeader) {
       const parsed = parseRange(rangeHeader, size);
       if (!parsed || parsed.unsatisfiable) {
-        sendJson(res, 416, { error: 'range not satisfiable', size }, { 'Content-Range': `bytes */${size}` });
+        sendJson(res, 416, { error: 'range not satisfiable', size }, { 'Content-Range': `bytes */${size}` }, req);
         return;
       }
       status = 206;
@@ -545,6 +609,7 @@ export function createJobServer(opts = {}) {
 
     const headers = {
       ...CORS_HEADERS,
+      ...corsHeaders(req),
       'Content-Type': 'video/mp4',
       'Content-Length': end - start + 1,
       'Accept-Ranges': 'bytes',
@@ -571,7 +636,10 @@ export function createJobServer(opts = {}) {
     const method = req.method || 'GET';
 
     if (method === 'OPTIONS') {
-      res.writeHead(204, { ...CORS_HEADERS, 'Access-Control-Max-Age': '600' });
+      const pre = corsHeaders(req);
+      res.writeHead(204, pre['Access-Control-Allow-Origin']
+        ? { ...CORS_HEADERS, ...pre, 'Access-Control-Max-Age': '600' }
+        : { 'Content-Length': '0' });
       res.end();
       return;
     }
@@ -585,7 +653,7 @@ export function createJobServer(opts = {}) {
         running: counts.running,
         concurrency: queue.concurrency,
         jobs: jobs.size,
-      });
+      }, {}, req);
       return;
     }
 
@@ -596,27 +664,27 @@ export function createJobServer(opts = {}) {
     }
 
     if (parts[0] !== 'jobs' || parts.length < 2) {
-      sendJson(res, 404, { error: 'not found' });
+      sendJson(res, 404, { error: 'not found' }, {}, req);
       return;
     }
 
     const id = parts[1];
     if (!ID_RE.test(id) || id.length > ID_MAX) {
       // 路径穿越 / 非法 id 一律按不存在处理，不触碰文件系统
-      sendJson(res, 404, { error: 'job not found' });
+      sendJson(res, 404, { error: 'job not found' }, {}, req);
       return;
     }
 
     if (parts.length === 2) {
       if (method === 'GET' || method === 'HEAD') {
         const job = getJobOr404(id);
-        sendJson(res, 200, jobView(job));
+        sendJson(res, 200, jobView(job), {}, req);
         return;
       }
       if (method === 'DELETE') {
         const job = getJobOr404(id);
         cancelJob(job);
-        sendJson(res, 200, { id: job.id, status: job.status });
+        sendJson(res, 200, { id: job.id, status: job.status }, {}, req);
         return;
       }
       throw new HttpError(405, 'method not allowed', 'E_METHOD');
@@ -629,7 +697,7 @@ export function createJobServer(opts = {}) {
       return;
     }
 
-    sendJson(res, 404, { error: 'not found' });
+    sendJson(res, 404, { error: 'not found' }, {}, req);
   }
 
   loadPersistedJobs();
@@ -640,7 +708,7 @@ export function createJobServer(opts = {}) {
       const status = Number(e && e.status) || 500;
       const code = (e && e.code) || 'E_INTERNAL';
       if (status >= 500) console.error('[api]', e && e.stack || e);
-      sendJson(res, status, { error: String((e && e.message) || e), code });
+      sendJson(res, status, { error: scrubMessage((e && e.message) || e), code }, {}, req);
     });
   });
 
@@ -686,8 +754,8 @@ export function createJobServer(opts = {}) {
 /**
  * 监听并返回 { server, port, url }。port=0 时由系统分配（测试用）。
  */
-export function startServer({ port = DEFAULT_PORT, host = '127.0.0.1', root, outDir, concurrency } = {}) {
-  const server = createJobServer({ root, outDir, concurrency });
+export function startServer({ port = DEFAULT_PORT, host = '127.0.0.1', root, outDir, concurrency, cors } = {}) {
+  const server = createJobServer({ root, outDir, concurrency, cors });
   return new Promise((resolve, reject) => {
     const onError = (e) => reject(e);
     server.once('error', onError);
@@ -710,6 +778,7 @@ function parseArgs(argv) {
     else if (a === '--concurrency') out.concurrency = Number(argv[++i]);
     else if (a === '--root') out.root = argv[++i];
     else if (a === '--outdir') out.outDir = argv[++i];
+    else if (a === '--cors') out.cors = argv[++i];
   }
   return out;
 }
@@ -725,17 +794,20 @@ if (isMain) {
   const args = parseArgs(process.argv.slice(2));
   if (args.help) {
     console.log(`Usage: node server/api.mjs [--port 5190] [--concurrency 1] [--root <dir>] [--outdir <dir>]
+                      [--cors <origin>]
 
   POST   /jobs                    validate spec + enqueue a compile job
   GET    /jobs/<id>               job status, stats, build log tail
   GET    /jobs/<id>/master.mp4    finished film (Range supported)
   DELETE /jobs/<id>               cancel a queued/running job
-  GET    /health                  { ok, queue, running, concurrency }`);
+  GET    /health                  { ok, queue, running, concurrency }
+
+  CORS 默认关闭（同源可用）。需要跨源访问时用 --cors <origin> 显式放行。`);
     process.exit(0);
   }
   const port = Number.isFinite(args.port) ? args.port : DEFAULT_PORT;
   const concurrency = Number.isFinite(args.concurrency) ? Math.max(1, Math.floor(args.concurrency)) : 1;
-  startServer({ port, root: args.root, outDir: args.outDir, concurrency })
+  startServer({ port, root: args.root, outDir: args.outDir, concurrency, cors: args.cors })
     .then(({ server, port: actual, url }) => {
       console.log(`[api] root: ${server.root}`);
       console.log(`[api] jobs: ${server.jobsDir}`);

@@ -39,6 +39,7 @@ export function segmentHash(segment, meta, spec) {
     speed: segment.speed ?? null,
     theme: meta.theme || '',
     motion: meta.motion || '',        // v2.3：动效档位进哈希，换档位必须重渲染
+    accent: meta.accent ? JSON.stringify(meta.accent) : '',  // v2.3.1：强调色覆盖进哈希
     brand: meta.brand || '',
     assets: assetHashes,
     patches: scopedPatches,
@@ -96,6 +97,7 @@ export function buildPlanFromSpec(input, opts = {}) {
     format: spec.format,
     audio: spec.audio,
     motion: plan.meta.motion || null,   // v2.3：实际生效的动效档位
+    accent: plan.meta.accent || null,   // v2.3.1：实际下发给页面的强调色覆盖
     assets: (spec.assets || []).map((a) => ({ id: a.id, hash: a.hash || a.sha256 || null, kind: a.kind || null, path: a.path || null })),
     patches: spec.patches || [],
   };

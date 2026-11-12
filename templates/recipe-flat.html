@@ -1,0 +1,273 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<link rel="stylesheet" href="/shared/fonts.css">
+<title>recipe 22 · flat</title>
+<style>
+  html, body { margin: 0; padding: 0; overflow: hidden; background: #0e0e0d; }
+  #c { display: block; }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+
+<script type="module">
+// recipe-flat.html — 风格段 22「扁平插画 / 色块 / 圆角卡片 / 矢量几何」。
+//
+// 渲染契约：
+//   window.DURATION / window.renderFrame(t)（纯函数）/ window.__ready / window.__bootError
+//
+// 画幅（D7）：画布尺寸由 util.setupStage() 取视口（偶数，缺省 1920×1080）。
+// 竖屏：插画块与文案改为上下堆叠（插画在上、色带标题在下），字号按短边重算。
+//
+// 视觉：零渐变——全部是实心圆/圆角矩形 + 一层浅色背景圆。
+// 入场：图形按 stagger 逐个落下（outBack 轻微过冲），色带从左展开，标题随后淡入。
+//
+// 确定性：所有动效都是 t 的纯函数，无 Math.random / Date.now / rAF。
+import { createSegment, applyImpact2D, drawFlash, loadFonts, vars } from './common.js';
+import {
+  themeFromURL, getTheme, loadFontsFor, hexToRgba, mix, relativeLuminance,
+} from './themes.js';
+import {
+  TAU, clamp, ease, smooth, setupStage, safePad,
+  fitTextSize, drawTracked, drawHud, drawTopMeta, roundRectPath,
+} from './recipes/util.js';
+
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d', { alpha: false });
+const { W, H, portrait } = setupStage(canvas);
+const pad = safePad(W, H);
+
+const params = new URLSearchParams(location.search);
+const seg = createSegment({ duration: 3.0 });
+window.DURATION = seg.duration;
+
+const THEME = getTheme(themeFromURL(location.search));
+const TC = THEME.colors;
+const V = vars();
+
+const BRAND = String(V.brand || 'CVS').slice(0, 24);
+const TITLE = String(params.get('title') || V.title || '扁平插画').slice(0, 14);
+const SUB = String(V.subtitle || '矢量色块 · 一眼看懂').slice(0, 40);
+
+const isLight = THEME.mode === 'light' || relativeLuminance(TC.bg) > 0.55;
+const INK = isLight ? TC.ink : TC.paper;
+const MUTED = hexToRgba(INK, 0.5);
+
+const ACCENT = TC.accent;
+const SOFT = TC.accentSoft || mix(ACCENT, TC.bg, 0.55);
+const BAND_INK = isLight ? TC.paper : TC.bg;              // 色带上的字
+const TINT = mix(TC.bg, ACCENT, isLight ? 0.10 : 0.14);   // 大面积浅色圆
+
+const SANS = '"Noto Sans SC", "PingFang SC", sans-serif';
+const MONO = '"JetBrains Mono", ui-monospace, monospace';
+const FAMILIES = Array.from(new Set([
+  ...(loadFontsFor(THEME) || []),
+  'Noto Sans SC', 'JetBrains Mono', 'Inter',
+]));
+
+/* ───────────────────────────── 布局 ───────────────────────────── */
+
+let L = null;
+
+function buildLayout() {
+  // 横屏：左侧插画、右侧文案；竖屏：上方插画、下方色带+文案。
+  if (portrait) {
+    const artCx = W / 2;
+    const artCy = Math.round(H * 0.34);
+    const artR = Math.round(Math.min(W * 0.30, H * 0.16));
+    const titleMaxW = W - pad * 2;
+    const titleSize = fitTextSize(ctx, TITLE, { maxWidth: titleMaxW * 0.9, family: SANS, weight: 800, maxSize: Math.round(H * 0.09), minSize: 34, spacing: 0.02 });
+    ctx.save();
+    ctx.font = `800 ${titleSize}px ${SANS}`;
+    const titleW = ctx.measureText(TITLE).width;
+    ctx.restore();
+    const bandPadX = Math.round(titleSize * 0.44);
+    const bandH = Math.round(titleSize * 2.1);
+    const bandY = Math.round(H * 0.58);
+    // 色带贴合标题（左右各留 bandPadX），并夹在安全区内。
+    let bandW = Math.min(titleW + bandPadX * 2, W - pad * 1.2);
+    let bandX = Math.round((W - bandW) / 2);
+    return {
+      artCx, artCy, artR, titleSize, bandY, bandH, titleMaxW,
+      titleCx: W / 2, bandX, bandW,
+      titleX: bandX + bandPadX,
+      subSize: Math.max(13, Math.round(titleSize * 0.3)),
+      subY: bandY + bandH + Math.round(titleSize * 0.9),
+      subCx: W / 2,
+    };
+  }
+  const artCx = Math.round(W * 0.28);
+  const artCy = Math.round(H * 0.5);
+  const artR = Math.round(Math.min(W * 0.17, H * 0.30));
+  const textX = Math.round(W * 0.50);
+  const titleMaxW = W - textX - pad;
+  const titleSize = fitTextSize(ctx, TITLE, { maxWidth: titleMaxW, family: SANS, weight: 800, maxSize: Math.round(H * 0.15), minSize: 40, spacing: 0.02 });
+  ctx.save();
+  ctx.font = `800 ${titleSize}px ${SANS}`;
+  const titleW = ctx.measureText(TITLE).width;
+  ctx.restore();
+  const bandPadX = Math.round(titleSize * 0.34);
+  const bandH = Math.round(titleSize * 1.7);
+  const bandY = Math.round(H * 0.5 - bandH / 2);
+  // 色带贴合标题，绝不超过右安全区（之前 bandW 无上限，色带被切在屏幕外）。
+  const bandX = Math.round(textX - bandPadX);
+  const bandW = Math.min(Math.round(titleW + bandPadX * 2), Math.round(W - pad - bandX));
+  return {
+    artCx, artCy, artR, titleSize, bandY, bandH, titleMaxW,
+    titleCx: textX, bandX, bandW,
+    titleX: bandX + bandPadX,
+    subSize: Math.max(13, Math.round(titleSize * 0.26)),
+    subY: bandY + bandH + Math.round(titleSize * 0.95),
+    subCx: textX + titleMaxW / 2,
+  };
+}
+
+/* ───────────────────────────── 插画 ───────────────────────────── */
+
+// 插画在启动时烘一张离屏图：几何是固定的，只有入场位移/透明度逐帧变。
+let ART = null;
+
+function buildArt() {
+  const R = L.artR;
+  const size = R * 2.6;
+  const cv = document.createElement('canvas');
+  cv.width = Math.round(size);
+  cv.height = Math.round(size);
+  const g = cv.getContext('2d');
+  const c = size / 2;
+
+  // 背景浅色圆
+  g.fillStyle = TINT;
+  g.beginPath();
+  g.arc(c, c, R * 1.22, 0, TAU);
+  g.fill();
+
+  // 主色圆（左下）
+  g.fillStyle = ACCENT;
+  g.beginPath();
+  g.arc(c - R * 0.34, c + R * 0.30, R * 0.62, 0, TAU);
+  g.fill();
+
+  // 柔和色圆角方块（右上）
+  g.fillStyle = SOFT;
+  roundRectPath(g, c - R * 0.02, c - R * 0.94, R * 1.02, R * 1.02, R * 0.26);
+  g.fill();
+
+  // 深色小圆点（点缀，用 band ink 保证对比）
+  g.fillStyle = BAND_INK;
+  g.beginPath();
+  g.arc(c + R * 0.62, c + R * 0.58, R * 0.17, 0, TAU);
+  g.fill();
+
+  // 一根从圆到方块的细描边连线（扁平语汇里常见的"指向"）
+  g.strokeStyle = hexToRgba(BAND_INK, 0.35);
+  g.lineWidth = Math.max(2, R * 0.035);
+  g.lineCap = 'round';
+  g.beginPath();
+  g.moveTo(c - R * 0.34, c + R * 0.30);
+  g.lineTo(c + R * 0.50, c - R * 0.42);
+  g.stroke();
+
+  return { canvas: cv, offset: size / 2 };
+}
+
+/* ───────────────────────────── 场景 ───────────────────────────── */
+
+const STAGGER = (i, n, span) => (n <= 1 ? 0 : (i / (n - 1)) * span);
+
+function drawScene(t) {
+  // 色带：从左展开 0.42s（outCubic）
+  const bk = ease.outCubic(clamp(t / 0.42));
+  if (bk > 0.001) {
+    const bw = L.bandW * bk;
+    ctx.fillStyle = ACCENT;
+    ctx.fillRect(Math.round(L.bandX), Math.round(L.bandY), Math.round(bw), Math.round(L.bandH));
+
+    // 标题：色带展开到 60% 后淡入
+    const tk = ease.outCubic(clamp((t - 0.26) / 0.42));
+    if (tk > 0.001) {
+      ctx.globalAlpha = tk;
+      ctx.fillStyle = BAND_INK;
+      ctx.font = `800 ${L.titleSize}px ${SANS}`;
+      ctx.textAlign = portrait ? 'center' : 'left';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(TITLE, portrait ? L.titleCx : L.titleX, L.bandY + L.bandH / 2 + 1);
+      ctx.globalAlpha = 1;
+    }
+  }
+
+  // 插画：整体落下（outBack 轻过冲），0.1s 起跑
+  const ak = ease.outBack(clamp((t - 0.1) / 0.55));
+  if (ak > 0.001) {
+    const drop = (1 - ak) * -L.artR * 0.35;
+    ctx.save();
+    ctx.globalAlpha = clamp(ak * 1.4);
+    ctx.drawImage(ART.canvas, L.artCx - ART.offset, L.artCy - ART.offset + drop);
+    ctx.restore();
+  }
+
+  // 副题
+  const sk = ease.outCubic(clamp((t - 0.6) / 0.5));
+  if (sk > 0.001) {
+    ctx.globalAlpha = sk;
+    drawTracked(ctx, SUB, L.subCx, L.subY, {
+      size: L.subSize, family: MONO, weight: 500, color: MUTED,
+      tracking: L.subSize * 0.12, align: 'center', baseline: 'middle',
+    });
+    ctx.globalAlpha = 1;
+  }
+}
+
+/* ───────────────────────────── 渲染入口 ───────────────────────────── */
+
+window.renderFrame = (u) => {
+  const { t, fx } = seg.sample(u);
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.globalAlpha = 1;
+  ctx.globalCompositeOperation = 'source-over';
+
+  ctx.save();
+  applyImpact2D(ctx, fx, W, H);
+
+  ctx.fillStyle = TC.bg;
+  ctx.fillRect(-W, -H, W * 3, H * 3);
+
+  drawScene(t);
+
+  drawTopMeta(ctx, {
+    W, H, pad,
+    text: `${BRAND} · ${String(THEME.nameEn || THEME.id).toUpperCase()}`,
+    sub: 'RECIPE 22 · FLAT',
+    color: MUTED,
+    accent: ACCENT,
+  });
+  drawHud(ctx, {
+    W, H, u, duration: seg.duration, theme: THEME,
+    label: 'STYLE 22 / 23', name: 'FLAT', brand: BRAND, pad,
+  });
+  ctx.restore();
+
+  drawFlash(ctx, fx.flash, W, H, TC.flash || '#ffffff');
+};
+
+/* ───────────────────────────── 启动 ───────────────────────────── */
+
+window.__ready = false;
+window.__bootError = null;
+
+(async () => {
+  await loadFonts(FAMILIES);
+  L = buildLayout();
+  ART = buildArt();
+  window.renderFrame(0);
+  window.__ready = true;
+})().catch((err) => {
+  window.__bootError = String((err && err.stack) || err);
+});
+
+window.__seg = seg;
+</script>
+</body>
+</html>

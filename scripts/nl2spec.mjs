@@ -20,6 +20,7 @@ import fs from 'node:fs';
 
 import { normalizeSpec, validateSpec } from '../templates/spec.mjs';
 import { MOTION_LEVELS, deriveMotionProfile } from '../templates/motion-profile.mjs';
+import { stylePageFor, styleRecipeIdFor } from '../templates/style-pages.mjs';
 
 // ── 冻结的枚举（与 schema / templates/themes.js 对齐）───────────────────────
 
@@ -64,14 +65,37 @@ export const MOODS = ['electronic', 'restrained', 'epic', 'upbeat', 'guofeng'];
 export { MOTION_LEVELS };
 
 /**
- * 两套主题的默认 accentInk/accent 组合过不了 spec-lint 的 APCA 45 门槛。
- * 这里给出对比度安全值（与 content/combos.json 的 _meta.accentFix 同步，测试会交叉校验）。
+ * 读 content/combos.json 的 `_meta.accentFix`（对比度安全的主色对）。
+ * 文件读不到时回落到空表——nl2spec 仍然能出 spec，只是那几套主题
+ * 会让 spec-lint 报 APCA（而不是静默产出不可用的主色）。
+ */
+function readAccentFix() {
+  try {
+    const url = new URL('../content/combos.json', import.meta.url);
+    const doc = JSON.parse(fs.readFileSync(url, 'utf8'));
+    const fix = doc?._meta?.accentFix;
+    if (!fix || typeof fix !== 'object') return {};
+    const out = {};
+    for (const [theme, v] of Object.entries(fix)) {
+      if (v && typeof v.accent === 'string' && typeof v.accentInk === 'string') {
+        out[theme] = { accent: v.accent, accentInk: v.accentInk };
+      }
+    }
+    return out;
+  } catch {
+    return {};
+  }
+}
+
+/**
+ * 四套主题的默认 accentInk/accent 组合过不了 spec-lint 的 APCA 门槛
+ * （accentInk/accent ≥ 45、accent/bg ≥ 30）。
+ *
+ * 真值在 content/combos.json 的 `_meta.accentFix`——wizard 也读同一份，
+ * 这里不再抄第二份（v2.3.1 起；测试会交叉校验两边一致）。
  * 用户显式 --accent / 语料里的 #hex 永远优先。
  */
-export const THEME_ACCENT_FIX = {
-  'aqua-morandi': { accent: '#6e9fae', accentInk: '#142225' },
-  'graphite-signal': { accent: '#d93b10', accentInk: '#ffffff' },
-};
+export const THEME_ACCENT_FIX = readAccentFix();
 
 const PAGES = {
   segment: 'templates/segment.html',
@@ -383,6 +407,10 @@ export function fitStructure(duration, roundCount) {
 
 function buildRounds(count, kind, style) {
   const [first, keyword, color] = KIND_COPY[kind];
+  // v2.3.1：画风必须落到真实页面（templates/style-pages.mjs 是唯一真值）。
+  // 之前固定写 templates/segment.html，导致选任何画风都渲染占位骨架。
+  const page = stylePageFor(style);
+  const recipe = styleRecipeIdFor(style) || style;
   return Array.from({ length: count }, (_, i) => ({
     id: `r${String(i + 1).padStart(2, '0')}`,
     name: `${KIND_LABEL[kind]} / ${STYLE_LABEL[style]}`,
@@ -396,8 +424,8 @@ function buildRounds(count, kind, style) {
       color,
     },
     style: {
-      page: PAGES.segment,
-      recipe: style,
+      page,
+      recipe,
       t0: [0.3, 0.5, 0, 0.3][i % 4],
       speed: [1.4, 1.45, 1, 1.3][i % 4],
     },

@@ -64,6 +64,9 @@ const commands = {
       'scripts/test-from-reference.mjs',
       'scripts/test-brand.mjs',
       'scripts/test-motion-profile.mjs',
+      'scripts/test-style-pages.mjs',
+      'scripts/test-spec-security.mjs',
+      'scripts/test-accent-route.mjs',
       'ingest/test-edl.mjs',
     ];
     if (a.includes('--browser')) {
@@ -73,6 +76,7 @@ const commands = {
         'scripts/test-reflow-pages.mjs',
         'scripts/still-cyber-pixel.mjs',
         'scripts/test-recipes.mjs',
+        'scripts/test-style-pages-render.mjs',
         'server/test-api.mjs',
       );
     }

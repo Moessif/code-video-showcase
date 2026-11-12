@@ -50,16 +50,23 @@ node bin/cvs.mjs motion matrix      # motion profile table
 
 **Motion profiles** (`templates/motion-profile.mjs`) — `look.motion` picks one of `calm` / `standard` / `dynamic` / `maximal`; omit it and the compiler derives one from *video type × art style* (cyber-pixel → `maximal`, launch/minimal/ink-wash → `calm`, knowledge → `standard`). The level travels to every page as `?mp=<level>` and scales the transition, easing, stagger, impact, shake, flash, push and the grain/scanline/paper texture layers. `standard` reproduces the pre-v2.3 output **byte for byte**, so existing projects are unchanged.
 
+**Style → page** (`templates/style-pages.mjs`) — the single source of truth for "which page renders this art style". Each of the 12 styles maps to a real page (`cyber-pixel` → `templates/cyber-pixel.html`, `guofeng` → `templates/recipe-guofeng.html`, …); `?recipe=` is now only an in-page hint, not what selects the page. Generators (`scripts/nl2spec.mjs`, `app/wizard/`) read this table, and an unknown style falls back to the generic scene page rather than the placeholder skeleton. Before v2.3.1 every style silently rendered the placeholder (audit finding F1).
+
+**Accent override** — `look.accentOverride` (brand colour from `cvs brand apply`, or the contrast-safe colour from `content/combos.json` `_meta.accentFix`) is expanded by the plan into `?accent=/#…&accentInk=/#…&accentSoft=/#…` on **every** segment URL, and `themeFromURL()` applies it via `accentOverride()`. Without an override no parameter is added, so existing films are byte-identical. Before v2.3.1 no page ever received the override: brand colours never appeared in the video, and `accentFix` only silenced the linter (audit finding F3). It is part of `segmentHash`, so changing a brand colour always re-renders.
+
 | Piece | File |
 |---|---|
 | IR schema | `schema/project.spec.schema.json` |
 | normalize / validate / migrate (`timeline v1` → spec) | `templates/spec.mjs` |
 | spec → plan + `segmentHash` | `templates/plan.mjs` |
 | motion profiles (levels + kind×style derivation) | `templates/motion-profile.mjs` |
+| style → rendered page (single source of truth) | `templates/style-pages.mjs` |
 | easing / spring / CJK type / texture (single source) | `templates/motion.js` |
 | content-addressed cache | `<outDir>/.cache/<hash>.mp4` (`render-farm --cache`) |
 | one-command build | `scripts/compile.mjs` |
-| gates (pages / theme / APCA) | `scripts/spec-lint.mjs` |
+| gates (pages / theme / APCA / resource caps) | `scripts/spec-lint.mjs` |
+
+**Untrusted specs.** A `spec.json` may come from a user, a form, or an API body, so `templates/spec.mjs` is also a security boundary: `rounds[].id` must match `^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$` (it becomes a filename and a line in the ffmpeg concat list, so it must not carry `../` or a newline); page paths may not be absolute URLs (`E_PAGE_REMOTE`, opt in with `render.allowRemotePages: true`) or absolute filesystem paths (`E_PAGE_ABS`); and `flash.count` / segment seconds / total frames are capped. `server/api.mjs` keeps CORS **same-origin by default** (`--cors <origin>` to allow one), caps its queue (`MAX_QUEUE`) and job history (`MAX_JOBS`), and scrubs absolute paths out of error messages. The three static servers refuse dotfiles.
 
 **Surfaces** (each is a zero-dependency static app, `node app/<name>/serve.mjs`):
 
