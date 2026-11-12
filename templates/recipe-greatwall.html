@@ -196,11 +196,12 @@ function buildLayout() {
   const subBottom = pad * 2.2 + subSize * 0.6;
   const titleY = Math.round(H - subBottom - subSize * 1.6);
   const titleX = portrait ? Math.round(W * 0.5) : Math.round(pad * 1.5);
-  const ruleW = Math.round(W * (portrait ? 0.36 : 0.22));
+  const ruleW = Math.round(W * (portrait ? 0.30 : 0.16));
   return {
     titleSize, subSize, titleY, titleX, ruleW,
-    ruleY: titleY - Math.round(titleSize * 1.02),
-    subY: titleY + Math.round(subSize * 1.7),
+    // 强调线放在标题**下方**（标题下划线），不要压在字头上。
+    ruleY: titleY + Math.round(subSize * 0.62),
+    subY: titleY + Math.round(subSize * 2.05),
     align: portrait ? 'center' : 'left',
   };
 }
@@ -442,10 +443,12 @@ function drawTitle(t) {
   // 强调短线
   const rk = ease.outCubic(clamp((t - 0.30) / 0.5));
   if (rk > 0.001) {
-    ctx.globalAlpha = 0.85;
+    // 长度跟标题实际宽度走：固定 0.16W 在 4 字标题下只盖住前两个字，像没画完。
+    const rw = Math.min(L.ruleW, total * 0.62) * rk;
+    ctx.globalAlpha = 0.9;
     ctx.fillStyle = ACCENT;
-    const rx = L.align === 'center' ? W / 2 - (L.ruleW * rk) / 2 : L.titleX;
-    ctx.fillRect(rx, L.ruleY, L.ruleW * rk, Math.max(2, size * 0.045));
+    const rx = L.align === 'center' ? W / 2 - rw / 2 : L.titleX;
+    ctx.fillRect(rx, L.ruleY, rw, Math.max(2, size * 0.045));
   }
 
   // 副题
@@ -524,7 +527,9 @@ window.renderFrame = (u) => {
   });
   drawHud(ctx, {
     W, H, u, duration: seg.duration, theme: THEME,
-    label: 'STYLE 24', name: 'GREAT WALL', brand: BRAND, pad,
+    // 1080 宽画布上 "STYLE 24 · GREAT WALL" 会和中缝的 FRAME 计数撞车，
+    // 窄画幅收成 "· WALL"（不动共享 drawHud，避免改动其他页面的字节基线）。
+    label: 'STYLE 24', name: W >= 1200 ? 'GREAT WALL' : 'WALL', brand: BRAND, pad,
     accent: ACCENT,
   });
   ctx.restore();

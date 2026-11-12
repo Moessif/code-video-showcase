@@ -3,6 +3,18 @@
 本项目的版本更新记录。版本号遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)，格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
 每个版本同时发布在 [GitHub Releases](https://github.com/Moessif/code-video-showcase/releases)。
 
+## [v2.3.4] - 2026-11-12 — 长城页三处排版修正（看画面看出来的）
+
+v2.3.3 出图后逐张放大检视，修掉三处只有看画面才会发现的问题：
+
+- **强调线压字头 → 改为标题下划线**：金色强调线原本在 `titleY - titleSize*1.02`，4 字大标题下离字形顶部只剩 20 多像素，读起来像压在「万里」头上。现在放到标题**下方**（`titleY + subSize*0.62`），副题再下移一档。
+- **下划线长度跟标题走**：固定 `0.16W` 在 4 字标题下只盖住前两个字，像没画完。改为 `min(ruleW, 标题实宽 × 0.62)`，居中版按标题宽度居中。
+- **HUD 与中缝帧号撞车**：1080 宽画布上 `STYLE 24 · GREAT WALL` 的尾部与居中的 `CVS · FRAME 076 / 098` 重叠约 9px。窄画幅（`W < 1200`）把画风名收成 `WALL`，1920 仍用全名。**没有改共享 `drawHud`**——那会改动其他页面的字节基线。
+
+### 实测
+- `cover 1920×1080 / poster 1080×1350 / story 1080×1920` 三档重新出图并逐张核过：下划线居中且长度合理（poster 实测 325px，位于标题 61% 宽），HUD 三段留白清楚。
+- `npm run test:all` EXIT=0；`test-style-pages-render` **32/32**（greatwall 16:9 / 9:16 / 确定性 / 真重排四项全过）。
+
 ## [v2.3.3] - 2026-11-12 — 新画风「长城 / GREAT WALL」+ 配方页 24
 
 用"画一个长城"当验收题：从一句自然语言到成套图片，全程走产品入口，不改任何管线代码。
