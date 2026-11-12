@@ -45,6 +45,7 @@ const commands = {
   doctor:   (a) => node('scripts/doctor.mjs', a),
   brand:    (a) => node('scripts/brand.mjs', a),
   golden:   (a) => node('scripts/golden.mjs', a),
+  image:    (a) => node('scripts/image.mjs', a),
   motion:   (a) => node('scripts/motion.mjs', a),
   api:      (a) => node('server/api.mjs', a),
   wizard:   () => node('app/wizard/serve.mjs', []),
@@ -77,6 +78,7 @@ const commands = {
         'scripts/still-cyber-pixel.mjs',
         'scripts/test-recipes.mjs',
         'scripts/test-style-pages-render.mjs',
+        'scripts/test-image.mjs',
         'server/test-api.mjs',
       );
     }
@@ -104,6 +106,7 @@ usage: cvs <command> [args]
   brand apply|check|list                 brand kit apply / compliance check
   motion list|show|derive|matrix         motion profile levels + kind×style derivation
   golden [--update|--selfcheck]          byte-exact still regression
+  image [--spec f] [--set a,b] [--at t]  spec -> image set (cover/card/poster/story/...); --list shows presets
   api [--port 5190]                      job-queue HTTP service
   wizard | canvas | script | versions | review    start a dev surface (5181-5185)
   test [--browser]                       run all suites

@@ -119,3 +119,13 @@ window.__patch   = (id, props) => diff;   // 改内存 spec → renderFrame(curr
   - `themeFromURL()` 读回三个参数并调用 `accentOverride()`；不传时逐字段原样返回主题（旧成片逐像素不变）；
   - `accent` 进 `segmentHash`，换品牌色必然重渲染。
   - 反例（v2.3 之前的真实状态）：`cvs brand apply` 写 `look.accentOverride`、`spec-lint` 拿它算 APCA，但没有任何页面收到它——品牌色在成片里完全不出现，accentFix 只是让 lint 闭嘴。测试 `scripts/test-accent-route.mjs` 锁死这条通路（19 断言）。
+
+## D13 代码生图（v2.3.2 定稿）
+
+- **生图不是新渲染器**：管线本来就是「页面自绘 → Chrome 抓帧 → PNG/JPEG」，`render-segment.mjs --still` 与 golden 回归一直在用这条路。`cvs image` 只是把它变成**产品入口**（命令 + 成套尺寸 + 清单），不引入第二套渲染实现。新增图片能力时必须继续复用 `withRenderer` / `ctx.stills()`，不要另写抓帧逻辑。
+- **图与视频同源**：`scripts/image.mjs` 取 **plan 里那条段的 URL**（含 `?theme=` / `?mp=` / `?accent=` / `?recipe=`），不自己拼页面参数。好处是图与成片必然是同一画面（同一份 theme/motion/accent 展开逻辑），也自动获得 F1/F3 的修复。默认段 = 第一条 `style` 段，`--from <segId>` 可指定。
+- **帧时间**：`--at auto` = 段落时长的 **78%**（`HERO_FRACTION`），下界 0.2s、上界 `duration - 0.05s`；理由是要"画面已稳、还没收尾"的时刻——太早是入场缩放/白闪，太晚有些页开始收尾。`heroTime()` 是纯函数，有单测。
+- **一个浏览器渲所有尺寸**：`ctx.stills({ ..., width, height, outdir })` 每次开新 page（`newPage({width,height})` 换视口），4 张约 16.5s。失败时 `ctx.restart()` 后重试一次（Chrome 冷启动抖动的既有对策）。**不要**为每个尺寸起一次 `render-segment` 进程。
+- **空帧判据**：输出 < 8 KB 判为疑似空帧，告警 + 非 0 退出（1080p 纯色 PNG 约 3–12 KB，正常插画 200 KB+）。这是无图像库依赖下的可用近似，不是像素级判据。
+- **尺寸是数据不是枚举**：`PRESETS` 是唯一真值；加一个平台尺寸只在这里加一行。spec 的 `format.aspect` 也是由 width/height 反推（`aspectOf`），不是白名单——任意比例都能渲。
+- **缓存键**：`image-manifest.json` 记 `segmentHash` + `at` + `width/height` + `format`，这四者构成一张图的内容身份；改了 spec、换了帧时间或尺寸，sha256 必然不同（已有单测）。

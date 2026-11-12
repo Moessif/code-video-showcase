@@ -3,6 +3,35 @@
 本项目的版本更新记录。版本号遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)，格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
 每个版本同时发布在 [GitHub Releases](https://github.com/Moessif/code-video-showcase/releases)。
 
+## [v2.3.2] - 2026-11-12 — 代码生图：`cvs image`（spec → 图片集）
+
+把"代码逐帧画"的能力正式开到**图片**产品面。渲染管线本来就是 Chrome 抓帧出 PNG/JPEG（`render-segment --still`、golden 回归都在用），技术上早就通了；缺的是产品入口——没有命令、没有成套社媒尺寸、没有清单。这个版本补上。
+
+### 新增
+- **`cvs image` / `scripts/image.mjs`**：从**同一个 spec** 出一套图。
+  ```bash
+  cvs image --spec project.spec.json                    # cover/card/poster/story
+  cvs image --spec project.spec.json --set cover,card --at 2.4
+  cvs image --spec project.spec.json --from r02-style --out out/stills
+  cvs image --page templates/recipe-guofeng.html --theme celadon-paper --set poster
+  cvs image --list                                      # 列出全部预设
+  ```
+- **6 个尺寸预设**：`cover` 1920×1080（视频封面）、`wide` 2560×1080（头图）、`card` 1080×1080（方图）、`poster` 1080×1350（小红书/微博 4:5）、`story` 1080×1920（Story/竖屏封面）、`avatar` 800×800（小图）。默认集 `cover,card,poster,story`。
+- **`--at auto`**：帧时间取段落时长的 **78%**（画面已稳、还没收尾），也能 `--at 2.4` 手定点。`heroTime()` 有上下界，永不超过片尾。
+- **`image-manifest.json`**：每张图记 `preset / 尺寸 / 文件 / 字节 / sha256`，整份记 `at / format / page / segment / segmentKind / segmentHash / theme / motion / accent` —— 可以直接当资产清单或缓存键。
+- **`scripts/test-image.mjs`**（24 断言，真机 Chrome）：预设表、`heroTime` 数学、`--list`、真出图（尺寸/非空帧/清单与磁盘逐项比对）、同参逐字节相同、换 `--at` 哈希必变、页面来自 plan 段 URL。
+
+### 设计要点
+- **图与视频同源**：走的是 **plan 里那条段的 URL**，所以 `?theme=` / `?mp=` / `?accent=` 与成片完全一致——不会出现"视频一套配色、图另一套"。`--from r02-style` 可指定段，默认取第一条 `style` 段（画风段最有画面）。
+- **一个浏览器渲完所有尺寸**：`withRenderer()` + `ctx.stills()` 每尺寸开新 page（`newPage({width,height})` 改视口），不是每个尺寸起一次 Chrome。实测 4 张 16.5s。某尺寸失败会自动 `ctx.restart()` 重试一次。
+- **确定性**：同 spec + 同 `--at` + 同尺寸 → 同一 sha256（已实测两次运行 4/4 逐字节相同），符合 `frame = f(t)` 的硬约束。
+- **防呆**：低于 8 KB 的图判为疑似空帧，打印告警并以非 0 退出（1080p 纯色 PNG 通常 3–12 KB）。
+
+### 实测
+- 国风 spec：`cover 1920×1080 / card 1080×1080 / poster 1080×1350 / story 1080×1920`，740 / 439 / 521 / 672 KB，唯一色 215–258，最高频色占比 14–24%（真插画，非空帧）。
+- 二次运行 4/4 sha256 相同；`--at 1.0` 与 `--at auto(2.548)` 的 cover 哈希不同。
+- `node scripts/test-image.mjs` → 24 / 24 PASS。
+
 ## [v2.3.1] - 2026-11-12 — 画风真出片（F1）+ 全仓安全加固
 
 一次以**审计**驱动的版本：v2.3 收尾时对全仓做了一轮检查，修掉一条产品级断链（F1）、一处主题配色不合规（F2），以及 7 类安全/健壮性问题（C/H/M/L）。

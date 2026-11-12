@@ -44,6 +44,7 @@ node bin/cvs.mjs ref poster.jpg --spec project.spec.json --out project.spec.json
 node bin/cvs.mjs lint project.spec.json --root .
 node bin/cvs.mjs build project.spec.json --concurrency 4
 node bin/cvs.mjs motion matrix      # motion profile table
+node bin/cvs.mjs image --spec project.spec.json   # same spec -> image set (cover/card/poster/story)
 ```
 
 `cvs ref` extracts a palette / accent / density from a reference image (deterministic 96×96 OKLab k-means, APCA-gated, top-3 theme candidates) and writes it into `look.theme` + `look.accentOverride` — it extracts statistics, never copies pixels. The same core (`scripts/ref-core.mjs`) runs in the browser, so the wizard accepts a dragged image directly and records `meta.reference`.
@@ -54,6 +55,8 @@ node bin/cvs.mjs motion matrix      # motion profile table
 
 **Accent override** — `look.accentOverride` (brand colour from `cvs brand apply`, or the contrast-safe colour from `content/combos.json` `_meta.accentFix`) is expanded by the plan into `?accent=/#…&accentInk=/#…&accentSoft=/#…` on **every** segment URL, and `themeFromURL()` applies it via `accentOverride()`. Without an override no parameter is added, so existing films are byte-identical. Before v2.3.1 no page ever received the override: brand colours never appeared in the video, and `accentFix` only silenced the linter (audit finding F3). It is part of `segmentHash`, so changing a brand colour always re-renders.
 
+**Images, not just video** (`cvs image`) — the pipeline was always "code draws each frame → Chrome → PNG/JPEG", so a still was already the same render as a video frame. `cvs image` turns that into a product surface: it renders one hero frame of the spec's style segment into a set of social sizes (`cover` 1920×1080, `wide` 2560×1080, `card` 1080×1080, `poster` 1080×1350, `story` 1080×1920, `avatar` 800×800) and writes `image-manifest.json` with per-image sha256. It reuses the **plan's segment URL**, so `?theme=` / `?mp=` / `?accent=` match the film exactly — the image and the video are the same picture. One browser renders every size; identical inputs give an identical sha256.
+
 | Piece | File |
 |---|---|
 | IR schema | `schema/project.spec.schema.json` |
@@ -62,6 +65,7 @@ node bin/cvs.mjs motion matrix      # motion profile table
 | motion profiles (levels + kind×style derivation) | `templates/motion-profile.mjs` |
 | style → rendered page (single source of truth) | `templates/style-pages.mjs` |
 | easing / spring / CJK type / texture (single source) | `templates/motion.js` |
+| spec → image set (`cover`/`card`/`poster`/`story`) | `scripts/image.mjs` |
 | content-addressed cache | `<outDir>/.cache/<hash>.mp4` (`render-farm --cache`) |
 | one-command build | `scripts/compile.mjs` |
 | gates (pages / theme / APCA / resource caps) | `scripts/spec-lint.mjs` |
