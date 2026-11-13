@@ -79,7 +79,7 @@ node bin/cvs.mjs build project.spec.json --root . --platform douyin --strict
 - **统一入口**：`node bin/cvs.mjs`（21 个子命令，`cvs --help` 全列）。
 - **参考图**：`cvs ref poster.jpg --spec project.spec.json` 只提取色板/强调色/密度与 top-3 主题候选（不复制像素），写 `meta.reference`。
 - **动效档位**：`look.motion` 选 `calm|standard|dynamic|maximal`，不写按「类型 × 画风」推导；换档位改变画面并触发重渲染（进段哈希），写 `standard` 与旧成片逐像素一致。
-- **画风 → 页面**：`templates/style-pages.mjs` 是唯一真值（13 画风 → 渲染页）；生成端按表填 `style.page`，未知画风回落通用场景页，新增配方页只加一行。
+- **画风 → 页面**：`templates/style-pages.mjs` 是唯一真值（20 画风 → 渲染页）；生成端按表填 `style.page`，未知画风回落通用场景页，新增配方页只加一行。
 - **强调色覆盖**：`look.accentOverride` 展开成段 URL 的 `?accent=/accentInk=/accentSoft=`，进 `segmentHash`（换品牌色必重渲染）；没有覆盖时 URL 不变。
 - **代码生图**：`cvs image --spec project.spec.json` 用同一 spec 出图集（cover/card/poster/story，`--list` 全部；默认画风段 78% 处），产物带 `image-manifest.json`（每张 sha256）。
 - **spec 是不可信输入**：id 匹配 `^[A-Za-z0-9][A-Za-z0-9_-]
@@ -87,7 +87,7 @@ node bin/cvs.mjs build project.spec.json --root . --platform douyin --strict
 - **界面**：`app/wizard/`(5181)、`app/canvas/`(5182)、`app/script/`(5183)、`app/versions/`(5184)、`app/review/`(5185)、`server/api.mjs`(5190)。
 - **旧项目**：timeline v1 仍完全可用，`spec.mjs` 自动迁移；`render-farm` 默认 batch 模式（一个 worker 一个浏览器跑一个 shard），`--legacy` 回退逐段进程。页面按视口自适应（横/竖/方真重排），16:9 输出位级不变。
 - **质量闸门**：`npm run test:all`（纯 Node）、`npm run test:browser`、`npm run golden`（静帧位级回归）、`npm run brand -- check …`。
-- **配方页**：13–24 号在 `templates/recipe-*.html`（清单见 `templates/style-pages.mjs`）；**实拍素材** `cvs ingest` 出 EDL + spec 草稿（启发式，需人工审）。
+- **配方页**：13–29 号在 `templates/recipe-*.html`（清单见 `templates/style-pages.mjs`）；**实拍素材** `cvs ingest` 出 EDL + spec 草稿（启发式，需人工审）。
 - **覆盖扩展（v2.5）**：段间转场 35 种（`--transition`，xfade 在拼接层做，默认关闭逐字节不变）、确定性效果库 26 个（`templates/effects.mjs`）、风格 20 种、领域 24 种。覆盖矩阵单一真值 `docs/COVERAGE.md`。
 - **禁止**：让 LLM 直接生成 HTML/CSS/JS，或绕过 spec 直接改像素。模型只填枚举与文案。
 ## 0. 适用与不适用
@@ -214,7 +214,7 @@ Three.js 片段：`renderer` 必须 `{ preserveDrawingBuffer: true }`；启动�
 
 ## 7. 风格展示配方（每段 3 s / 6 拍）
 
-11 种风格是「视觉美术 + 技术实现 + 音色」三件套；逐页参数见 `references/style-recipes.md`，配方页映射见 §0.5。
+20 种风格是「视觉美术 + 技术实现 + 音色」三件套；逐页参数见 `references/style-recipes.md`，配方页映射见 §0.5，完整覆盖矩阵见 `docs/COVERAGE.md`。v2.5 新增 6 风格 + 收编 kinetic（下表后 7 行），音色按领域 mood 合成。
 
 | 风格 | 一句话 | 音色 |
 |---|---|---|
@@ -229,6 +229,13 @@ Three.js 片段：`renderer` 必须 `{ preserveDrawingBuffer: true }`；启动�
 | 代码录屏 | Canvas 编辑器 + 逐字代码 | lo-fi 电钢 + 黑胶噪声 |
 | Three.js 三维 | 粘土影棚 + 玻璃/金属球 | 钟声琶音 + 弹跳 |
 | 竖屏短视频 | 手机壳 + 步骤卡/评论点赞 | 808 + 超级锯齿 + trap 镲 |
+| 动态字体 kinetic | 逐字入场 + 速度线 + 巨型描边数字 | 按 mood（dynamic） |
+| 瑞士网格 swiss | 12 列网格 + 发丝线 + 单红锚点 + 越大越轻 | 按 mood（calm） |
+| 报纸编辑 editorial | 衬线大标 + 栏线 + 首字下沉 + 半调图 | 按 mood（calm） |
+| 新粗野 brutalist | 粗边框 + 硬投影 + 撞色 + 贴纸徽章 | 按 mood（dynamic） |
+| 蒸汽波 vaporwave | 渐变天空 + 透视网格 + 扫描线落日 + 镀铬字 | 按 mood（dynamic） |
+| 工程蓝图 blueprint | 普鲁士蓝 + 尺寸箭头 + 标题栏 + 十字线 | 按 mood（standard） |
+| 孔版印刷 risograph | 双专色 + 套印错位 + 颗粒平涂 + 纸纹 | 按 mood（calm） |
 
 **每段必须有的视觉锚点**：左上胶囊标签（主题化编号 + 风格名）、右下 3 秒倒计时/帧计数、1–2 个风格内小标签、6 拍内完成一次完整叙事。不要底部字幕。
 
