@@ -11,7 +11,7 @@ description: |
 license: MIT
 metadata:
   domain: video-production
-  version: 2.4.0
+  version: 2.5.0
   reference: Opus 5.5 / DeepSeek V4.1-Flash 61s style showcase
 compatibility: Node 22+ (raw CDP needs global WebSocket) / Chrome or Edge (Playwright optional) / FFmpeg (libx264+AAC, libvmaf optional) / Python 3.10+ (numpy, scipy; matplotlib optional) / bash. Windows (Git Bash) and WSL/Linux. No external video/image/music generation models; fonts are open-source, served locally.
 allowed-tools: Bash, Read, Write, Edit, Glob, Grep
@@ -88,6 +88,7 @@ node bin/cvs.mjs build project.spec.json --root . --platform douyin --strict
 - **旧项目**：timeline v1 仍完全可用，`spec.mjs` 自动迁移；`render-farm` 默认 batch 模式（一个 worker 一个浏览器跑一个 shard），`--legacy` 回退逐段进程。页面按视口自适应（横/竖/方真重排），16:9 输出位级不变。
 - **质量闸门**：`npm run test:all`（纯 Node）、`npm run test:browser`、`npm run golden`（静帧位级回归）、`npm run brand -- check …`。
 - **配方页**：13–24 号在 `templates/recipe-*.html`（清单见 `templates/style-pages.mjs`）；**实拍素材** `cvs ingest` 出 EDL + spec 草稿（启发式，需人工审）。
+- **覆盖扩展（v2.5）**：段间转场 35 种（`--transition`，xfade 在拼接层做，默认关闭逐字节不变）、确定性效果库 26 个（`templates/effects.mjs`）、风格 20 种、领域 24 种。覆盖矩阵单一真值 `docs/COVERAGE.md`。
 - **禁止**：让 LLM 直接生成 HTML/CSS/JS，或绕过 spec 直接改像素。模型只填枚举与文案。
 ## 0. 适用与不适用
 
