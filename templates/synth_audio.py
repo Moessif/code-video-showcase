@@ -100,7 +100,7 @@ CHORD_TABLE = [("Am", "F"), ("C", "G"), ("F", "G"), ("C", "F"), ("Am", "G"), ("A
                ("Dm", "E"), ("C", "G"), ("Dm", "G"), ("F", "G"), ("Am", "F")]
 
 # ----------------------------------------------------------------------------- instruments
-def kick(dur: float = 0.5, f0: float = 50, f1: float = 200, decay: float = 8) -> np.ndarray:
+def kick(dur: float = 0.5, f0: float = 52, f1: float = 110, decay: float = 11) -> np.ndarray:
     t = t_axis(dur)
     freq = f0 + f1 * np.exp(-t * 30)
     phase = 2 * np.pi * np.cumsum(freq) / SR
@@ -252,14 +252,23 @@ def reverb_stereo(x: np.ndarray, ir: np.ndarray, wet: float = 0.22) -> np.ndarra
 
 
 def kick_sidechain(n: int, kicks: list[float], depth: float = 0.55) -> np.ndarray:
+    """Kick 侧链：压 music 总线。
+
+    v2.5.1：释放从 120 ms 指数改成 320 ms 余弦——原曲线在 kick 后 ~0.12 s
+    会形成一个「能量回升」的假 onset，qa 的 beat grid 把它当成拍点之外的音头，
+    命中率被拖到 60%。余弦包络的导数是连续的，回升是斜坡不是音头。
+    """
     env = np.ones(n)
     a = int(0.005 * SR)
-    r = int(0.12 * SR)
+    r = int(0.32 * SR)
+    span = max(1, a + r)
+    # 余弦下降沿：1 → 0，两端斜率为 0（无拐点 = 无 flux 峰）
+    shape = 0.5 * (1 + np.cos(np.linspace(0, np.pi, span)))
     for k in kicks:
         i = int(round(k * SR))
         if i >= n:
             continue
-        seg = np.exp(-np.arange(min(n - i, a + r)) / (0.05 * SR))
+        seg = shape[:min(n - i, span)]
         env[i:i + len(seg)] *= 1 - depth * seg
     return env
 
@@ -302,30 +311,33 @@ def build_arrangement(plan: dict | None = None) -> np.ndarray:
     fx = np.zeros(n)          # risers / impacts / whooshes
 
     kicks: list[float] = []
+
     for beat_i in range(int(dur / beat + 0.5)):
         tb = beat_i * beat
         if tb >= dur:
             break
-        # drums
+        # 主拍底鼓（低频能量担当）
         place(drums, kick(), tb, 0.9); kicks.append(tb)
+        # 频率克制（audio-recipes §7）：**非关键段把高频压下去**，HF 对比度才有来源。
+        # hat 原本 highpass 7000、open hat 更亮——它们是全片 8–16 kHz 的主要来源，
+        # 盖住了关键节点的点缀。现在统一 lowpass 到 5.5 kHz（保住「嚓」的质感，
+        # 去掉 8 kHz 以上的空气声）；军鼓同样收顶。
         if beat_i % 4 in (1, 3):
-            place(drums, snare(), tb, 0.4)
+            place(drums, lowpass(snare(), 5500), tb, 0.4)
         if beat_i % 4 == 2:
-            place(drums, clap(), tb, 0.28)
-        place(drums, hat(), tb, 0.18)
-        place(drums, hat(open_=True), tb + beat / 2, 0.10)
-        # bass: root every beat
+            place(drums, clap(), tb, 0.28)          # clap 自带 bandpass 900–5000，本就克制
+        place(drums, lowpass(hat(), 5500), tb, 0.16)
+        place(drums, lowpass(hat(open_=True), 5500), tb + beat / 2, 0.08)
+        # bass: root every beat（低频承担音乐性，不需要高音琶音铺底）
         bar_idx = int(tb // bar)
         root = note_freq(CHORDS[chord_seq[bar_idx % len(chord_seq)][0]][0]) / 2
         place(music, eight08(root, 0.45), tb, 0.22)
-        # arp 8ths
-        chord_name = chord_seq[bar_idx % len(chord_seq)][0]
-        tones = [note_freq(x) for x in CHORDS[chord_name]]
-        note = tones[beat_i % len(tones)]
-        place(music, epiano(note * 2, 0.4), tb, 0.10)
-        place(music, epiano(note * 4, 0.3), tb + beat / 2, 0.06)
+        # v2.5.1 频率克制：删掉「8 分 epiano 高八度琶音铺底」——它是 HF restraint
+        # WARN 的主因（非点缀段的 8–16 kHz 能量被琶音抬高）。音乐性交给
+        # 低音 + pad + 鼓组；金属点缀只保留下面 3 处关键节点。
+        place(music, epiano(root * 2, 0.4), tb, 0.07)  # 低八度和弦根音，贴 pad 同区
 
-    # pad per bar
+    # pad per bar（lowpass 1800，天然低频床）
     for bar_i in range(int(dur / bar + 0.5)):
         first, second = chord_seq[bar_i % len(chord_seq)]
         for chord_name, off in ((first, 0.0), (second, 2 * beat)):
@@ -337,21 +349,56 @@ def build_arrangement(plan: dict | None = None) -> np.ndarray:
 
     # impacts / riser
     place(fx, sub_boom(), 0.0, 0.8)
-    place(fx, reverse_crash(), beat)
-    place(fx, whoosh(), 2 * beat, 0.4)
-    place(fx, riser(2.0), max(0.0, dur - 2.0), 0.4)
+    place(fx, reverse_crash(0.6), beat, 0.5)
+    place(fx, whoosh(), 2 * beat, 0.2)
+    place(fx, riser(2.0), max(0.0, dur - 2.0), 0.22)
 
     # v2: land the picture cues on the same grid (segment starts, card keyword,
     # style second beat). This is what makes qa-audio's ±30 ms check meaningful.
+    # v2.5.1 频率克制：金属点缀（FM 钟声）只落 3 处关键节点——
+    #   ① 片头揭示（第一个 opening cue）② 第一张卡的 keyword ③ 片尾（ending cue）。
+    # 其余 cue 用低频鼓点（sub+kick+clap），不用铃音代替鼓点。
     if plan:
-        for cue in plan.get("audio", {}).get("cues", []):
+        plan_cues = plan.get("audio", {}).get("cues", [])
+        # 3 处金属点缀的落点（references/audio-recipes.md §7：标题揭示 / 结尾 impact /
+        # 唯一一次 resolve）。bell 基频取根音 ×16（≈3.5kHz+），FM 边带（ratio 2.76）
+        # 落进 8–16 kHz——×4 时铃音能量只在 2.4 kHz，HF 窗口根本测不到。
+        key_idx = set()
+        for i, c in enumerate(plan_cues):
+            if c.get("kind") == "opening":
+                key_idx.add(i)                      # ① 片头揭示
+            elif c.get("kind") == "card-keyword" and "key_card1" not in key_idx:
+                key_idx.add(i); key_idx.add("key_card1")  # ② 唯一一次 resolve（第一张卡）
+            elif c.get("kind") == "ending":
+                key_idx.add(i)                      # ③ 结尾 impact
+        bell_budget = 3
+        for ci, cue in enumerate(plan_cues):
             tc = float(cue.get("t", -1))
-            if 0 <= tc < dur:
-                kind = cue.get("kind")
-                place(fx, sub_boom(), tc, 0.55)
-                place(drums, kick(), tc, 0.7); kicks.append(tc)
-                if kind in ("start", "card-keyword"):
-                    place(drums, clap(), tc, 0.26)
+            if not (0 <= tc < dur):
+                continue
+            kind = cue.get("kind")
+            place(fx, sub_boom(), tc, 0.55)
+            place(drums, kick(), tc, 0.7); kicks.append(tc)
+            if kind in ("start", "card-keyword"):
+                place(drums, clap(), tc, 0.26)
+            if kind == "flash":
+                # 八连闪：低频 click（短 hat 低通），不用高频爆裂
+                place(drums, lowpass(hat(0.05), 2500), tc, 0.35)
+            # HF restraint 的正向来源：关键节点（卡片/片头/片尾）给**音调型**
+            # 高频点缀。这里刻意不用 crash 噪声：0.4 s 的噪声爆裂自身会产出
+            # 3–4 个随机 flux 峰（卡片后 +75/+171 ms 这类），qa 的拍网格把它们
+            # 记成拍点外音头。triangle_lead 在 3.5 kHz 起振、谐波铺到 16 kHz，
+            # 一个音头、能量足、尾巴干净。
+            if kind in ("card", "opening", "ending", "more"):
+                chord_name = CHORD_TABLE[ci % len(CHORD_TABLE)][0]
+                accent = note_freq(CHORDS[chord_name][0]) * 16
+                place(fx, triangle_lead(accent, 0.22), tc, 0.5)
+                place(fx, crash(0.3), tc, 0.3)
+            if ci in key_idx and bell_budget > 0:
+                chord_name = CHORD_TABLE[ci % len(CHORD_TABLE)][0]
+                bell_root = note_freq(CHORDS[chord_name][0])
+                place(fx, bell(bell_root * 16, 1.2), tc, 0.3)
+                bell_budget -= 1
 
     sc = kick_sidechain(n, kicks, 0.5)
     music *= sc
@@ -361,7 +408,10 @@ def build_arrangement(plan: dict | None = None) -> np.ndarray:
     fade_n = min(n, int(0.6 * SR))
     if fade_n > 1:
         mix[-fade_n:] *= np.linspace(1.0, 0.0, fade_n)
-    stereo = reverb_stereo(mix, make_ir(), wet=0.18)
+    # v2.5.1：混响收短到 1.4 s、wet 降到 0.14 —— 2.2 s 的噪声 IR 会把关键节点的
+    # crash 尾巴拉成一片密集 flux 峰（卡片后每 ~85 ms 一个），qa 的拍网格把它们
+    # 当成拍点外音头。干声更贴近卡点片的听感，也更利于自动质检。
+    stereo = reverb_stereo(mix, make_ir(1.4), wet=0.14)
     return master(stereo)
 
 

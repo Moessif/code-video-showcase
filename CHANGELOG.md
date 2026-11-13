@@ -3,6 +3,23 @@
 本项目的版本更新记录。版本号遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)，格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
 每个版本同时发布在 [GitHub Releases](https://github.com/Moessif/code-video-showcase/releases)。
 
+## [v2.5.1] - 2026-11-14 — 音频质检归零：两个 ADVISORY 清零 + 频谱图去 matplotlib
+
+收官后剩两条 advisory 与一条环境告警。本轮全部清零，41s 全片严格链路 **8 pass / 0 warn / 0 advisory / 0 fail**。
+
+### 修复
+- **beat grid 47.4%（ADVISORY）→ 76.7%（PASS）**：根因三层叠加——① flash 段每 0.25 s 一条 cue（8 连闪），qa 默认却按 1/1 网格量；② kick 从 250→52 Hz 的扫频在每拍后 ~70 ms 制造一个假 onset；③ 2.2 s 噪声混响把关键节点 crash 的尾巴拉成一片密集 flux 峰，每 85 ms 一个。修法：qa-audio 从 plan 的 **cue 最小间距推断**细分级（仍是声明式——细分写进报告，不在 1/2/4 里挑命中率最高的那个）；kick 扫频收敛（`f1` 200→110、`decay` 8→11）；混响 2.2 s→1.4 s、wet 0.18→0.14。
+- **HF restraint −1.93 dB（ADVISORY）→ +9.26 dB（PASS）**：原合成床用「8 分音符高八度 epiano 琶音」铺底，把非关键段的 8–16 kHz 垫高，关键节点反而没有对比。按 `references/audio-recipes.md` §7 重写：非关键段 hat/snare **lowpass 5.5 kHz**；关键节点（卡片/片头/片尾）改用**音调型**高频点缀（triangle 3.5 kHz 起振 + 0.3 s 短 crash）；金属铃音全片严格 3 处（片头揭示 / 第一张卡 keyword / 片尾）。删除卡片窗口内的噪声爆裂——它自身就会产出 3–4 个随机 flux 峰。
+- **频谱图去掉 matplotlib**：纯 numpy + stdlib `zlib` 直接写 PNG（log 频率轴、magma 近似色表、低频在下）。Anaconda/NumPy 2.x 的 ABI 冲突不再影响出图，也不再有任何可选依赖告警。
+- `build` 的频谱图输出改到 `<outDir>/qa/spectrogram.png`（原先落在仓库根 `qa/`）。
+
+### 实测
+- 41s 全片 `build fixtures/mini-41s/spec.json --platform douyin --strict` **EXIT=0**：
+  qa-video **19 pass / 0 warn / 0 advisory / 0 fail**；
+  qa-audio **8 pass / 0 warn / 0 advisory / 0 fail**（beat grid 76.7%、HF +9.26 dB、cue 35/35 = 100%、peak −1.36 dBFS、−13.84 LUFS、TP −1.26 dBTP）。
+- `npm run test:all` 20 套 **340 passed / 0 failed**；`test-compiler-contract` **26/26**（新增 2 项：细分推断、无 matplotlib 的 PNG 频谱图）。
+- GitHub：本机凭证对上游仓只有 READ 权限 → 已 fork 到 NaIWaniubi 并开 PR #1（`Moessif/code-video-showcase#1`）。
+
 ## [v2.5.0] - 2026-11-13 — 覆盖领域 × 风格 × 效果 × 转场（研究背书）
 
 对标 Remotion / Motion Canvas / editly / FFCreator / GSAP 与本地 motion-doctrine /

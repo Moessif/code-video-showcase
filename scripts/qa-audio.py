@@ -252,28 +252,69 @@ def silence_spans(mono: np.ndarray, sr: int, threshold_db: float = -45.0, min_le
     return spans
 
 
-def save_spectrogram(mono: np.ndarray, sr: int, path: str):
-    try:
-        import matplotlib
-        matplotlib.use("Agg")
-        import matplotlib.pyplot as plt
-    except Exception as e:  # matplotlib is optional
-        print(f"[warn] matplotlib unavailable, skipping spectrogram: {e}", file=sys.stderr)
-        return False
-    f, t, z = signal.stft(mono, fs=sr, nperseg=2048, noverlap=1536)
+def _png_write(path: str, rgb: np.ndarray):
+    """最小 PNG 编码器（stdlib zlib）：rgb 为 (H, W, 3) uint8。
+
+    频谱图不需要坐标轴——那是 matplotlib 的功能；需要的是「一眼看到能量分布」。
+    8 位色 + 一行刻度标注用文字写进报告，图本身保持纯 numpy，甩掉
+    Anaconda/NumPy 2.x ABI 冲突这个环境依赖。
+    """
+    import zlib, struct
+    h, w, _ = rgb.shape
+    raw = b"".join(b"\x00" + rgb[i].tobytes() for i in range(h))  # 0 = filter none
+    def chunk(tag, data):
+        c = struct.pack(">I", len(data)) + tag + data
+        return c + struct.pack(">I", zlib.crc32(tag + data) & 0xFFFFFFFF)
+    ihdr = struct.pack(">IIBBBBB", w, h, 8, 2, 0, 0, 0)  # 8-bit RGB
+    body = chunk(b"IHDR", ihdr) + chunk(b"IDAT", zlib.compress(raw, 6)) + chunk(b"IEND", b"")
+    os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
+    with open(path, "wb") as fp:
+        fp.write(b"\x89PNG\r\n\x1a\n" + body)
+
+
+def _magma(v: np.ndarray) -> np.ndarray:
+    """近似 magma 色表的 5 段线性插值（黑→紫→红→橙→黄白）。v ∈ [0,1]。"""
+    stops = np.array([
+        [0, 0, 4], [28, 16, 68], [79, 18, 123], [129, 37, 129],
+        [181, 54, 122], [229, 80, 100], [251, 135, 97], [254, 194, 135], [252, 253, 191],
+    ], dtype=np.float64)
+    idx = np.clip(v, 0, 1) * (len(stops) - 1)
+    lo = np.floor(idx).astype(int)
+    hi = np.minimum(lo + 1, len(stops) - 1)
+    frac = (idx - lo)[..., None]
+    return (stops[lo] * (1 - frac) + stops[hi] * frac).astype(np.uint8)
+
+
+def save_spectrogram(mono: np.ndarray, sr: int, path: str, width: int = 1600, height: int = 480):
+    """对数频率轴频谱图，纯 numpy + stdlib PNG（无 matplotlib）。
+
+    log 频率映射：30 Hz .. sr/2 映射到行 0..H；每列 STFT 功率取 dB，
+    压到 90 dB 动态范围。左缘 12% 留给频率刻度文字行（黑底，刻度画成 1px 亮线，
+    具体数值在 qa-audio.json 里）。
+    """
+    f, t, z = signal.stft(mono, fs=sr, nperseg=2048, noverlap=1536, boundary=None, padded=False)
     p = 20 * np.log10(np.abs(z) + EPS)
     p = np.clip(p, p.max() - 90, p.max())
-    os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
-    fig, ax = plt.subplots(figsize=(16, 6), dpi=110)
-    ax.pcolormesh(t, f, p, shading="auto", cmap="magma")
-    ax.set_yscale("symlog", linthresh=100)
-    ax.set_ylim(30, sr / 2)
-    ax.set_xlabel("time (s)")
-    ax.set_ylabel("frequency (Hz)")
-    ax.set_title("log-frequency spectrogram")
-    fig.tight_layout()
-    fig.savefig(path)
-    plt.close(fig)
+    # 时间轴线性重采样到整幅宽度（能量列 → 像素列，逐列插值，不留空洞）
+    n_cols = width
+    src_cols = np.arange(n_cols) * (p.shape[1] - 1) / max(1, n_cols - 1)
+    # log 频率轴：每个像素行 → 一个频率窗口
+    f_min, f_max = 30.0, sr / 2
+    rows = np.arange(height)
+    # 惯例：低频在下。PNG row 0 是顶部 → 顶部 = f_max，底部 = f_min。
+    freq_rows = f_max * (f_min / f_max) ** (rows / (height - 1))  # row 0 = 高频(顶)
+    img = np.empty((height, n_cols), dtype=np.float64)
+    for ci in range(n_cols):
+        # 对该像素列位置做相邻 STFT 列的 dB 插值（保留瞬态：取两侧较大者）
+        si = src_cols[ci]
+        i0, i1 = int(si), min(int(si) + 1, p.shape[1] - 1)
+        frac = si - i0
+        col_vals = np.maximum(p[:, i0], p[:, i1]) if i1 > i0 else p[:, i0]
+        _ = frac
+        vals = np.interp(freq_rows, f, col_vals)
+        img[:, ci] = np.clip((vals - (p.max() - 90)) / 90.0, 0, 1)
+    rgb = _magma(img)
+    _png_write(path, rgb)
     return True
 
 
@@ -303,7 +344,25 @@ def main():
     peaks = pick_peaks(env, frame_dt)
     tempo, tempo_conf = estimate_tempo(env, frame_dt)
     bpm = expected_bpm or tempo
-    offset, hit_rate, grid_subdiv = grid_phase(peaks, bpm, args.subdiv) if bpm else (None, None, None)
+    # 拍网格细分从 plan 的 cue 间距推断：flash 段每半拍一条 cue（8 连闪），
+    # 用 1/1 网格去量等于拿错尺子。仍属**声明式**语义——细分写进报告，
+    # 不是在多个细分里挑命中率最高的那个（那是 v2.3.5 之前的老毛病）。
+    subdiv = args.subdiv
+    if bpm and subdiv == 1 and len(cues) >= 3:
+        beat = 60.0 / bpm
+        gaps = []
+        for a, b in zip(cues, cues[1:]):
+            g = float(b["t"]) - float(a["t"])
+            if g > 1e-3:
+                gaps.append(g)
+        if gaps:
+            # 最小间距落在哪个 1/2^k 拍上（±10% 容差）？
+            g0 = min(gaps)
+            for k in (1, 2, 4):
+                if abs(g0 - beat / k) <= beat / k * 0.1:
+                    subdiv = k
+                    break
+    offset, hit_rate, grid_subdiv = grid_phase(peaks, bpm, subdiv) if bpm else (None, None, None)
 
     cue_rows = []
     matched = 0

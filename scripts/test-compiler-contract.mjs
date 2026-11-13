@@ -272,6 +272,58 @@ test('qa-audio 三档：满刻度削波一定 FAIL 且 --strict EXIT=1', () => {
   assert.equal(clip.level, 'fail');
 });
 
+test('qa-audio 拍网格细分从 cue 间距推断（半拍 flash → 1/2 网格，无需手传 --subdiv）', () => {
+  const dir = tmp();
+  const wav = path.join(dir, 'clicks.wav');
+  const out = path.join(dir, 'qa.json');
+  const planPath = path.join(dir, 'plan.json');
+  // 120 BPM = 0.5s/拍；cue 每 0.25s 一条（模拟 8 连闪）→ 应推断出 1/2 网格。
+  const cues = [];
+  for (let i = 0; i < 16; i++) cues.push({ t: i * 0.25, frame: i * 7, beat: i, kind: 'flash' });
+  writeJson(planPath, { stats: { duration: 4 }, audio: { bpm: 120, cues } });
+  // 每 0.25s 一个短噪声脉冲，让 onset 检测有东西可数。
+  const sr = 48000;
+  const n = Math.round(4 * sr);
+  const data = Buffer.alloc(n * 2);
+  for (let i = 0; i < n; i++) {
+    const t = i / sr;
+    const ph = t % 0.25;
+    const v = ph < 0.02 ? (Math.random() * 2 - 1) * 0.5 : 0;
+    data.writeInt16LE(Math.round(v * 32767), i * 2);
+  }
+  const head = Buffer.alloc(44);
+  head.write('RIFF', 0); head.writeUInt32LE(36 + data.length, 4); head.write('WAVE', 8);
+  head.write('fmt ', 12); head.writeUInt32LE(16, 16); head.writeUInt16LE(1, 20);
+  head.writeUInt16LE(1, 22); head.writeUInt32LE(sr, 24); head.writeUInt32LE(sr * 2, 28);
+  head.writeUInt16LE(2, 32); head.writeUInt16LE(16, 34);
+  head.write('data', 36); head.writeUInt32LE(data.length, 40);
+  fs.writeFileSync(wav, Buffer.concat([head, data]));
+
+  const r = qaAudio(wav, out, ['--plan', planPath]);
+  assert.equal(r.status, 0, r.stderr || r.stdout);
+  const rep = readJson(out);
+  assert.equal(rep.gridSubdivision, 2, `应为 1/2 网格，实际 ${rep.gridSubdivision}`);
+  const grid = rep.checks.find((c) => c.name === 'beat grid');
+  assert.match(grid.detail, /1\/2 grid/);
+});
+
+test('qa-audio 频谱图不依赖 matplotlib：--spectrogram 必出合法 PNG', () => {
+  const dir = tmp();
+  const wav = path.join(dir, 'ok.wav');
+  const out = path.join(dir, 'qa.json');
+  const png = path.join(dir, 'spec.png');
+  writeWav(wav, { amp: 0.25, seconds: 1 });
+  const r = qaAudio(wav, out, ['--spectrogram', png]);
+  assert.equal(r.status, 0, r.stderr || r.stdout);
+  assert.ok(fs.existsSync(png), '频谱图未生成');
+  const buf = fs.readFileSync(png);
+  assert.deepEqual([...buf.subarray(0, 8)], [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a], 'PNG 魔数不符');
+  assert.ok(buf.length > 5000, `PNG 太小，可能是空图（${buf.length} bytes）`);
+  // 源码里不应再有 matplotlib import（否则被 skip 的告警会回来）
+  const src = fs.readFileSync(path.join(ROOT, 'scripts', 'qa-audio.py'), 'utf8');
+  assert.ok(!/import matplotlib/.test(src), 'qa-audio.py 仍有 matplotlib 依赖');
+});
+
 test('qa-video 同样分三档（源码断言：ADVISORY 不参与 strict 失败）', () => {
   const src = fs.readFileSync(path.join(ROOT, 'scripts', 'qa-video.mjs'), 'utf8');
   assert.match(src, /ADVISORY/);

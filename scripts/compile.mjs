@@ -452,7 +452,7 @@ if (!args['no-qa']) {
 
     const qaAudio = path.join(root, 'scripts', 'qa-audio.py');
     const py = process.env.PYTHON || 'python';
-    const qaAudioArgs = [qaAudio, qaTarget, '--plan', planPath, '--out', path.join(outDir, 'qa', 'qa-audio.json')];
+    const qaAudioArgs = [qaAudio, qaTarget, '--plan', planPath, '--out', path.join(outDir, 'qa', 'qa-audio.json'), '--spectrogram', path.join(outDir, 'qa', 'spectrogram.png')];
     if (strict) qaAudioArgs.push('--strict');
     const qa2 = spawnSync(py, qaAudioArgs, { cwd: root, stdio: 'inherit', windowsHide: true });
     if (qa2.status !== 0) {

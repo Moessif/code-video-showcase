@@ -11,7 +11,7 @@ description: |
 license: MIT
 metadata:
   domain: video-production
-  version: 2.5.0
+  version: 2.5.1
   reference: Opus 5.5 / DeepSeek V4.1-Flash 61s style showcase
 compatibility: Node 22+ (raw CDP needs global WebSocket) / Chrome or Edge (Playwright optional) / FFmpeg (libx264+AAC, libvmaf optional) / Python 3.10+ (numpy, scipy; matplotlib optional) / bash. Windows (Git Bash) and WSL/Linux. No external video/image/music generation models; fonts are open-source, served locally.
 allowed-tools: Bash, Read, Write, Edit, Glob, Grep

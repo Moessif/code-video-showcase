@@ -57,12 +57,14 @@ P2-04 doctor · P2-05 版本漂移。证据见 v2.3.5 版 CHANGELOG 与 `test-co
 
 ## 四、诚实边界
 
-1. **41 秒全片 e2e 已真跑通过（2026-11-14）**：`build fixtures/mini-41s/spec.json --platform douyin --strict --concurrency 4` **EXIT=0**（425.4s，23 段 17 新渲 + 6 缓存命中）。qa-video **19/0/0**（1230 帧、41.000s、bt709、黑帧/冻结/静音全零）；qa-audio **6 pass / 0 warn / 2 advisory / 0 fail**（cue 对齐 **97.1%** 34/35 ±30ms、BPM 120.01、−14.01 LUFS）；`cvs deliver` 出 master(34.1MB)+douyin(5.7MB 1080×1920)+14 条字幕 cue，`runs.jsonl` 记录 `exit:0, qaPass:true`。之前的边界「长片耗时未验证」**已消除**。
+1. **41 秒全片 e2e 已真跑通过（v2.5.1 终态）**：`build fixtures/mini-41s/spec.json --platform douyin --strict --concurrency 4` **EXIT=0**。qa-video **19/0/0**（1230 帧、41.000s、bt709、黑帧/冻结/静音全零）；**qa-audio 8 pass / 0 warn / 0 advisory / 0 fail**（beat grid 76.7%、HF restraint +9.26 dB、cue 35/35=100%、peak −1.36 dBFS、−13.84 LUFS）；`cvs deliver` 出 master+douyin+14 条字幕 cue，`runs.jsonl` 记 `exit:0, qaPass:true`。**v2.5.0 时的两条 advisory（beat grid 47.4%、HF −1.93 dB）已清零**（详见 v2.5.1 CHANGELOG）。
 2. **跨机确定性是「可检测」，不是「已保证」**：manifest 记录 Chrome/字体指纹，环境不一致时跳过哈希比对并告警。真正跨机逐字节一致仍需固定镜像（`docker/Dockerfile` 已就位，未在第二台机器实测）。
 3. **字体锁只记集合哈希**：`shared/fonts.lock.json` 记 1187 个文件名与字节数、整套 set sha256；不逐文件记 sha256（体积考虑）。
 4. **字幕烧录依赖 libass**：ffmpeg 未编译 `subtitles` 滤镜时 exit 13 `E_BURN_SUBTITLES`，不会静默跳过。
 5. **13 页统一的是字阶与安全区，不是版式**：标题位置（竖排/横排/居中/靠左）是各页设计差异。
 6. **`SKILL.md` 39.5KB → 25.6KB**（目标 25KB）：§5–§9/§12 压缩为速查 + 指针；完整表格与铁律在 `references/`（themes/style-recipes/audio-recipes/render-pipeline/big-card 均验证承载；61s 剪辑表迁入 `reference-film-analysis.md` 末节）。
-7. **未 commit**：所有改动在工作区，`git status` 可查。
-8. **重启后首页慢的根因未定位**：浏览器重启后的第一个页面在负载下偶尔迟迟不 ready。已做到「可观测（30s 告警）+ 安全失败（`--timeout` 后报错，不挂死）」，但**为什么慢**还没查清。失败 job 测试预算因此从 120s 提到 300s（独立实测 75s，负载下翻倍；旧预算恰好等于渲染器 `--timeout`，两者同时到点，看起来像挂死）。
-9. **D7 基线重定过一次**：属有意变更（v2.3.5 删占位文案 + v2.4 排版 token）。重定前验证 HEAD 页面仍复现旧哈希、本轮 D3 修复零像素漂移；旧哈希留在 DECISIONS D7 作历史。另补了带内容的基线，因为无参数形态在 v2.3.5 后几乎只剩 HUD，守不住标题排版。
+7. **频谱图零依赖**：v2.5.1 起用纯 numpy + stdlib `zlib` 写 PNG，不再依赖 matplotlib（原 Anaconda/NumPy 2.x ABI 冲突导致的 skip 告警已消除）。
+8. **未 commit**：所有改动在工作区，`git status` 可查。
+9. **重启后首页慢的根因未定位**：浏览器重启后的第一个页面在负载下偶尔迟迟不 ready。已做到「可观测（30s 告警）+ 安全失败（`--timeout` 后报错，不挂死）」，但**为什么慢**还没查清。失败 job 测试预算因此从 120s 提到 300s（独立实测 75s，负载下翻倍；旧预算恰好等于渲染器 `--timeout`，两者同时到点，看起来像挂死）。
+10. **D7 基线重定过一次**：属有意变更（v2.3.5 删占位文案 + v2.4 排版 token）。重定前验证 HEAD 页面仍复现旧哈希、本轮 D3 修复零像素漂移；旧哈希留在 DECISIONS D7 作历史。另补了带内容的基线，因为无参数形态在 v2.3.5 后几乎只剩 HUD，守不住标题排版。
+11. **GitHub 上游仓无写权限**：本机 gh 两个账号（NaIWaniubi / curry66666666）对 `Moessif/code-video-showcase` 均为 READ。已 fork 到 NaIWaniubi 并推全部分支、开 PR #1；上游合并需 owner 操作。gitee 为主线同步远程。
