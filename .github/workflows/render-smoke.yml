@@ -27,7 +27,7 @@ jobs:
           sudo apt-get install -y ffmpeg fonts-noto-cjk
 
       - name: Install npm deps (fonts only; Playwright is optional)
-        run: npm install --no-audit --no-fund
+        run: npm ci --no-audit --no-fund
 
       - name: Font placeholder (repo does not ship the 60 MB font set)
         run: |

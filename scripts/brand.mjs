@@ -269,10 +269,15 @@ export function applyBrand(spec, brand) {
   if (!isPlainObject(out.look)) out.look = {};
 
   out.meta.brand = brand.name;
+  // 整包快照，而不是只存 id：build 必须能在没有 content/brands 的机器上
+  // 独立执行「禁用词 + logo + 对比度」检查（v2.4：P1-03 进 build 门禁）。
   out.meta.brandKit = {
     id: brand.id,
+    name: brand.name,
+    colors: deepClone(brand.colors),
     logo: deepClone(brand.logo),
     fonts: deepClone(brand.fonts),
+    voice: deepClone(brand.voice),
   };
 
   const theme = resolveTheme(out.look.theme);
@@ -291,19 +296,66 @@ export function applyBrand(spec, brand) {
  * checkBrand
  * ──────────────────────────────────────────────────────────────────────────── */
 
-/** 会被禁用词扫描的文案字段。 */
+/** 会被禁用词扫描的文案字段（v2.4：覆盖所有会上屏的文案面）。 */
 function copyFields(spec) {
-  const fields = [['meta.cta', spec?.meta?.cta]];
+  const fields = [
+    ['meta.title', spec?.meta?.title],
+    ['meta.description', spec?.meta?.description],
+    ['meta.tags', Array.isArray(spec?.meta?.tags) ? spec.meta.tags.join(' ') : spec?.meta?.tags],
+    ['meta.cta', spec?.meta?.cta],
+    ['opening.title', spec?.opening?.title],
+    ['opening.sub', spec?.opening?.sub],
+  ];
   if (isPlainObject(spec?.moreCard)) {
+    fields.push(['moreCard.name', spec.moreCard.name]);
     fields.push(['moreCard.first', spec.moreCard.first]);
     fields.push(['moreCard.keyword', spec.moreCard.keyword]);
   }
+  if (isPlainObject(spec?.ending)) {
+    fields.push(['ending.name', spec.ending.name]);
+    fields.push(['ending.title', spec.ending.title]);
+    fields.push(['ending.sub', spec.ending.sub]);
+    fields.push(['ending.capsule', spec.ending.capsule]);
+  }
   const rounds = Array.isArray(spec?.rounds) ? spec.rounds : [];
   rounds.forEach((r, i) => {
+    fields.push([`rounds[${i}].name`, r?.name]);
     fields.push([`rounds[${i}].card.first`, r?.card?.first]);
     fields.push([`rounds[${i}].card.keyword`, r?.card?.keyword]);
+    fields.push([`rounds[${i}].style.copy.title`, r?.style?.copy?.title]);
+    fields.push([`rounds[${i}].style.copy.subtitle`, r?.style?.copy?.subtitle]);
+    fields.push([`rounds[${i}].style.copy.caption`, r?.style?.copy?.caption]);
   });
   return fields.filter(([, v]) => typeof v === 'string' && v.trim() !== '');
+}
+
+/**
+ * 从 spec 里取回可检查的品牌包。
+ *
+ * v2.4 起 `brand apply` 会把整包写进 `meta.brandKit`，所以 build 不依赖
+ * content/brands 是否有这个 id；老 spec 只存了 id 时再按 id 回查仓库。
+ * @param {object} spec
+ * @param {{root?: string}} [opts]
+ * @returns {object|null}
+ */
+export function brandFromSpec(spec, { root = ROOT } = {}) {
+  const kit = spec?.meta?.brandKit;
+  if (!isPlainObject(kit)) return null;
+  // 整包快照：至少要有 logo/voice 之一，才值得跑 checkBrand。
+  if (isPlainObject(kit.logo) || isPlainObject(kit.voice) || isPlainObject(kit.colors)) {
+    return {
+      id: kit.id || 'inline',
+      name: kit.name || spec?.meta?.brand || '',
+      colors: isPlainObject(kit.colors) ? kit.colors : {},
+      logo: isPlainObject(kit.logo) ? kit.logo : {},
+      fonts: isPlainObject(kit.fonts) ? kit.fonts : {},
+      voice: isPlainObject(kit.voice) ? kit.voice : {},
+    };
+  }
+  if (typeof kit.id !== 'string' || !kit.id) return null;
+  const file = path.join(path.resolve(root), 'content', 'brands', `${kit.id}.json`);
+  if (!fs.existsSync(file)) return null;
+  try { return loadBrand(file); } catch { return null; }
 }
 
 /**
@@ -454,9 +506,16 @@ function cmdApply(args) {
   console.log(`✓ applied ${brand.id} (${brand.name}) → ${path.relative(process.cwd(), outAbs) || outAbs}`);
   console.log(`  meta.brand=${applied.meta.brand} · accent=${accent} · cta=${JSON.stringify(applied.meta.cta ?? '')}`);
 
-  // apply 顺带报告检查结果；错误只打印，退出码仍由 check 子命令负责。
-  for (const issue of checkBrand(applied, brand, { root: ROOT })) {
+  // apply 顺带执行检查；有 error 时退出码为 1（v2.4/P1-03）。
+  // 先写盘再报错：用户要的是「合入后的 spec + 明确的失败原因」，而不是半途而废。
+  const issues = checkBrand(applied, brand, { root: ROOT });
+  for (const issue of issues) {
     console.log(`[${issue.level}] [${issue.code}] ${issue.path}: ${issue.message}`);
+  }
+  const errors = issues.filter((i) => i.level === 'error').length;
+  if (errors) {
+    console.error(`[error] [E_BRAND_CHECK] ${errors} brand error(s); the applied spec will fail \`cvs build\` until fixed`);
+    return 1;
   }
   return 0;
 }

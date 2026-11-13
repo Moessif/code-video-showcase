@@ -18,7 +18,10 @@
  * 退出码 0/1。零依赖。
  */
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import path from 'node:path';
 import { normalizeSpec, validateSpec, MAX_FLASH_COUNT } from '../templates/spec.mjs';
+import { concatList } from '../templates/timeline.mjs';
 import { scrubMessage } from '../server/api.mjs';
 
 let passed = 0;
@@ -211,6 +214,86 @@ test('scrubMessage 保留有意义的相对文件名', () => {
 test('scrubMessage 处理 null/undefined 不抛错', () => {
   assert.equal(scrubMessage(null), '');
   assert.equal(scrubMessage(undefined), '');
+});
+
+// ── 8) assets 路径闸门（v2.4 / P1-10） ──────────────────────────────────────
+
+test('assets[].path：POSIX / 盘符 / UNC / .. 全部拒绝（E_ASSET_PATH）', () => {
+  const bad = ['/etc/passwd.jpeg', 'C:\\Windows\\a.png', 'C:/Windows/a.png', '\\\\host\\share\\a.png', '../outside.png', 'a/../../b.png'];
+  for (const p of bad) {
+    const issues = validateSpec(normalizeSpec(spec((v) => { v.assets = [{ id: 'a', kind: 'image', path: p }]; })));
+    assert.ok(issues.some((i) => i.code === 'E_ASSET_PATH' && i.level === 'error'), `expected E_ASSET_PATH for ${p}`);
+  }
+});
+
+test('assets[].path：远程 URL 拒绝，仓库内相对路径放行', () => {
+  assert.ok(has(spec((v) => { v.assets = [{ id: 'a', path: 'http://evil.example/a.png' }]; }), 'E_ASSET_PATH'));
+  assert.ok(!has(spec((v) => { v.assets = [{ id: 'a', kind: 'image', path: 'assets/theme-previews/01-coral-noir.jpg' }]; }), 'E_ASSET_PATH'));
+});
+
+test('assets[].path 为空字符串 / 非字符串报 E_ASSET_PATH', () => {
+  assert.ok(has(spec((v) => { v.assets = [{ id: 'a', path: '' }]; }), 'E_ASSET_PATH'));
+  assert.ok(has(spec((v) => { v.assets = [{ id: 'a', path: 42 }]; }), 'E_ASSET_PATH'));
+});
+
+// ── 9) concat 清单安全（v2.4 / P1-10） ─────────────────────────────────────
+
+test('concatList(baseDir) 只产出相对文件名，不产出绝对路径', () => {
+  const base = path.join(process.cwd(), 'out', 'safe-test');
+  const plan = {
+    meta: { root: process.cwd() },
+    segments: [
+      { id: 'r01-card', out: 'out/safe-test/r01-card.mp4' },
+      { id: 'r01-style', out: 'out/safe-test/r01-style.mp4' },
+    ],
+  };
+  const text = concatList(plan, { baseDir: base });
+  assert.equal(text, "file 'r01-card.mp4'\nfile 'r01-style.mp4'\n");
+  assert.ok(!/[:\\]/.test(text), `absolute/drive path leaked: ${text}`);
+});
+
+test('concatList(baseDir) 拒绝越出 baseDir 的段（路径逃逸）', () => {
+  const base = path.join(process.cwd(), 'out', 'safe-test');
+  const plan = { meta: { root: process.cwd() }, segments: [{ id: 'evil', out: 'out/evil.mp4' }] };
+  assert.throws(() => concatList(plan, { baseDir: base }), /outside baseDir/);
+  const plan2 = { meta: { root: process.cwd() }, segments: [{ id: 'evil', out: '../evil.mp4' }] };
+  assert.throws(() => concatList(plan2, { baseDir: base }), /outside baseDir/);
+});
+
+test('concat 脚本不再使用 -safe 0；compile 使用 -safe 1 + cwd=outDir', () => {
+  const sh = fs.readFileSync(path.join(process.cwd(), 'templates', 'concat-and-encode.sh'), 'utf8');
+  assert.ok(!/-safe 0/.test(sh), 'concat-and-encode.sh still has -safe 0');
+  assert.ok(/-safe 1/.test(sh), 'concat-and-encode.sh must use -safe 1');
+  assert.match(sh, /unsafe entry|outside list dir/);
+  const compile = fs.readFileSync(path.join(process.cwd(), 'scripts', 'compile.mjs'), 'utf8');
+  assert.ok(!/'-safe',\s*'0'/.test(compile), 'compile.mjs still uses -safe 0');
+  assert.match(compile, /'-safe',\s*'1'/);
+});
+
+// ── 占位文案必须可见（v2.4）──────────────────────────────────────────────────
+// beat 没给 copy 时 deriveFromScript 会填「想做 / 视频？」。那不是用户内容，
+// 静默烧进成片是不诚实的，所以 validateSpec 必须发 W_COPY_DEFAULT。
+
+test('卡片文案是内置缺省值 → W_COPY_DEFAULT（warning，不是 error）', () => {
+  const s = spec((v) => { v.rounds[0].card.first = '想做'; v.rounds[0].card.keyword = '视频？'; });
+  const issues = validateSpec(normalizeSpec(s));
+  const w = issues.find((i) => i.code === 'W_COPY_DEFAULT');
+  assert.ok(w, `expected W_COPY_DEFAULT, got ${issues.map((i) => i.code).join(',')}`);
+  assert.equal(w.level, 'warn');
+  assert.equal(issues.filter((i) => i.level === 'error').length, 0);
+});
+
+test('卡片文案是用户内容 → 不发 W_COPY_DEFAULT', () => {
+  assert.ok(!has(spec(), 'W_COPY_DEFAULT'), 'user copy must not be flagged');
+  const s = spec((v) => { v.rounds[0].card.first = '想做'; v.rounds[0].card.keyword = '自己的话？'; });
+  assert.ok(!has(s, 'W_COPY_DEFAULT'), 'only one field matching is not the default pair');
+});
+
+test('缺省文案常量与 deriveFromScript 的回退同源（不会各自漂移）', () => {
+  const src = fs.readFileSync(path.join(process.cwd(), 'templates', 'spec.mjs'), 'utf8');
+  assert.match(src, /CARD_COPY_DEFAULT\.first/);
+  assert.match(src, /CARD_COPY_DEFAULT\.keyword/);
+  assert.ok(!/\?\? '想做'/.test(src), 'literal fallback drifted from CARD_COPY_DEFAULT');
 });
 
 console.log(`\n${passed + failed} tests: ${passed} passed, ${failed} failed`);

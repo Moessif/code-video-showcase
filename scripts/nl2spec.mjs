@@ -24,7 +24,12 @@ import { stylePageFor, styleRecipeIdFor } from '../templates/style-pages.mjs';
 
 // ── 冻结的枚举（与 schema / templates/themes.js 对齐）───────────────────────
 
-export const KIND_IDS = ['promo', 'launch', 'knowledge', 'ecommerce', 'brand-story', 'data-report', 'recruiting', 'annual'];
+export const KIND_IDS = [
+  'promo', 'launch', 'knowledge', 'ecommerce', 'brand-story', 'data-report', 'recruiting', 'annual',
+  // v2.5：16 个新增垂直领域（研究背书：产品广告 9 品类 + 内容创作者常见场景）
+  'tutorial', 'changelog', 'event', 'podcast', 'travel', 'food', 'fitness', 'realestate',
+  'fintech', 'healthcare', 'course', 'gaming', 'music', 'nonprofit', 'sports', 'localbiz',
+];
 
 export const STYLE_IDS = [
   'cyber-pixel',
@@ -40,6 +45,13 @@ export const STYLE_IDS = [
   'flat',
   'minimal',
   'vertical',
+  'kinetic',
+  'swiss',
+  'editorial',
+  'brutalist',
+  'vaporwave',
+  'blueprint',
+  'risograph',
 ];
 
 /** 与 templates/themes.js 的 13 个真实 id 一致（测试会交叉校验）。 */
@@ -112,6 +124,22 @@ const KIND_LABEL = {
   'data-report': '数据报告',
   recruiting: '招聘',
   annual: '年度总结',
+  tutorial: '教程教学',
+  changelog: '版本更新',
+  event: '活动邀请',
+  podcast: '播客音频',
+  travel: '旅行目的地',
+  food: '美食食谱',
+  fitness: '健身训练',
+  realestate: '房产展示',
+  fintech: '金融科普',
+  healthcare: '健康养生',
+  course: '课程教育',
+  gaming: '游戏高光',
+  music: '音乐发行',
+  nonprofit: '公益影响',
+  sports: '体育战报',
+  localbiz: '本地商家',
 };
 
 const STYLE_LABEL = {
@@ -128,6 +156,13 @@ const STYLE_LABEL = {
   flat: '扁平插画',
   minimal: '极简大字',
   vertical: '竖屏卡片',
+  kinetic: '动态字体',
+  swiss: '瑞士网格',
+  editorial: '报纸编辑',
+  brutalist: '新粗野主义',
+  vaporwave: '蒸汽波',
+  blueprint: '工程蓝图',
+  risograph: '孔版印刷',
 };
 
 const KIND_DEFAULT_STYLE = {
@@ -139,6 +174,22 @@ const KIND_DEFAULT_STYLE = {
   'data-report': 'data-viz',
   recruiting: 'whiteboard',
   annual: 'three-d',
+  tutorial: 'screencast',
+  changelog: 'kinetic',
+  event: 'brutalist',
+  podcast: 'editorial',
+  travel: 'ink-wash',
+  food: 'flat',
+  fitness: 'brutalist',
+  realestate: 'minimal',
+  fintech: 'blueprint',
+  healthcare: 'flat',
+  course: 'swiss',
+  gaming: 'cyber-glitch',
+  music: 'vaporwave',
+  nonprofit: 'editorial',
+  sports: 'kinetic',
+  localbiz: 'risograph',
 };
 
 const KIND_DEFAULT_THEME = {
@@ -150,6 +201,22 @@ const KIND_DEFAULT_THEME = {
   'data-report': 'blueprint-stone',
   recruiting: 'graphite-signal',
   annual: 'amber-noir',
+  tutorial: 'blueprint-stone',
+  changelog: 'coral-noir',
+  event: 'pop-acid',
+  podcast: 'paper-journal',
+  travel: 'celadon-paper',
+  food: 'paper-journal',
+  fitness: 'pop-acid',
+  realestate: 'ice-minimal',
+  fintech: 'blueprint-stone',
+  healthcare: 'aqua-morandi',
+  course: 'ice-minimal',
+  gaming: 'cyber-neon',
+  music: 'cyber-neon',
+  nonprofit: 'paper-journal',
+  sports: 'coral-noir',
+  localbiz: 'paper-journal',
 };
 
 const STYLE_DEFAULT_THEME = {
@@ -165,6 +232,13 @@ const STYLE_DEFAULT_THEME = {
   flat: 'paper-journal',
   minimal: 'coral-noir',
   vertical: 'aqua-morandi',
+  kinetic: 'coral-noir',
+  swiss: 'ice-minimal',
+  editorial: 'paper-journal',
+  brutalist: 'pop-acid',
+  vaporwave: 'cyber-neon',
+  blueprint: 'blueprint-stone',
+  risograph: 'paper-journal',
 };
 
 const KIND_DEFAULT_DURATION = {
@@ -176,6 +250,22 @@ const KIND_DEFAULT_DURATION = {
   'data-report': 30,
   recruiting: 30,
   annual: 60,
+  tutorial: 41,
+  changelog: 20,
+  event: 20,
+  podcast: 30,
+  travel: 30,
+  food: 25,
+  fitness: 20,
+  realestate: 30,
+  fintech: 35,
+  healthcare: 30,
+  course: 41,
+  gaming: 15,
+  music: 20,
+  nonprofit: 30,
+  sports: 15,
+  localbiz: 20,
 };
 
 const KIND_DEFAULT_MOOD = {
@@ -187,6 +277,22 @@ const KIND_DEFAULT_MOOD = {
   'data-report': 'electronic',
   recruiting: 'upbeat',
   annual: 'epic',
+  tutorial: 'restrained',
+  changelog: 'electronic',
+  event: 'upbeat',
+  podcast: 'restrained',
+  travel: 'guofeng',
+  food: 'upbeat',
+  fitness: 'upbeat',
+  realestate: 'restrained',
+  fintech: 'restrained',
+  healthcare: 'restrained',
+  course: 'restrained',
+  gaming: 'electronic',
+  music: 'electronic',
+  nonprofit: 'restrained',
+  sports: 'epic',
+  localbiz: 'upbeat',
 };
 
 const KIND_DEFAULT_CTA = {
@@ -198,6 +304,22 @@ const KIND_DEFAULT_CTA = {
   'data-report': '获取完整报告',
   recruiting: '投递简历',
   annual: '明年见',
+  tutorial: '跟着做',
+  changelog: '立即升级',
+  event: '立即报名',
+  podcast: '订阅收听',
+  travel: '出发吧',
+  food: '收藏食谱',
+  fitness: '开始训练',
+  realestate: '预约看房',
+  fintech: '了解更多',
+  healthcare: '咨询医生',
+  course: '立即报名',
+  gaming: '关注主播',
+  music: '立即预存',
+  nonprofit: '支持我们',
+  sports: '看下一场',
+  localbiz: '到店体验',
 };
 
 const KIND_COPY = {
@@ -209,6 +331,22 @@ const KIND_COPY = {
   'data-report': ['想晒', '增长数据？', '#2456d6'],
   recruiting: ['想招', '厉害的人？', '#ff4a1f'],
   annual: ['想回顾', '这一年？', '#f2c14e'],
+  tutorial: ['想学', '实操教程？', '#58c4dd'],
+  changelog: ['想看', '更新日志？', '#a58bff'],
+  event: ['想办', '一场活动？', '#ff4a1f'],
+  podcast: ['想听', '播客精华？', '#c9a45a'],
+  travel: ['想去', '远方看看？', '#7fb8a4'],
+  food: ['想做', '这道菜？', '#ff8a5c'],
+  fitness: ['想练', '好身材？', '#ff4a1f'],
+  realestate: ['想看', '理想家？', '#6fd3ff'],
+  fintech: ['想懂', '理财逻辑？', '#2456d6'],
+  healthcare: ['想问', '健康问题？', '#7fb8a4'],
+  course: ['想学', '一门课？', '#e2231a'],
+  gaming: ['想看', '神操作？', '#ff2bd6'],
+  music: ['想听', '新歌首发？', '#ff2bd6'],
+  nonprofit: ['想帮', '一个故事？', '#9e2b25'],
+  sports: ['想看', '比赛集锦？', '#ff4a1f'],
+  localbiz: ['想逛', '宝藏小店？', '#ff48a4'],
 };
 
 const MOOD_BPM = { electronic: 120, restrained: 90, epic: 100, upbeat: 128, guofeng: 80 };
@@ -232,6 +370,24 @@ const KIND_RULES = [
     'knowledge',
     ['科普', '知识', '教程', '讲解', '原理', '课程', '教学', '为什么', 'explainer', 'tutorial', 'knowledge', 'science', 'how to', 'fourier'],
   ],
+  // v2.5 新增垂直领域。放在 knowledge 之后（'教程/课程/科普' 仍归 knowledge）、
+  // promo 兜底之前；关键词刻意避开既有规则的子串，防止抢走老用例。
+  ['tutorial', ['实操', '手把手', '步骤演示', '操作指南', 'how-to', 'step by step']],
+  ['course', ['网课', '教育培训', '培训班', '慕课', 'course', 'enroll']],
+  ['changelog', ['更新日志', '版本更新', '更新内容', 'changelog', 'release notes']],
+  ['music', ['新歌', '专辑', '单曲', '音乐', 'music', 'presave', '发行']],
+  ['event', ['活动', '邀请函', '峰会', '沙龙', 'meetup', 'event']],
+  ['podcast', ['播客', '音频节目', '访谈', 'podcast', 'audiogram', '电台']],
+  ['travel', ['旅行', '旅游', '目的地', '攻略', 'travel', 'destination', '自驾']],
+  ['food', ['食谱', '做菜', '美食', '烹饪', '菜谱', 'recipe', 'food']],
+  ['fitness', ['健身', '训练', '燃脂', '增肌', 'workout', 'fitness']],
+  ['realestate', ['房产', '楼盘', '看房', '户型', '买房', 'real estate', 'property']],
+  ['fintech', ['金融', '理财', '基金', '保险', 'fintech', 'finance']],
+  ['healthcare', ['健康', '养生', '医疗', '症状', 'health', 'wellness']],
+  ['gaming', ['游戏', '电竞', '神操作', 'gaming', 'gameplay']],
+  ['sports', ['比赛', '赛事', '集锦', '比分', '球队', 'sports', 'match']],
+  ['nonprofit', ['公益', '慈善', '捐赠', '志愿', 'nonprofit', 'charity', 'donate']],
+  ['localbiz', ['门店', '小店', '餐厅', '商家', '到店', '探店', 'local business', 'restaurant']],
   ['promo', ['宣传', '推广', '广告', '预热', '造势', '片头', 'promo', 'advertising', 'campaign', 'trailer', 'teaser']],
 ];
 
@@ -239,6 +395,14 @@ const STYLE_RULES = [
   ['cyber-glitch', ['赛博故障', '故障', 'glitch', 'datamosh', '信号干扰']],
   ['cyber-pixel', ['赛博像素', '赛博朋克', '赛博', 'cyberpunk', 'cyber pixel', 'cyber-pixel', 'neon pixel']],
   ['pixel-8bit', ['8-bit', '8bit', '8 bit', '八位', '像素风', '像素', 'pixel art', 'pixel-art', '街机', 'arcade', '游戏画面']],
+  // v2.5 新增画风关键词（具体词优先于通用 flat/minimal）
+  ['vaporwave', ['蒸汽波', '蒸气波', '复古未来', 'retrowave', 'vaporwave', 'synthwave', '赛博黄昏', '霓虹落日']],
+  ['brutalist', ['粗野', '粗野主义', '新粗野', 'brutalist', 'brutalism', 'neo-brutalist', '撞色', '硬投影', '反精致']],
+  ['risograph', ['孔版', '孔版印刷', 'risograph', 'riso', '专色', '套印', '套色', '印刷感', '丝网']],
+  ['blueprint', ['蓝图', '工程图', '施工图', '图纸', 'blueprint', 'technical drawing', '尺寸标注', '制图']],
+  ['editorial', ['报纸', '编辑', '报刊', '杂志', 'editorial', 'newspaper', 'magazine', '衬线', '专栏', '版面']],
+  ['swiss', ['瑞士', '国际主义', '网格', 'swiss', 'international style', 'helvetica', '栅格', '排版']],
+  ['kinetic', ['动态字体', '动态字', 'kinetic', 'kinetic typography', '文字动画', '大字动画', '字体动画']],
   ['whiteboard', ['白板', '手绘', '手写', '涂鸦', 'whiteboard', 'hand-drawn', 'hand drawn', 'doodle']],
   ['ink-wash', ['水墨', '墨色', '山水', '宣纸', 'ink wash', 'ink-wash', 'sumi']],
   ['guofeng', ['国风', '古风', '东方', '中国风', 'guofeng', 'oriental', 'chinese style']],
@@ -346,6 +510,8 @@ const HEX = /^#([0-9a-f]{3}|[0-9a-f]{6})$/i;
 function sizeFor(aspect) {
   if (aspect === '9:16') return { width: 1080, height: 1920 };
   if (aspect === '1:1') return { width: 1080, height: 1080 };
+  if (aspect === '3:4') return { width: 1080, height: 1440 };
+  if (aspect === '6:7') return { width: 1080, height: 1260 };
   return { width: 1920, height: 1080 };
 }
 
@@ -527,11 +693,14 @@ export function nl2spec(text, overrides = {}) {
   }
 
   // 6) brand / accent / cta
+  const name = String(ov.name || `${KIND_LABEL[kind]} · ${STYLE_LABEL[style]}`).trim();
   const parsedBrand = parseBrand(source);
-  const brand = String(ov.brand || parsedBrand || '{{BRAND}}').trim() || '{{BRAND}}';
+  // 未提供品牌时用项目名兜底，而不是留下 {{BRAND}}：
+  // 默认路径必须能直接 build，占位符由 lint 当 error 拦截（v2.3.5）。
+  const brand = String(ov.brand || parsedBrand || name).trim() || name;
   if (!ov.brand && !parsedBrand) {
     defaults.push('brand');
-    notes.push('default:brand={{BRAND}}（未提供品牌，保留占位符）');
+    notes.push(`default:brand=${brand}（未提供品牌，用项目名兜底）`);
   }
 
   const accentInput = ov.accent ? String(ov.accent) : parseAccent(source);
@@ -548,8 +717,6 @@ export function nl2spec(text, overrides = {}) {
     defaults.push('cta');
     notes.push(`default:cta=${cta}（未识别结尾 CTA，按 kind=${kind} 的推荐值）`);
   }
-
-  const name = String(ov.name || `${KIND_LABEL[kind]} · ${STYLE_LABEL[style]}`).trim();
 
   // 6.5) 动效档位（v2.3）：显式指定优先，否则按 kind × style 推导。
   const motionOverride = takeEnum(ov.motion, MOTION_LEVELS, 'motion');
@@ -569,6 +736,7 @@ export function nl2spec(text, overrides = {}) {
     specVersion: 1,
     meta: {
       name,
+      title: name,
       brand,
       cta,
       locale: 'zh-CN',
@@ -650,7 +818,8 @@ function fallbackSpec(raw, errors) {
     specVersion: 1,
     meta: {
       name: String(p.name || 'fallback'),
-      brand: raw?.meta?.brand || '{{BRAND}}',
+      title: String(p.name || 'fallback'),
+      brand: raw?.meta?.brand || String(p.name || 'fallback'),
       cta: raw?.meta?.cta || KIND_DEFAULT_CTA[p.kind] || '现在就试试',
       locale: 'zh-CN',
       kind: p.kind || 'promo',

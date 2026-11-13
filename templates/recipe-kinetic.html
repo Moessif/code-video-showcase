@@ -30,6 +30,7 @@ import {
   clamp, ease, hash01, setupStage, safePad, fitTextSize, measureChars,
   drawTracked, drawHud, drawTopMeta,
 } from './recipes/util.js';
+import { typeSize, safe, probe } from './tokens.mjs';
 
 const canvas = document.getElementById('c');
 const ctx = canvas.getContext('2d', { alpha: false });
@@ -69,10 +70,11 @@ function buildLayout() {
     maxWidth: maxW,
     family: SANS,
     weight: 900,
-    maxSize: Math.round(H * (portrait ? 0.155 : 0.3)),
+    maxSize: typeSize('title', W, H),
     minSize: 34,
     spacing: 0.018,
   });
+  probe('title', size, safe(W, H));
   return { chars, size, cx: W / 2, cy: H * (portrait ? 0.44 : 0.465) };
 }
 

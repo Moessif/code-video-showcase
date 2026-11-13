@@ -13,7 +13,7 @@ An Agent Skill for producing 30–90 s "style showcase" films: an 8 s opening, e
 > Send this to your agent: "Install https://github.com/Moessif/code-video-showcase as an Agent Skill: clone it into `~/.dsh/skills/code-video-showcase` (`~/.claude/skills/` for Claude Code, `.agents/skills/` for generic agents), then read `SKILL.md` to confirm it works."
 
 [![MIT License](https://img.shields.io/badge/license-MIT-d97757?style=flat-square)](LICENSE)
-[![Node 20+](https://img.shields.io/badge/node-%E2%89%A5%2020-3c873a?style=flat-square)](https://nodejs.org/)
+[![Node 22+](https://img.shields.io/badge/node-%E2%89%A5%2022-3c873a?style=flat-square)](https://nodejs.org/)
 [![FFmpeg](https://img.shields.io/badge/ffmpeg-libx264%20%2B%20AAC-007808?style=flat-square)](https://ffmpeg.org/)
 [![No generative models](https://img.shields.io/badge/generative%20models-none-d97757?style=flat-square)](#design-constraints)
 [![Latest release](https://img.shields.io/github/v/release/Moessif/code-video-showcase?style=flat-square&color=d97757)](https://github.com/Moessif/code-video-showcase/releases)
@@ -29,23 +29,36 @@ An Agent Skill for producing 30–90 s "style showcase" films: an 8 s opening, e
 v2.1 turns the skill into a **video compiler**: `spec.json` is the single source of truth, `plan.json` is a build plan with a content hash per segment, and recompiles only re-render what changed.
 
 ```text
-spec.json (IR) → spec-lint → plan.json (per-segment hash) → render-farm (cache) → master.mp4 → qa
+spec.json (IR) → spec-lint → plan.json (per-segment hash incl. page content) → render-farm (cache) → master.mp4 → qa (video + audio) → delivery.json
 ```
 
 ```bash
 # validate / plan / compile a project
-node scripts/spec-lint.mjs --spec fixtures/mini-41s/spec.json --root .
-node templates/plan.mjs  --spec fixtures/mini-41s/spec.json --root . --print
-node scripts/compile.mjs --spec fixtures/mini-41s/spec.json --root . --no-qa --concurrency 4
+node bin/cvs.mjs lint  fixtures/mini-41s/spec.json --root .
+node bin/cvs.mjs plan  fixtures/mini-41s/spec.json --root . --print
+node bin/cvs.mjs build fixtures/mini-41s/spec.json --root . --platform douyin --strict
 
 # unified CLI
 node bin/cvs.mjs new "赛博像素的宣传片，30秒竖屏" --out project.spec.json
 node bin/cvs.mjs ref poster.jpg --spec project.spec.json --out project.spec.json
 node bin/cvs.mjs lint project.spec.json --root .
-node bin/cvs.mjs build project.spec.json --concurrency 4
+node bin/cvs.mjs build project.spec.json --concurrency 4      # auto-synthesises spec.audio
+node bin/cvs.mjs again --set look.theme=amber-noir            # recompile only dirty segments
+node bin/cvs.mjs deliver --spec project.spec.json             # delivery.json + master.srt/.vtt
 node bin/cvs.mjs motion matrix      # motion profile table
 node bin/cvs.mjs image --spec project.spec.json   # same spec -> image set (cover/card/poster/story)
 ```
+
+**v2.3.5 delivery contract** — `cvs build` now runs the same deep validation as `cvs lint`
+(pages / theme / APCA / placeholder brand / missing title), synthesises the soundtrack from
+`spec.audio` (pass `--no-audio` for a deliberate silent film), writes a platform copy when
+`render.preset` or `--platform` asks for one, and fails with a phase-specific exit code
+(`10` spec · `11` render · `12` concat · `13` qa · `14` env) plus `<outDir>/error.json`.
+A build is only "done" when `master.mp4` has an audio stream, both `qa/*.json` report
+`fail == 0`, and the render manifest has no failed segment. Error codes live in
+`schema/errors.json` and are documented in [`docs/ERRORS.md`](docs/ERRORS.md);
+air-gapped installs are covered in [`docs/OFFLINE.md`](docs/OFFLINE.md).
+
 
 `cvs ref` extracts a palette / accent / density from a reference image (deterministic 96×96 OKLab k-means, APCA-gated, top-3 theme candidates) and writes it into `look.theme` + `look.accentOverride` — it extracts statistics, never copies pixels. The same core (`scripts/ref-core.mjs`) runs in the browser, so the wizard accepts a dragged image directly and records `meta.reference`.
 
@@ -279,52 +292,54 @@ node render-segment.mjs --page /big-card.html?theme=graphite-signal --still 0.5,
 
 Theme choice is an intake decision, not a rendering tweak: collect the brief with `references/intake.md` (at most two rounds, lock the theme, write `brief.json`), then read the full spec in `references/themes.md`. Audit every palette change with `node scripts/theme-audit.mjs --strict` — all thirteen themes pass WCAG today (APCA flags a few dark-theme muted greys). For a real brand colour use `accentOverride(themeRef, input)` in `themes.js` and store the returned `override` in `brief.json`; do not invent a fourteenth theme.
 
-## Quick start (v2)
+## Quick start (v2.4)
 
-The templates are a scaffold, not a finished film.
+The templates are a scaffold, not a finished film. Node 22+ is required — there is no hosted version.
 
 ```bash
-# 0) environment check — node, Chrome/Edge, ffmpeg, python, fonts
-node scripts/doctor.mjs
+# 0) install + environment check (Node 22+, Chrome, FFmpeg, Python)
+bash install.sh                       # Windows: powershell -ExecutionPolicy Bypass -File install.ps1
+node scripts/doctor.mjs               # one `code` + `fix` per missing capability
 
-# 1) scaffold a runnable project (runtime + segments/*.html + timeline.json + BRIEF.json)
-node scripts/new-project.mjs --out ../my-showcase --name my-showcase \
-  --theme cyber-neon --styles 11 --fonts
-cd ../my-showcase
+# 1) one sentence -> spec (deterministic rules, no model call)
+node bin/cvs.mjs new "做一条 20 秒国风品牌片" --out project.spec.json
 
-# 2) validate the timeline and generate the plan + concat list
-node templates/timeline.mjs --spec timeline.json \
-  --out out/plan.json --concat out/segments.txt --print
+# 2) gate -> plan -> incremental render -> concat -> QA -> delivery
+node bin/cvs.mjs build project.spec.json --platform douyin --strict --burn-subtitles --cover
+#    -> out/master.mp4        clean 1920x1080 master (always master preset)
+#       out/douyin.mp4        1080x1920 delivery copy (+ hard subtitles when asked)
+#       out/images/cover/cover.png   card-layout cover
+#       out/delivery.json, out/master.srt|.vtt, out/qa/qa-video.json, out/qa/qa-audio.json
 
-# 3) cheap stills first — t=0.2,0.8,1.4,2.0,2.6
+# 3) version snapshot -> review -> verified rollback
+node bin/cvs.mjs snapshot --spec project.spec.json --label 首版
+node bin/cvs.mjs history --spec project.spec.json
+node bin/cvs.mjs verify v001 --spec project.spec.json
+node bin/cvs.mjs rollback v001 --spec project.spec.json
+
+# 4) image set from the same spec (cover/card/poster/story)
+node bin/cvs.mjs image --spec project.spec.json --set cover,card,poster,story
+```
+
+`master.mp4` is always encoded with the **master** preset (1920×1080). A `--platform`
+copy is an *additional* file — it never replaces the master, and QA always measures the
+master. `delivery.json` records platform, bytes, sha256, duration, cover, title, and
+which files carry burned subtitles.
+
+Low-level route (still supported; `cvs build` is a wrapper around it):
+
+```bash
 node templates/render-segment.mjs --page "segments/01.html?theme=cyber-neon" \
   --still 0.2,0.8,1.4,2.0,2.6 --outdir out/stills
-
-# 4) render one segment, then the whole film in parallel (resume-safe)
-node templates/render-segment.mjs --page "segments/01.html?theme=cyber-neon" \
-  --out out/r01-style.mp4 --duration 3 --t0 0.35 --speed 1.4
 node templates/render-farm.mjs --plan out/plan.json --concurrency 4 --resume
-
-# 5) soundtrack (--plan lands every cue on the timeline; refine the arrangement after)
 python templates/synth_audio.py --plan out/plan.json --out audio/mix.wav
-
-# 6) concat + platform preset (master | youtube | bilibili | douyin | xiaohongshu | weixin | archive)
-bash templates/concat-and-encode.sh --platform master out/segments.txt audio/mix.wav out/final.mp4 61 30
-
-# 7) QA gate
-node scripts/qa-video.mjs out/final.mp4 --plan out/plan.json
-python scripts/qa-audio.py audio/mix.wav --plan out/plan.json --strict
-node scripts/theme-audit.mjs --strict
+bash templates/concat-and-encode.sh --platform master out/segments.txt audio/mix.wav out/master.mp4 61 30
 ```
 
-`segments.txt` is generated by `timeline.mjs`; it is a concat-demuxer list with absolute paths:
-
-```text
-file 'E:/my-showcase/out/00-opening.mp4'
-file 'E:/my-showcase/out/r01-card.mp4'
-file 'E:/my-showcase/out/r01-style.mp4'
-...
-```
+`segments.txt` is a concat-demuxer list. `cvs build` writes **relative** names and encodes
+with `-safe 1` from inside `outDir`; absolute paths, drive letters, UNC paths, `..`, quotes
+and newlines are rejected before ffmpeg runs. (Passing an older absolute-path list to the
+shell script still works — it is rewritten to relative names first.)
 
 Notes:
 
@@ -332,7 +347,7 @@ Notes:
 - Single full-viewport canvases are captured with `canvas.toDataURL()`; pages with DOM overlays or WebGL readback problems automatically use CDP screenshots. Force it with `window.__capture = 'cdp'`.
 - Style segments take `--t0 0.35 --speed 1.4`; the renderer appends `?seg=1&t0=&speed=&dur=` and `common.js` maps clip time `u` to scene time `t = t0 + u·speed`.
 - `timeline.json` is the single source of truth. Never hand-compute `round(duration × 30)`; 0.25 s flashes snap to 8/7/8/7 frames at 30 fps. See `references/timeline-schema.md`.
-- For manual browser previews, serve the project root (`python -m http.server -d . 4600`) and open `http://localhost:4600/segments/01.html?theme=cyber-neon`. `file://` will not work because pages import ES modules.
+- For manual browser previews, use the repo's own static server (`node app/canvas/serve.mjs --root .`, port 5182) and open `http://localhost:5182/templates/segment.html?theme=cyber-neon&title=Demo`. It refuses dotfiles; do **not** use `python -m http.server`, which exposes `.git/`. `file://` will not work because pages import ES modules.
 - The templates expect a local `shared/fonts.css` with `@font-face` rules. `new-project --fonts` copies the bundled set; otherwise download OFL fonts yourself.
 - Useful env vars: `CHROME_EXE` / `FFMPEG_EXE` for the renderer; `FFMPEG` / `FFPROBE` / `PLATFORM` / `CRF` for the shell script; `PYTHON` for audio QA. `--help` is implemented by every script.
 - `synth_audio.py` is a toolkit plus a runnable 8 s demo; extend `build_arrangement()` to the full 61 s timeline using `references/audio-recipes.md`, and read `plan.json` cues so audio and cuts share one time base.
@@ -376,6 +391,7 @@ Once installed, the skill auto-triggers on prompts such as 卡点视频 / 风格
 ```text
 code-video-showcase/
 ├─ SKILL.md                          # the skill itself — workflow, constraints, index
+├─ install.sh / install.ps1          # v2.4: one-command setup (Node >=22 gate → npm ci → doctor)
 ├─ README.md / CHANGELOG.md          # this file / release notes
 ├─ package.json                     # npm scripts: test, doctor, plan, render, qa, theme:audit
 ├─ .github/workflows/render-smoke.yml# CI: 2 s render + concat + QA
@@ -399,6 +415,7 @@ code-video-showcase/
 │  ├─ common.js                      # easing, seeded random, noise/fbm, segment mode, re-exports
 │  ├─ themes.js                      # 13 themes: palettes, materials, HUD, cardColors/chrome
 │  ├─ timeline.mjs                   # v2: validate timeline → plan.json + segments.txt
+│  ├─ tokens.mjs                     # v2.4: 4-level type scale, single safe area, __typeProbe
 │  ├─ timeline.example.json          # 61 s / 11 rounds example
 │  ├─ render-segment.mjs             # frame-by-frame renderer → ffmpeg (Playwright or raw CDP)
 │  ├─ cdp.mjs                        # v2: zero-dependency Chrome DevTools Protocol driver
@@ -410,7 +427,15 @@ code-video-showcase/
 ├─ scripts/
 │  ├─ qa-video.mjs                   # v2: container/frames/black/freeze/silence/LUFS/VMAF/contact
 │  ├─ qa-audio.py                    # v2: BPM/grid/cue alignment/clipping/HF/spectrogram
-│  ├─ doctor.mjs                     # v2: environment check
+│  ├─ doctor.mjs                     # v2: environment check (+ font lock in v2.4)
+│  ├─ versions.mjs                   # v2.4: snapshot / verify / rollback
+│  ├─ test-all.mjs                   # v2.4: one runner, JSON + TAP output
+│  ├─ summary-parse.mjs              # v2.4: parse the 5 legacy test-summary formats
+│  ├─ test-summary-parse.mjs         # v2.4: summary parsing never under-reports failures
+│  ├─ test-type-tokens.mjs           # v2.4: 13 pages, real Chrome, type-scale probe
+│  ├─ test-brand-visual.mjs          # v2.4: logo + brand font change the frame
+│  ├─ test-versioning.mjs            # v2.4: snapshot integrity + rollback
+│  ├─ test-renderer-recovery.mjs     # v2.4: browser restart, process-tree reaping, fail-fast exit
 │  ├─ new-project.mjs                # v2: one-command scaffold
 │  ├─ ai-lane.mjs                    # v2: AI asset validation / overlay commands
 │  ├─ test-core.mjs                  # v2: pure-module regression tests
@@ -548,41 +573,45 @@ node render-segment.mjs --page /big-card.html?theme=graphite-signal --still 0.5,
 
 ### 快速开始
 
-模板是脚手架，不是成片。
+模板是脚手架，不是成片。需要本机 Node 22+（没有托管版）。
 
 ```bash
-# 0) 环境体检（Node / Chrome / FFmpeg / numpy+scipy / 字体）
+# 0) 安装 + 环境体检（Node / Chrome / FFmpeg / numpy+scipy / 字体锁）
+bash install.sh                       # Windows: powershell -ExecutionPolicy Bypass -File install.ps1
 node scripts/doctor.mjs
 
-# 1) 脚手架：复制运行时 + 生成 segments/*.html + timeline.json + BRIEF.json
-node scripts/new-project.mjs --out ../my-showcase --name my-showcase \
-  --theme cyber-neon --styles 11 --fonts
-cd ../my-showcase
+# 1) 一句话 → spec（确定性规则，不调模型）
+node bin/cvs.mjs new "做一条 20 秒国风品牌片" --out project.spec.json
 
-# 2) 校验时间轴并生成 plan.json / segments.txt
-node templates/timeline.mjs --spec timeline.json \
-  --out out/plan.json --concat out/segments.txt --print
+# 2) 门禁 → plan → 增量渲染 → 合成 → 质检 → 交付清单
+node bin/cvs.mjs build project.spec.json --platform douyin --strict --burn-subtitles --cover
+#    out/master.mp4                 干净的 1920×1080 母版（永远按 master 预设出）
+#    out/douyin.mp4                 1080×1920 投放版（需要时带硬字幕）
+#    out/images/cover/cover.png     card 版式封面
+#    out/delivery.json · master.srt/.vtt · qa/qa-video.json · qa/qa-audio.json
 
-# 3) 先出静帧（便宜）—— t=0.2/0.8/1.4/2.0/2.6
+# 3) 版本快照 → 审片 → 校验后回滚
+node bin/cvs.mjs snapshot --spec project.spec.json --label 首版
+node bin/cvs.mjs history --spec project.spec.json
+node bin/cvs.mjs verify v001 --spec project.spec.json
+node bin/cvs.mjs rollback v001 --spec project.spec.json
+
+# 4) 同一个 spec 出图（cover/card/poster/story）
+node bin/cvs.mjs image --spec project.spec.json --set cover,card,poster,story
+```
+
+底层路线（仍然可用，`cvs build` 就是它的封装）：
+
+```bash
 node templates/render-segment.mjs --page "segments/01.html?theme=cyber-neon" \
   --still 0.2,0.8,1.4,2.0,2.6 --outdir out/stills
-
-# 4) 单段 → 全片并行（--resume 断点续渲）
-node templates/render-segment.mjs --page "segments/01.html?theme=cyber-neon" \
-  --out out/r01-style.mp4 --duration 3 --t0 0.35 --speed 1.4
 node templates/render-farm.mjs --plan out/plan.json --concurrency 4 --resume
-
-# 5) 配乐（--plan 让每个 cue 落在时间轴上；再按 references/audio-recipes.md 精修）
 python templates/synth_audio.py --plan out/plan.json --out audio/mix.wav
-
-# 6) 合成 + 平台预设
-bash templates/concat-and-encode.sh --platform master out/segments.txt audio/mix.wav out/final.mp4 61 30
-
-# 7) 质检
-node scripts/qa-video.mjs out/final.mp4 --plan out/plan.json
-python scripts/qa-audio.py audio/mix.wav --plan out/plan.json --strict
-node scripts/theme-audit.mjs --strict
+bash templates/concat-and-encode.sh --platform master out/segments.txt audio/mix.wav out/master.mp4 61 30
 ```
+
+`segments.txt` 是 concat-demuxer 清单。`cvs build` 写**相对文件名**并在 `outDir` 内用 `-safe 1` 编码；
+绝对路径 / 盘符 / UNC / `..` / 引号 / 换行在 ffmpeg 启动前就会被拒绝（旧版绝对路径清单交给 shell 脚本时也会先改写）。
 
 补充说明：
 
@@ -590,7 +619,7 @@ node scripts/theme-audit.mjs --strict
 - 单 canvas 全屏页面用 `canvas.toDataURL()` 取帧；有 DOM 叠加或 WebGL 读回问题时自动回退 CDP 截图。页面可设 `window.__capture='cdp'` 强制。
 - 风格段可传 `--t0 0.35 --speed 1.4`：渲染器自动拼成 `?seg=1&t0=&speed=&dur=`，`common.js` 按 `t = t0 + u*speed` 映射场景时间。
 - `timeline.json` 是唯一真源，不要手算 `round(duration×30)`；30 fps 下 0.25 s 闪段会吸附成 8/7/8/7 帧。字段见 `references/timeline-schema.md`。
-- 手动预览时起静态服务器：`python -m http.server -d . 4600`，打开 `http://localhost:4600/segments/01.html?theme=cyber-neon`；页面以 ES module 导入，`file://` 打不开。
+- 手动预览时用仓库自带的静态服务器：`node app/canvas/serve.mjs --root .`（5182 端口），打开 `http://localhost:5182/templates/segment.html?theme=cyber-neon&title=Demo`。它会挡住点文件；**不要**用 `python -m http.server`（会把 `.git/` 暴露出去）。页面以 ES module 导入，`file://` 打不开。
 - `templates/` 的 HTML 引用 `/shared/fonts.css`；`new-project --fonts` 会复制仓库自带字体，否则自行下载 OFL 字体。
 - 常用环境变量：`CHROME_EXE` / `FFMPEG_EXE`（渲染器）、`FFMPEG` / `FFPROBE` / `PLATFORM` / `CRF`（合成）、`PYTHON`（音频 QA）。
 - `synth_audio.py` 是「音色库 + 8 秒 demo」，完整 61 秒编排按 `references/audio-recipes.md` 扩展 `build_arrangement()`，并读 `plan.json` 的 cues 保证音画同一时间基准。

@@ -188,32 +188,31 @@ def estimate_tempo(env: np.ndarray, frame_dt: float, lo: float = 60, hi: float =
     return 60.0 / lag, float(seg.max() / (ac0 + EPS))
 
 
-def grid_phase(peaks, bpm: float):
-    """Best phase on the beat grid, trying quarter / eighth / sixteenth subdivisions."""
+def grid_phase(peaks, bpm: float, subdiv: int = 1):
+    """Phase on a **declared** beat grid (default: every beat).
+
+    v2.3.5: 以前会在 1/2/4 细分里挑命中率最高的那个再断言 ≥0.7——
+    等于用「最合身的尺子」量自己。现在细分由 --subdiv 显式声明，报告里如实写。
+    """
     beat = 60.0 / bpm
-    best = (0.0, -1.0, 1)
-    for subdiv in (1, 2, 4):
-        step = beat / subdiv
-        best_off, best_score = 0.0, -1.0
-        for off in np.arange(0.0, step, 0.005):
-            score = 0.0
-            for t, a in peaks:
-                ph = (t - off) % step
-                d = min(ph, step - ph)
-                if d <= 0.03:
-                    score += a
-            if score > best_score:
-                best_off, best_score = float(off), score
-        hit = 0
-        for t, _ in peaks:
-            ph = (t - best_off) % step
-            if min(ph, step - ph) <= 0.03:
-                hit += 1
-        rate = hit / max(1, len(peaks))
-        # Prefer the coarser grid unless a finer one is clearly better.
-        if rate > best[1] + 0.08 or (best[1] < 0 and rate >= best[1]):
-            best = (best_off, rate, subdiv)
-    return best
+    step = beat / max(1, int(subdiv))
+    best_off, best_score = 0.0, -1.0
+    for off in np.arange(0.0, step, 0.005):
+        score = 0.0
+        for t, a in peaks:
+            ph = (t - off) % step
+            d = min(ph, step - ph)
+            if d <= 0.03:
+                score += a
+        if score > best_score:
+            best_off, best_score = float(off), score
+    hit = 0
+    for t, _ in peaks:
+        ph = (t - best_off) % step
+        if min(ph, step - ph) <= 0.03:
+            hit += 1
+    rate = hit / max(1, len(peaks))
+    return best_off, rate, int(subdiv)
 
 
 # ── spectral helpers ───────────────────────────────────────────────────────
@@ -287,6 +286,7 @@ def main():
     ap.add_argument("--spectrogram", default="qa/spectrogram.png")
     ap.add_argument("--tolerance", type=float, default=0.030, help="cue tolerance in seconds")
     ap.add_argument("--strict", action="store_true")
+    ap.add_argument("--subdiv", type=int, default=1, help="declared beat subdivision for the grid check (default 1 = every beat)")
     args = ap.parse_args()
 
     plan = json.load(open(args.plan, encoding="utf-8")) if args.plan and os.path.exists(args.plan) else None
@@ -303,7 +303,7 @@ def main():
     peaks = pick_peaks(env, frame_dt)
     tempo, tempo_conf = estimate_tempo(env, frame_dt)
     bpm = expected_bpm or tempo
-    offset, hit_rate, grid_subdiv = grid_phase(peaks, bpm) if bpm else (None, None, None)
+    offset, hit_rate, grid_subdiv = grid_phase(peaks, bpm, args.subdiv) if bpm else (None, None, None)
 
     cue_rows = []
     matched = 0
@@ -324,7 +324,9 @@ def main():
         if ok:
             matched += 1
         cue_rows.append({"t": t, "id": c.get("id"), "kind": c.get("kind"), "delta": None if d is None else round(d, 4), "near": has_onset, "pass": ok})
-    align_rate = matched / max(1, near)
+    # 分母用**全部 cue**：没有 onset 的 cue 记 miss，而不是从分母里剔除。
+    # 旧逻辑 `matched / near` 最坏情况下只要 20%×80% 就 PASS，报告证明不了节奏。
+    align_rate = matched / max(1, len(cues))
     coverage = near / max(1, len(cues))
 
     key_times = [c["t"] for c in cues if c.get("kind") in ("card", "start")]
@@ -333,26 +335,33 @@ def main():
 
     checks = []
 
-    def chk(name, ok, detail, warn_only=False):
-        checks.append({"name": name, "status": "PASS" if ok else ("WARN" if warn_only else "FAIL"), "detail": detail})
+    # 三档语义（v2.3.5）：
+    #   fail     —— 交付物是错的（削波、卡点错位）
+    #   contract —— 交付物不合格但还能修（峰值/响度/死寂）；--strict 下判失败
+    #   advisory —— 音乐**好不好听**（节奏网格、HF 克制、BPM 识别）；任何情况下都只提示
+    # 之前只有两档 + 「--strict 把所有 WARN 变失败」，等于合成器占位床必然把
+    # `build --strict` 打成永久红 —— 红门禁和假绿一样没用。
+    def chk(name, ok, detail, level="fail"):
+        status = "PASS" if ok else {"fail": "FAIL", "contract": "WARN", "advisory": "ADVISORY"}[level]
+        checks.append({"name": name, "status": status, "level": level, "detail": detail})
 
-    chk("peak", peak <= 0.891, f"{20*np.log10(peak+EPS):.2f} dBFS (≤ -1 dBFS)", warn_only=True)
+    chk("peak", peak <= 0.891, f"{20*np.log10(peak+EPS):.2f} dBFS (≤ -1 dBFS)", level="contract")
     chk("clipping", clip == 0, f"{clip} samples ≥ 0.999")
     chk("integrated loudness", abs(integrated_lufs(stereo, sr) + 14) <= 1.0,
-        f"{integrated_lufs(stereo, sr):.2f} LUFS (target -14 ±1)", warn_only=True)
+        f"{integrated_lufs(stereo, sr):.2f} LUFS (target -14 ±1)", level="contract")
     if expected_bpm and tempo:
-        chk("tempo", abs(tempo - expected_bpm) <= 2.0, f"detected {tempo:.2f} BPM, expected {expected_bpm} (conf {tempo_conf:.2f})", warn_only=True)
+        chk("tempo", abs(tempo - expected_bpm) <= 2.0, f"detected {tempo:.2f} BPM, expected {expected_bpm} (conf {tempo_conf:.2f})", level="advisory")
     elif tempo:
         chk("tempo", True, f"detected {tempo:.2f} BPM (no plan expectation)")
     if cues:
-        chk("cue alignment", coverage >= 0.2 and align_rate >= 0.8,
-            f"{matched}/{near} cues with an onset within ±{int(args.tolerance*1000)}ms "
-            f"({align_rate*100:.1f}%; onset coverage {coverage*100:.1f}% of {len(cues)} cues)")
+        chk("cue alignment", align_rate >= 0.8,
+            f"{matched}/{len(cues)} cues within ±{int(args.tolerance*1000)}ms "
+            f"({align_rate*100:.1f}%; {near} cue(s) had a nearby onset)")
     if hit_rate is not None:
-        chk("beat grid", hit_rate >= 0.7, f"{hit_rate*100:.1f}% of onsets on 1/{grid_subdiv} grid (offset {offset*1000:.0f} ms)", warn_only=True)
-    chk("silence", len(silences) == 0, f"{len(silences)} spans ≥1 s below -45 dB", warn_only=True)
+        chk("beat grid", hit_rate >= 0.7, f"{hit_rate*100:.1f}% of onsets on 1/{grid_subdiv} grid (offset {offset*1000:.0f} ms)", level="advisory")
+    chk("silence", len(silences) == 0, f"{len(silences)} spans ≥1 s below -45 dB", level="contract")
     if hf:
-        chk("HF restraint", hf["contrast_db"] >= 6.0, f"8–16 kHz key vs rest: {hf['contrast_db']:+.2f} dB (target ≥ +6)", warn_only=True)
+        chk("HF restraint", hf["contrast_db"] >= 6.0, f"8–16 kHz key vs rest: {hf['contrast_db']:+.2f} dB (target ≥ +6)", level="advisory")
 
     report = {
         "file": os.path.abspath(args.audio),
@@ -377,6 +386,7 @@ def main():
         "summary": {
             "pass": sum(1 for c in checks if c["status"] == "PASS"),
             "warn": sum(1 for c in checks if c["status"] == "WARN"),
+            "advisory": sum(1 for c in checks if c["status"] == "ADVISORY"),
             "fail": sum(1 for c in checks if c["status"] == "FAIL"),
         },
     }
@@ -389,7 +399,8 @@ def main():
     for c in checks:
         print(f"[{c['status']}] {c['name']}  {c['detail']}")
     s = report["summary"]
-    print(f"\n{s['pass']} pass · {s['warn']} warn · {s['fail']} fail  ->  {args.out}")
+    print(f"\n{s['pass']} pass · {s['warn']} warn · {s['advisory']} advisory · {s['fail']} fail  ->  {args.out}")
+    # 只有 fail 与 contract-WARN 会让 --strict 失败；advisory 永远不拦交付。
     if s["fail"] or (args.strict and s["warn"]):
         sys.exit(1)
 

@@ -31,6 +31,7 @@ import {
   TAU, clamp, ease, smooth, hash01, mulberry32, setupStage, safePad,
   drawTracked, drawHud, drawTopMeta, roundRectPath,
 } from './recipes/util.js';
+import { typeSize, safe, probe } from './tokens.mjs';
 
 const canvas = document.getElementById('c');
 const ctx = canvas.getContext('2d', { alpha: false });
@@ -305,7 +306,8 @@ let TITLE_COL = null;
 function buildTitleColumn() {
   const chars = Array.from(TITLE);
   const colH = H * (portrait ? 0.55 : 0.62);
-  const size = Math.max(34, Math.round(Math.min(W * 0.13, H * 0.115, (colH / chars.length) * 0.9)));
+  const size = Math.max(34, Math.round(Math.min(typeSize('title', W, H), (colH / chars.length) * 0.9)));
+  probe('title', size, safe(W, H));
   const spacing = Math.min(size * 1.18, (colH - size) / Math.max(1, chars.length - 1));
   return {
     chars,

@@ -30,6 +30,7 @@ import {
   TAU, clamp, fract, ease, setupStage, safePad, fitTextSize,
   formatInt, drawTracked, drawHud, drawTopMeta, roundRectPath,
 } from './recipes/util.js';
+import { typeSize, safe, probe } from './tokens.mjs';
 
 const canvas = document.getElementById('c');
 const ctx = canvas.getContext('2d', { alpha: false });
@@ -175,10 +176,11 @@ function drawHeading(t) {
       maxWidth: W * (portrait ? 0.78 : 0.52),
       family: SANS,
       weight: 900,
-      maxSize: Math.round(H * (portrait ? 0.085 : 0.115)),
+      maxSize: typeSize('title', W, H),
       minSize: 24,
       spacing: 0.01,
     });
+    probe('title', TITLE_SIZE, safe(W, H));
   }
   const y = H * (portrait ? 0.075 : 0.105);
   const ebSize = Math.max(11, Math.round(TITLE_SIZE * 0.2));

@@ -48,7 +48,11 @@ export function canonicalJson(value) {
 
 /** 变体 spec 的内容哈希（sha256，64 位十六进制）。非枚举元数据不参与。 */
 export function specHashOf(spec) {
-  return crypto.createHash('sha256').update(canonicalJson(spec)).digest('hex');
+  // 变体身份只由内容决定：render.outDir 是「写到哪」，不是「是什么」。
+  // 每个变体现在有自己的 outDir（防止互相覆盖），不能让它污染 specHash。
+  const content = clone(spec);
+  if (content && content.render) delete content.render.outDir;
+  return crypto.createHash('sha256').update(canonicalJson(content)).digest('hex');
 }
 
 // ── 轴值解析 ────────────────────────────────────────────────────────────────
@@ -90,6 +94,10 @@ function applyCopy(spec, parsed) {
     const pair = parsed.pairs[parsed.rotate ? i % parsed.pairs.length : 0];
     round.card = { ...(round.card || {}), first: pair[0], keyword: pair[1] };
   });
+  // 片头/结尾读 meta.title：copy 轴必须同时改它，否则 A/B 两版片头一模一样。
+  if (!spec.meta) spec.meta = {};
+  const firstPair = parsed.pairs[0];
+  spec.meta.title = String(firstPair[1] || firstPair[0]).slice(0, 24);
 }
 
 function applyAspect(spec, value) {
@@ -185,6 +193,7 @@ export function expandVariants(input, axes, opts = {}) {
   const combos = product(names, axes);
   const variants = [];
   const used = new Set();
+  const warnings = [];
 
   for (const assignment of combos) {
     let spec = normalizeSpec(base);
@@ -193,9 +202,16 @@ export function expandVariants(input, axes, opts = {}) {
       if (COPY_AXES.has(name)) applyCopy(spec, parseCopyValue(value, name));
       else if (name === 'aspect') spec = applyAspect(spec, value);
       else APPLIERS[name](spec, value);
+      if (name === 'theme' && spec.look?.accentOverride) {
+        warnings.push({
+          code: 'W_AXIS_ACCENT_CONFLICT',
+          message: 'theme axis changes the theme, but look.accentOverride still overrides the accent colour — clear it if the theme accent should win',
+        });
+      }
     }
     spec = normalizeSpec(spec);
 
+    // 段哈希只反映内容，不反映输出路径——先算 hash，再写 outDir。
     const specHash = specHashOf(spec);
     let id = specHash.slice(0, 10);
     let n = 2;
@@ -204,6 +220,9 @@ export function expandVariants(input, axes, opts = {}) {
 
     const outDir = `${baseOut}/${id}`;
     const specPath = `${outDir}/project.spec.json`;
+    // v2.3.5：每个变体有自己的输出目录。以前所有变体共用 spec.render.outDir，
+    // 后一条 build 会覆盖前一条的 master.mp4（发错片的硬伤）。
+    spec.render = { ...(spec.render || {}), outDir };
     const axisValues = {};
     for (const name of names) axisValues[name] = clone(assignment[name]);
 
@@ -220,6 +239,7 @@ export function expandVariants(input, axes, opts = {}) {
 
     variants.push(spec);
   }
+  Object.defineProperty(variants, 'warnings', { value: warnings, enumerable: false });
   return variants;
 }
 
@@ -333,6 +353,7 @@ function main() {
 
   const normalized = normalizeSpec(spec);
   console.log(`[variants] base: ${normalized.meta.name} · ${normalized.format.width}x${normalized.format.height} · ${normalized.format.duration}s · ${normalized.rounds.length} rounds · ${normalized.look.theme}`);
+  for (const w of variants.warnings || []) console.warn(`[warn] [${w.code}] ${w.message}`);
   for (const name of Object.keys(axes).sort()) {
     console.log(`[axes] ${name} (${axes[name].length}): ${axes[name].map(formatAxisValue).join(', ')}`);
   }

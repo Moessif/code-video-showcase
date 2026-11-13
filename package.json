@@ -1,12 +1,14 @@
 {
   "name": "code-video-showcase",
-  "version": "2.3.4",
+  "version": "2.5.0",
   "description": "Pure-code, beat-synced showcase video skill: deterministic HTML/Canvas frames, synthesized score, FFmpeg assembly.",
   "type": "module",
   "license": "MIT",
-  "bin": { "cvs": "bin/cvs.mjs" },
+  "bin": {
+    "cvs": "bin/cvs.mjs"
+  },
   "engines": {
-    "node": ">=20"
+    "node": ">=22"
   },
   "scripts": {
     "test": "node scripts/test-core.mjs",
@@ -19,7 +21,7 @@
     "fixture:lint": "node scripts/spec-lint.mjs --spec fixtures/mini-41s/spec.json --root .",
     "fixture:plan": "node templates/plan.mjs --spec fixtures/mini-41s/spec.json --root . --print",
     "fixture:compile": "node scripts/compile.mjs --spec fixtures/mini-41s/spec.json --root . --no-qa --concurrency 4",
-    "test:all": "node scripts/test-core.mjs && node scripts/test-nl2spec.mjs && node scripts/test-script.mjs && node scripts/test-assets.mjs && node scripts/test-variants.mjs && node scripts/test-reflow.mjs && node scripts/test-ref-core.mjs && node scripts/test-from-reference.mjs && node scripts/test-brand.mjs && node scripts/test-motion-profile.mjs && node scripts/test-style-pages.mjs && node scripts/test-spec-security.mjs && node scripts/test-accent-route.mjs && node ingest/test-edl.mjs",
+    "test:all": "node scripts/test-all.mjs",
     "test:brand": "node scripts/test-brand.mjs",
     "test:golden": "node scripts/test-golden.mjs",
     "test:motion": "node scripts/test-motion-profile.mjs",
@@ -48,7 +50,7 @@
     "test:ingest": "node ingest/test-edl.mjs",
     "test:inspect": "node scripts/test-inspect.mjs",
     "test:cyber": "node scripts/still-cyber-pixel.mjs",
-    "test:browser": "node scripts/test-inspect.mjs && node scripts/test-wizard-ref.mjs && node scripts/test-reflow-pages.mjs && node scripts/still-cyber-pixel.mjs && node scripts/test-recipes.mjs && node scripts/test-style-pages-render.mjs && node scripts/test-image.mjs",
+    "test:browser": "node scripts/test-all.mjs --browser",
     "dev:wizard": "node app/wizard/serve.mjs",
     "dev:canvas": "node app/canvas/serve.mjs",
     "dev:script": "node app/script/serve.mjs",
@@ -62,7 +64,20 @@
     "theme:preview": "node scripts/theme-preview.mjs",
     "ai:init": "node scripts/ai-lane.mjs init",
     "ai:validate": "node scripts/ai-lane.mjs validate --plan out/plan.json",
-    "new": "node scripts/new-project.mjs"
+    "new": "node scripts/new-project.mjs",
+    "test:contract": "node scripts/test-compiler-contract.mjs",
+    "again": "node scripts/again.mjs",
+    "deliver": "node scripts/deliver.mjs",
+    "test:all:browser": "node scripts/test-all.mjs --browser --json",
+    "test:versioning": "node scripts/test-versioning.mjs",
+    "test:summary": "node scripts/test-summary-parse.mjs",
+    "test:recovery": "node scripts/test-renderer-recovery.mjs",
+    "test:type-tokens": "node scripts/test-type-tokens.mjs",
+    "test:brand-visual": "node scripts/test-brand-visual.mjs",
+    "test:transitions": "node scripts/test-transitions.mjs",
+    "test:effects": "node scripts/test-effects.mjs",
+    "test:effects-render": "node scripts/test-effects-render.mjs",
+    "test:domains": "node scripts/test-domains.mjs"
   },
   "dependencies": {
     "@fontsource/inter": "^5.3.0",

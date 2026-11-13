@@ -35,6 +35,7 @@ import {
   TAU, clamp, ease, mulberry32, setupStage, safePad,
   fitTextSize, drawTracked, drawHud, drawTopMeta, roundRectPath,
 } from './recipes/util.js';
+import { typeSize, safe, probe } from './tokens.mjs';
 
 const canvas = document.getElementById('c');
 const ctx = canvas.getContext('2d', { alpha: false });
@@ -188,7 +189,8 @@ function buildWall() {
 
 function buildLayout() {
   const short = Math.min(W, H);
-  const titleSize = Math.round(clamp(short * (portrait ? 0.115 : 0.135), 40, 260));
+  const titleSize = typeSize('title', W, H);
+  probe('title', titleSize, safe(W, H));
   const subSize = Math.max(12, Math.round(titleSize * 0.26));
   // 标题压在**底部剪影带**里：上面是山脊与城墙，标题落在这里不会撞画面主体，
   // 强调线也就不会横穿城墙（v1 把标题放在 0.755H，正好切在墙脊上）。

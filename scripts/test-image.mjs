@@ -153,16 +153,66 @@ if (A) {
     console.error(`FAIL  determinism: ${String(e.message || e).split('\n')[0]}`);
   }
 
-  // ── 6) --at 生效 ──
+  // ── 6) --at 生效（帧时间按每张图自己的源算）──
+  // 回归：cover 改用 0.4s 的卡片段后，at 仍按正片时长算一次再套到所有图上，
+  // 于是 auto 与 --at 1.0 在卡片段上都被夹到同一帧 —— 时间参数看起来失效了。
   try {
-    const C = runImage('c', ['--set', 'cover', '--at', '1.0']);
     const a0 = A.manifest.images.find((i) => i.preset === 'cover').sha256;
-    check('换 --at 后哈希不同（帧时间真的生效）', C.manifest.images[0].sha256 !== a0);
-    check('--at 写进清单', Number(C.manifest.at) === 1, String(C.manifest.at));
+
+    // 正片源（几秒长）：显式 1.0s 与 auto 必须是不同帧。
+    const S = runImage('c', ['--set', 'cover', '--cover', 'style', '--at', '1.0']);
+    const sImg = S.manifest.images.find((i) => i.preset === 'cover');
+    check('style 封面：--at 1.0 与 auto 哈希不同', sImg.sha256 !== a0, `${sImg.sha256.slice(0, 10)} vs ${a0.slice(0, 10)}`);
+    check('style 封面：每张图记录自己的 at=1', Number(sImg.at) === 1, String(sImg.at));
+    check('--at 写进清单顶层', Number(S.manifest.at) === 1, String(S.manifest.at));
+
+    // 卡片源（短段）：显式 0.05s 必须落在段内，且与 auto 是另一帧。
+    const C = runImage('c2', ['--set', 'cover', '--at', '0.05']);
+    const cImg = C.manifest.images.find((i) => i.preset === 'cover');
+    check('card 封面：--at 0.05 与 auto 哈希不同', cImg.sha256 !== a0, `${cImg.sha256.slice(0, 10)} vs ${a0.slice(0, 10)}`);
+    check('card 封面：at 按卡片段自己的时长算（不是正片时长）',
+      Number(cImg.at) === 0.05 && Number(cImg.sourceDuration) < Number(sImg.sourceDuration),
+      `at=${cImg.at} cardDur=${cImg.sourceDuration} styleDur=${sImg.sourceDuration}`);
+
+    // 越界显式时间夹到源段内，并保留请求值以便追溯。
+    const D = runImage('c3', ['--set', 'cover', '--at', '99']);
+    const dImg = D.manifest.images.find((i) => i.preset === 'cover');
+    check('card 封面：--at 99 夹到段内', Number(dImg.at) < Number(dImg.sourceDuration),
+      `at=${dImg.at} dur=${dImg.sourceDuration}`);
+    check('card 封面：清单保留 atRequested', Number(dImg.atRequested) === 99, String(dImg.atRequested));
   } catch (e) {
-    failed += 2;
+    failed += 7;
     console.error(`FAIL  --at: ${String(e.message || e).split('\n')[0]}`);
   }
+}
+
+// ── 9) 封面版式与覆盖策略（v2.4 / P2-02） ───────────────────────────────
+
+try {
+  const first = runImage('m', ['--set', 'cover,card']);
+  const cardCover = first.manifest.images.find((i) => i.preset === 'cover');
+  check('cover 默认用 card 版式（不是带 HUD 的正片帧）',
+    /big-card\.html/.test(cardCover.page) && /-card$/.test(cardCover.segment || ''),
+    `${cardCover.page}`);
+
+  const second = runImage('m', ['--set', 'avatar']);
+  check('第二次出图保留第一批（不加 --force 不删目录）',
+    second.manifest.images.length === 3
+      && fs.existsSync(path.join(TMP, 'm', 'cover', 'cover.png'))
+      && fs.existsSync(path.join(TMP, 'm', 'card', 'card.png'))
+      && fs.existsSync(path.join(TMP, 'm', 'avatar', 'avatar.png')),
+    `${second.manifest.images.map((i) => i.preset).join(',')}`);
+
+  const third = runImage('m', ['--set', 'cover', '--force']);
+  check('--force 才清空目录', third.manifest.images.length === 1 && !fs.existsSync(path.join(TMP, 'm', 'card')),
+    `${third.manifest.images.map((i) => i.preset).join(',')}`);
+
+  const styled = runImage('s', ['--set', 'cover', '--cover', 'style']);
+  const sc = styled.manifest.images[0];
+  check('--cover style 回到正片风格帧', /recipe-guofeng\.html/.test(sc.page), sc.page);
+} catch (e) {
+  failed += 4;
+  console.error(`FAIL  cover policy: ${String(e.message || e).split('\n')[0]}`);
 }
 
 fs.rmSync(TMP, { recursive: true, force: true });

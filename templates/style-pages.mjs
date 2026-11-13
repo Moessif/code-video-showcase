@@ -48,6 +48,15 @@ export const STYLE_PAGES = {
   flat: 'templates/recipe-flat.html',
   minimal: 'templates/recipe-minimal.html',
   vertical: 'templates/segment.html',
+  // v2.5：新增画风（研究背书：guizang Swiss / Editorial / neo-brutalist /
+  // vaporwave / blueprint / risograph）+ 收编此前未注册的 kinetic。
+  kinetic: 'templates/recipe-kinetic.html',
+  swiss: 'templates/recipe-swiss.html',
+  editorial: 'templates/recipe-editorial.html',
+  brutalist: 'templates/recipe-brutalist.html',
+  vaporwave: 'templates/recipe-vaporwave.html',
+  blueprint: 'templates/recipe-blueprint.html',
+  risograph: 'templates/recipe-risograph.html',
 };
 
 /**
@@ -69,6 +78,13 @@ export const STYLE_RECIPE_IDS = {
   flat: 'flat',
   minimal: 'minimal',
   vertical: 'vertical',
+  kinetic: 'kinetic',
+  swiss: 'swiss',
+  editorial: 'editorial',
+  brutalist: 'brutalist',
+  vaporwave: 'vaporwave',
+  blueprint: 'blueprint',
+  risograph: 'risograph',
 };
 
 /**

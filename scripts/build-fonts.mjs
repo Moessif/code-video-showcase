@@ -89,5 +89,25 @@ for (const pkg of FAMILIES) {
   }
 }
 
+// ── OFL 许可文本（v2.3.5）─────────────────────────────────────────────────
+// 分发物里只有 woff2、没有 OFL.txt / 版权行，法务无法放行二次分发。
+// @fontsource 每个包都带 LICENSE，直接复制到 shared/fonts/licenses/。
+const LIC_DIR = path.join(FONT_DIR, 'licenses');
+fs.mkdirSync(LIC_DIR, { recursive: true });
+let licenses = 0;
+for (const pkg of FAMILIES) {
+  const dir = path.join(SRC, pkg);
+  if (!fs.existsSync(dir)) continue;
+  const hit = fs.readdirSync(dir).find((f) => /^(LICENSE|OFL)(\.txt)?$/i.test(f));
+  if (hit) {
+    fs.copyFileSync(path.join(dir, hit), path.join(LIC_DIR, `${pkg}.txt`));
+    licenses++;
+  } else {
+    console.warn(`[lic] ${pkg}: no LICENSE/OFL file found in the package`);
+  }
+}
+out.push('/* License texts: shared/fonts/licenses/<family>.txt (OFL 1.1) */', '');
+console.log(`[lic]   ${licenses}/${FAMILIES.length} OFL license texts copied to shared/fonts/licenses/`);
+
 fs.writeFileSync(path.join(OUT_DIR, 'fonts.css'), out.filter((l) => l !== null).join('\n'));
 console.log(`[done] shared/fonts.css  ${blocks} @font-face blocks  ${copied} woff2 copied  ${(bytes / 1024 / 1024).toFixed(1)} MB`);

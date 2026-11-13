@@ -1,0 +1,50 @@
+{
+  "cluster": "beta-swarm-cvs",
+  "version": "1.0.0",
+  "topic": "code-video-showcase v2.3.4 内测意见收集与优化方案",
+  "state": "DONE",
+  "baseline": {
+    "repo": "code-video-showcase",
+    "commit": "f67616d",
+    "version": "2.3.4",
+    "node": "v24.22.1",
+    "ffmpeg": "7.0.2",
+    "working_tree": "clean"
+  },
+  "phase": "DELIVERED",
+  "agents": [
+    { "id": "PM-00", "role": "产品经理", "status": "done", "findings": 5, "outbox": "docs/feedback/inbox/00-PM.md" },
+    { "id": "T01", "role": "小白短视频创作者", "status": "done", "findings": 12, "p0": 3, "outbox": "docs/feedback/inbox/01-novice.md" },
+    { "id": "T02", "role": "品牌/市场运营", "status": "done", "findings": 12, "p0": 3, "outbox": "docs/feedback/inbox/02-brand.md" },
+    { "id": "T03", "role": "独立开发者/自托管工程师", "status": "done", "findings": 12, "p0": 0, "outbox": "docs/feedback/inbox/03-dev.md" },
+    { "id": "T04", "role": "Agent 用户", "status": "done", "findings": 12, "p0": 1, "outbox": "docs/feedback/inbox/04-agent.md" },
+    { "id": "T05", "role": "职业剪辑师/动效师", "status": "done", "findings": 11, "p0": 2, "outbox": "docs/feedback/inbox/05-editor.md" },
+    { "id": "T06", "role": "企业内网/离线集成方", "status": "done", "findings": 12, "p0": 2, "outbox": "docs/feedback/inbox/06-enterprise.md" }
+  ],
+  "artifacts": {
+    "personas": "docs/feedback/PERSONAS.md",
+    "index": "docs/feedback/README.md",
+    "report": "docs/feedback/BETA-REPORT-v2.3.4.md",
+    "plan": "docs/feedback/OPTIMIZATION-PLAN-v2.3.4.md",
+    "backlog": "docs/feedback/BACKLOG.json"
+  },
+  "counts": {
+    "raw_findings": 76,
+    "tester_findings": 71,
+    "pm_judgments": 5,
+    "severity": { "P0": 11, "P1": 32, "P2": 22, "P3": 6 },
+    "consolidated": 26,
+    "active_person_days": 34.5,
+    "future_person_days": 16
+  },
+  "gate_checks": {
+    "all_inboxes_present": true,
+    "cross_role_dedup_done": true,
+    "every_item_has_evidence": true,
+    "plan_scored_and_sequenced": true,
+    "spot_checks_passed": "8/8",
+    "raw_findings_covered": "71/71 tester + 5/5 PM",
+    "backlog_ice_consistent": true
+  },
+  "handoff": "26 项方案已排期（P0 10d / P1 21.5d / P2 3.5d）。下一步：按 W1「让绿灯可信」开工，先做 P0-03/04/02/05 + fixture 迁移；任何新功能不得插队。"
+}

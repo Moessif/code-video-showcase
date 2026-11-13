@@ -27,6 +27,12 @@
 
     <main class="layout">
       <section class="choices" aria-label="选择卡">
+        <div class="req-banner" role="note" style="border:1px solid rgba(255,200,120,.45);background:rgba(255,200,120,.08);border-radius:12px;padding:14px 16px;margin:0 0 18px;line-height:1.65">
+          <strong>运行前提：本机需要 Node.js 22+、Chrome、FFmpeg。</strong><br />
+          这是一个本地开发页，不是托管网页。第一次使用请先在仓库根执行
+          <code>bash install.sh</code>（Windows：<code>powershell -ExecutionPolicy Bypass -File install.ps1</code>），
+          然后 <code>node app/wizard/serve.mjs</code> 再打开本页。没有 Node 时页面无法启动——这不是浏览器兼容问题。
+        </div>
         <div class="intro">
           <h1>选两下，得到一支片子的 spec。</h1>
           <p>
@@ -124,7 +130,7 @@
             </header>
             <div class="field">
               <label for="brand-input">品牌名</label>
-              <input id="brand-input" type="text" autocomplete="off" placeholder="{{BRAND}}" />
+              <input id="brand-input" type="text" autocomplete="off" placeholder="例如：青瓷实验室" />
             </div>
             <div class="field">
               <label for="accent-input">点缀主色</label>

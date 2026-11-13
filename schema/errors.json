@@ -1,0 +1,834 @@
+{
+  "version": 1,
+  "description": "code-video-showcase 错误码注册表。每个 code 必须唯一对应一个 phase 与一个修复动作。",
+  "exitCodes": {
+    "0": "ok",
+    "2": "usage / unknown command",
+    "10": "spec (spec.json / lint / plan)",
+    "11": "render (segment render)",
+    "12": "concat (ffmpeg concat / encode)",
+    "13": "qa (qa-video / qa-audio)",
+    "14": "env (missing binary / python / audio synthesis)",
+    "15": "ingest (footage -> EDL)"
+  },
+  "codes": {
+    "E_USAGE": {
+      "phase": "usage",
+      "exit": 2,
+      "meaning": "命令行参数错误",
+      "action": "查看 `cvs <cmd> --help`"
+    },
+    "E_UNKNOWN_COMMAND": {
+      "phase": "usage",
+      "exit": 2,
+      "meaning": "未知子命令",
+      "action": "运行 `cvs --help`"
+    },
+    "E_READ": {
+      "phase": "spec",
+      "exit": 10,
+      "meaning": "spec 文件读不到",
+      "action": "检查 --spec 路径"
+    },
+    "E_JSON": {
+      "phase": "spec",
+      "exit": 10,
+      "meaning": "JSON 解析失败",
+      "action": "检查 JSON 语法或改用 --json 获取机器可读错误"
+    },
+    "E_JSON_PARSE": {
+      "phase": "spec",
+      "exit": 10,
+      "meaning": "spec JSON 语法错误",
+      "action": "修正 JSON"
+    },
+    "E_SPEC": {
+      "phase": "spec",
+      "exit": 10,
+      "meaning": "spec 结构不合法",
+      "action": "按 issues[] 修正"
+    },
+    "E_VERSION": {
+      "phase": "spec",
+      "exit": 10,
+      "meaning": "specVersion 不受支持",
+      "action": "使用 specVersion=1，或先迁移 timeline v1"
+    },
+    "E_ROUNDS": {
+      "phase": "spec",
+      "exit": 10,
+      "meaning": "rounds[] 为空",
+      "action": "至少写一轮"
+    },
+    "E_ROUNDS_MAX": {
+      "phase": "spec",
+      "exit": 10,
+      "meaning": "rounds 超过 24",
+      "action": "拆成两条片"
+    },
+    "E_ROUND_ID": {
+      "phase": "spec",
+      "exit": 10,
+      "meaning": "round.id 非法/重复",
+      "action": "只用字母数字-_，≤64 字符"
+    },
+    "E_STYLE_PAGE": {
+      "phase": "spec",
+      "exit": 10,
+      "meaning": "style 缺 page/recipe",
+      "action": "补 style.page 或 style.recipe"
+    },
+    "E_SPEED": {
+      "phase": "spec",
+      "exit": 10,
+      "meaning": "speed ≤ 0",
+      "action": "改成 > 0"
+    },
+    "E_MOTION": {
+      "phase": "spec",
+      "exit": 10,
+      "meaning": "motion 档位非法",
+      "action": "calm|standard|dynamic|maximal"
+    },
+    "E_COPY": {
+      "phase": "spec",
+      "exit": 10,
+      "meaning": "style.copy 结构错误",
+      "action": "只写 title/subtitle/caption 字符串"
+    },
+    "E_UNKNOWN_FIELD": {
+      "phase": "spec",
+      "exit": 10,
+      "meaning": "style/copy 出现未知字段",
+      "action": "删除拼错的字段；自定义参数放 style.params"
+    },
+    "E_DURATION": {
+      "phase": "spec",
+      "exit": 10,
+      "meaning": "format.duration 与结构公式不一致",
+      "action": "删掉 duration 让工具算，或改 structure"
+    },
+    "E_DURATION_MAX": {
+      "phase": "spec",
+      "exit": 10,
+      "meaning": "总帧数超过 18000",
+      "action": "缩短时长或降低 fps"
+    },
+    "E_STRUCTURE": {
+      "phase": "spec",
+      "exit": 10,
+      "meaning": "structure 字段 ≤ 0",
+      "action": "所有时长必须 > 0"
+    },
+    "E_STRUCTURE_MAX": {
+      "phase": "spec",
+      "exit": 10,
+      "meaning": "单段超过 600s",
+      "action": "缩短该段"
+    },
+    "E_CARD_GE_ROUND": {
+      "phase": "spec",
+      "exit": 10,
+      "meaning": "card 时长 ≥ round",
+      "action": "card 必须小于 round"
+    },
+    "E_FLASH": {
+      "phase": "spec",
+      "exit": 10,
+      "meaning": "flash 参数非法",
+      "action": "count ≥ 0 且 each > 0"
+    },
+    "E_FLASH_MAX": {
+      "phase": "spec",
+      "exit": 10,
+      "meaning": "flash.count 超过 256",
+      "action": "减少闪帧"
+    },
+    "E_FPS": {
+      "phase": "spec",
+      "exit": 10,
+      "meaning": "fps 非法",
+      "action": "1..120 的整数"
+    },
+    "E_SIZE": {
+      "phase": "spec",
+      "exit": 10,
+      "meaning": "宽高非法",
+      "action": "使用偶数正数"
+    },
+    "E_THEME": {
+      "phase": "spec",
+      "exit": 10,
+      "meaning": "缺 look.theme",
+      "action": "填主题 id"
+    },
+    "E_THEME_UNKNOWN": {
+      "phase": "spec",
+      "exit": 10,
+      "meaning": "主题 id 不存在",
+      "action": "从报错列出的 13 个 id 中选"
+    },
+    "E_APCA": {
+      "phase": "spec",
+      "exit": 10,
+      "meaning": "主题对比度不足",
+      "action": "换主题或设置 look.accentOverride"
+    },
+    "E_ACCENT": {
+      "phase": "spec",
+      "exit": 10,
+      "meaning": "accentOverride 非法",
+      "action": "#rgb/#rrggbb 或 {accent,accentInk,accentSoft}"
+    },
+    "E_BPM": {
+      "phase": "spec",
+      "exit": 10,
+      "meaning": "bpm ≤ 0",
+      "action": "改成 > 0"
+    },
+    "E_MOOD": {
+      "phase": "spec",
+      "exit": 10,
+      "meaning": "mood 非法",
+      "action": "electronic|restrained|epic|upbeat|guofeng"
+    },
+    "E_PRESET": {
+      "phase": "spec",
+      "exit": 10,
+      "meaning": "render.preset 非法",
+      "action": "bilibili|douyin|youtube|wechat|weixin|xiaohongshu|master|square"
+    },
+    "E_CONCURRENCY": {
+      "phase": "spec",
+      "exit": 10,
+      "meaning": "并发数非法",
+      "action": "1..16"
+    },
+    "E_TRANSITION": {
+      "phase": "spec",
+      "exit": 10,
+      "meaning": "render.transition / --transition 名字非法",
+      "action": "见 templates/transitions.mjs TRANSITIONS（fade/dissolve/wipeleft/slideleft/circleopen/zoomin…），或 none 关闭"
+    },
+    "E_TRANSITION_DURATION": {
+      "phase": "spec",
+      "exit": 10,
+      "meaning": "转场时长非法",
+      "action": "render.transitionDuration / --transition-duration 取 (0,2] 秒"
+    },
+    "E_OUTDIR": {
+      "phase": "spec",
+      "exit": 10,
+      "meaning": "render.outDir 越出项目根",
+      "action": "改为不带 .. 的相对路径"
+    },
+    "E_PAGE_MISSING": {
+      "phase": "spec",
+      "exit": 10,
+      "meaning": "页面文件不存在",
+      "action": "检查 --root 与 page 路径；报错里会回显 root"
+    },
+    "E_PAGE_REMOTE": {
+      "phase": "spec",
+      "exit": 10,
+      "meaning": "远程页面被禁止（SSRF）",
+      "action": "改用本地页面；只有 CLI 显式放行才允许远程"
+    },
+    "E_PAGE_ABS": {
+      "phase": "spec",
+      "exit": 10,
+      "meaning": "页面用了绝对路径",
+      "action": "改成相对项目根的路径"
+    },
+    "E_BRAND_MISSING": {
+      "phase": "spec",
+      "exit": 10,
+      "meaning": "meta.brand 为空",
+      "action": "填品牌名"
+    },
+    "E_BRAND_PLACEHOLDER": {
+      "phase": "spec",
+      "exit": 10,
+      "meaning": "品牌还是 {{BRAND}} 占位符",
+      "action": "填 meta.brand 或跑 `cvs brand apply`"
+    },
+    "E_TITLE_MISSING": {
+      "phase": "spec",
+      "exit": 10,
+      "meaning": "片名为空/untitled",
+      "action": "填 meta.title"
+    },
+    "E_DESCRIPTION": {
+      "phase": "spec",
+      "exit": 10,
+      "meaning": "description 不是字符串",
+      "action": "改成字符串"
+    },
+    "E_AUDIO_REQUIRED": {
+      "phase": "env",
+      "exit": 14,
+      "meaning": "没有音轨且未显式豁免",
+      "action": "装 Python numpy/scipy 自动合成，或传 --audio，或 --no-audio"
+    },
+    "E_AUDIO_NOT_FOUND": {
+      "phase": "env",
+      "exit": 14,
+      "meaning": "--audio 文件不存在",
+      "action": "检查路径"
+    },
+    "E_RENDER": {
+      "phase": "render",
+      "exit": 11,
+      "meaning": "段渲染失败",
+      "action": "看 failedSegments + render-manifest.json，修该段后重跑"
+    },
+    "E_CONCAT": {
+      "phase": "concat",
+      "exit": 12,
+      "meaning": "拼接/转码失败",
+      "action": "看 segments.txt 与 ffmpeg 输出"
+    },
+    "E_QA_VIDEO": {
+      "phase": "qa",
+      "exit": 13,
+      "meaning": "视频质检失败",
+      "action": "看 out/qa/qa-video.json 的 FAIL 项"
+    },
+    "E_QA_AUDIO": {
+      "phase": "qa",
+      "exit": 13,
+      "meaning": "音频质检失败",
+      "action": "看 out/qa/qa-audio.json 的 cue alignment"
+    },
+    "E_NO_OUTPUT": {
+      "phase": "qa",
+      "exit": 13,
+      "meaning": "deliver 找不到成片",
+      "action": "先 `cvs build`"
+    },
+    "E_ORIGIN": {
+      "phase": "api",
+      "exit": 403,
+      "meaning": "跨源写请求被拒",
+      "action": "用同源页面，或启动时 --cors <origin>"
+    },
+    "E_HOST": {
+      "phase": "api",
+      "exit": 403,
+      "meaning": "Host 不是回环",
+      "action": "用 127.0.0.1/localhost 访问"
+    },
+    "E_AUTH": {
+      "phase": "api",
+      "exit": 401,
+      "meaning": "缺 Bearer token",
+      "action": "带 Authorization: Bearer <token>"
+    },
+    "E_CONTENT_TYPE": {
+      "phase": "api",
+      "exit": 415,
+      "meaning": "POST 不是 application/json",
+      "action": "设置 Content-Type: application/json"
+    },
+    "E_METHOD": {
+      "phase": "api",
+      "exit": 405,
+      "meaning": "HTTP 方法不允许",
+      "action": "查 server/api.mjs 路由表"
+    },
+    "E_URL": {
+      "phase": "api",
+      "exit": 400,
+      "meaning": "URL 非法",
+      "action": "检查路径编码"
+    },
+    "E_JOB_ID": {
+      "phase": "api",
+      "exit": 400,
+      "meaning": "job id 非法",
+      "action": "使用服务返回的 id"
+    },
+    "E_QUEUE_FULL": {
+      "phase": "api",
+      "exit": 429,
+      "meaning": "队列已满（32）",
+      "action": "稍后重试或提高并发"
+    },
+    "E_SPAWN": {
+      "phase": "env",
+      "exit": 127,
+      "meaning": "子进程启动失败",
+      "action": "检查脚本路径与权限"
+    },
+    "E_ARG": {
+      "phase": "spec",
+      "exit": 10,
+      "meaning": "E_ARG：该模块的校验/运行错误（自动登记）",
+      "action": "按报错位置修正；无法判断时运行 `cvs doctor` 并附 out/error.json",
+      "auto": true
+    },
+    "E_ASR_BAD_JSON": {
+      "phase": "ingest",
+      "exit": 15,
+      "meaning": "E_ASR_BAD_JSON：该模块的校验/运行错误（自动登记）",
+      "action": "按报错位置修正；无法判断时运行 `cvs doctor` 并附 out/error.json",
+      "auto": true
+    },
+    "E_ASR_FAILED": {
+      "phase": "ingest",
+      "exit": 15,
+      "meaning": "E_ASR_FAILED：该模块的校验/运行错误（自动登记）",
+      "action": "按报错位置修正；无法判断时运行 `cvs doctor` 并附 out/error.json",
+      "auto": true
+    },
+    "E_ASR_NO_OUTPUT": {
+      "phase": "ingest",
+      "exit": 15,
+      "meaning": "E_ASR_NO_OUTPUT：该模块的校验/运行错误（自动登记）",
+      "action": "按报错位置修正；无法判断时运行 `cvs doctor` 并附 out/error.json",
+      "auto": true
+    },
+    "E_ASSET": {
+      "phase": "asset",
+      "exit": 10,
+      "meaning": "E_ASSET：该模块的校验/运行错误（自动登记）",
+      "action": "按报错位置修正；无法判断时运行 `cvs doctor` 并附 out/error.json",
+      "auto": true
+    },
+    "E_ASSETS_TYPE": {
+      "phase": "asset",
+      "exit": 10,
+      "meaning": "E_ASSETS_TYPE：该模块的校验/运行错误（自动登记）",
+      "action": "按报错位置修正；无法判断时运行 `cvs doctor` 并附 out/error.json",
+      "auto": true
+    },
+    "E_ASSET_ENTRY": {
+      "phase": "asset",
+      "exit": 10,
+      "meaning": "E_ASSET_ENTRY：该模块的校验/运行错误（自动登记）",
+      "action": "按报错位置修正；无法判断时运行 `cvs doctor` 并附 out/error.json",
+      "auto": true
+    },
+    "E_ASSET_HASH": {
+      "phase": "asset",
+      "exit": 10,
+      "meaning": "E_ASSET_HASH：该模块的校验/运行错误（自动登记）",
+      "action": "按报错位置修正；无法判断时运行 `cvs doctor` 并附 out/error.json",
+      "auto": true
+    },
+    "E_ASSET_MISSING": {
+      "phase": "asset",
+      "exit": 10,
+      "meaning": "E_ASSET_MISSING：该模块的校验/运行错误（自动登记）",
+      "action": "按报错位置修正；无法判断时运行 `cvs doctor` 并附 out/error.json",
+      "auto": true
+    },
+    "E_ASSET_PATH": {
+      "phase": "asset",
+      "exit": 10,
+      "meaning": "E_ASSET_PATH：该模块的校验/运行错误（自动登记）",
+      "action": "按报错位置修正；无法判断时运行 `cvs doctor` 并附 out/error.json",
+      "auto": true
+    },
+    "E_ASSET_REMOTE": {
+      "phase": "asset",
+      "exit": 10,
+      "meaning": "E_ASSET_REMOTE：该模块的校验/运行错误（自动登记）",
+      "action": "按报错位置修正；无法判断时运行 `cvs doctor` 并附 out/error.json",
+      "auto": true
+    },
+    "E_BODY_TOO_LARGE": {
+      "phase": "api",
+      "exit": 400,
+      "meaning": "E_BODY_TOO_LARGE：该模块的校验/运行错误（自动登记）",
+      "action": "按报错位置修正；无法判断时运行 `cvs doctor` 并附 out/error.json",
+      "auto": true
+    },
+    "E_BRAND": {
+      "phase": "brand",
+      "exit": 10,
+      "meaning": "E_BRAND：该模块的校验/运行错误（自动登记）",
+      "action": "按报错位置修正；无法判断时运行 `cvs doctor` 并附 out/error.json",
+      "auto": true
+    },
+    "E_BRAND_ACCENT_APCA": {
+      "phase": "brand",
+      "exit": 10,
+      "meaning": "E_BRAND_ACCENT_APCA：该模块的校验/运行错误（自动登记）",
+      "action": "按报错位置修正；无法判断时运行 `cvs doctor` 并附 out/error.json",
+      "auto": true
+    },
+    "E_BRAND_SCHEMA": {
+      "phase": "brand",
+      "exit": 10,
+      "meaning": "E_BRAND_SCHEMA：该模块的校验/运行错误（自动登记）",
+      "action": "按报错位置修正；无法判断时运行 `cvs doctor` 并附 out/error.json",
+      "auto": true
+    },
+    "E_COPY_LEN": {
+      "phase": "ui",
+      "exit": 2,
+      "meaning": "E_COPY_LEN：该模块的校验/运行错误（自动登记）",
+      "action": "按报错位置修正；无法判断时运行 `cvs doctor` 并附 out/error.json",
+      "auto": true
+    },
+    "E_DUP_ID": {
+      "phase": "ui",
+      "exit": 2,
+      "meaning": "E_DUP_ID：该模块的校验/运行错误（自动登记）",
+      "action": "按报错位置修正；无法判断时运行 `cvs doctor` 并附 out/error.json",
+      "auto": true
+    },
+    "E_DUP_ROW": {
+      "phase": "ui",
+      "exit": 2,
+      "meaning": "E_DUP_ROW：该模块的校验/运行错误（自动登记）",
+      "action": "按报错位置修正；无法判断时运行 `cvs doctor` 并附 out/error.json",
+      "auto": true
+    },
+    "E_EMPTY_EDL": {
+      "phase": "ingest",
+      "exit": 15,
+      "meaning": "E_EMPTY_EDL：该模块的校验/运行错误（自动登记）",
+      "action": "按报错位置修正；无法判断时运行 `cvs doctor` 并附 out/error.json",
+      "auto": true
+    },
+    "E_EXCEPTION": {
+      "phase": "spec",
+      "exit": 10,
+      "meaning": "E_EXCEPTION：该模块的校验/运行错误（自动登记）",
+      "action": "按报错位置修正；无法判断时运行 `cvs doctor` 并附 out/error.json",
+      "auto": true
+    },
+    "E_FFMPEG": {
+      "phase": "ingest",
+      "exit": 15,
+      "meaning": "E_FFMPEG：该模块的校验/运行错误（自动登记）",
+      "action": "按报错位置修正；无法判断时运行 `cvs doctor` 并附 out/error.json",
+      "auto": true
+    },
+    "E_FFPROBE": {
+      "phase": "ingest",
+      "exit": 15,
+      "meaning": "E_FFPROBE：该模块的校验/运行错误（自动登记）",
+      "action": "按报错位置修正；无法判断时运行 `cvs doctor` 并附 out/error.json",
+      "auto": true
+    },
+    "E_FFPROBE_JSON": {
+      "phase": "ingest",
+      "exit": 15,
+      "meaning": "E_FFPROBE_JSON：该模块的校验/运行错误（自动登记）",
+      "action": "按报错位置修正；无法判断时运行 `cvs doctor` 并附 out/error.json",
+      "auto": true
+    },
+    "E_FORBIDDEN_WORD": {
+      "phase": "brand",
+      "exit": 10,
+      "meaning": "E_FORBIDDEN_WORD：该模块的校验/运行错误（自动登记）",
+      "action": "按报错位置修正；无法判断时运行 `cvs doctor` 并附 out/error.json",
+      "auto": true
+    },
+    "E_HTTP": {
+      "phase": "api",
+      "exit": 400,
+      "meaning": "E_HTTP：该模块的校验/运行错误（自动登记）",
+      "action": "按报错位置修正；无法判断时运行 `cvs doctor` 并附 out/error.json",
+      "auto": true
+    },
+    "E_INGEST": {
+      "phase": "ingest",
+      "exit": 15,
+      "meaning": "E_INGEST：该模块的校验/运行错误（自动登记）",
+      "action": "按报错位置修正；无法判断时运行 `cvs doctor` 并附 out/error.json",
+      "auto": true
+    },
+    "E_INTERNAL": {
+      "phase": "api",
+      "exit": 400,
+      "meaning": "E_INTERNAL：该模块的校验/运行错误（自动登记）",
+      "action": "按报错位置修正；无法判断时运行 `cvs doctor` 并附 out/error.json",
+      "auto": true
+    },
+    "E_LOGO_MISSING": {
+      "phase": "brand",
+      "exit": 10,
+      "meaning": "E_LOGO_MISSING：该模块的校验/运行错误（自动登记）",
+      "action": "按报错位置修正；无法判断时运行 `cvs doctor` 并附 out/error.json",
+      "auto": true
+    },
+    "E_NODE": {
+      "phase": "spec",
+      "exit": 10,
+      "meaning": "E_NODE：该模块的校验/运行错误（自动登记）",
+      "action": "按报错位置修正；无法判断时运行 `cvs doctor` 并附 out/error.json",
+      "auto": true
+    },
+    "E_NORMALIZE": {
+      "phase": "spec",
+      "exit": 10,
+      "meaning": "E_NORMALIZE：该模块的校验/运行错误（自动登记）",
+      "action": "按报错位置修正；无法判断时运行 `cvs doctor` 并附 out/error.json",
+      "auto": true
+    },
+    "E_NOT_DIR": {
+      "phase": "spec",
+      "exit": 10,
+      "meaning": "E_NOT_DIR：该模块的校验/运行错误（自动登记）",
+      "action": "按报错位置修正；无法判断时运行 `cvs doctor` 并附 out/error.json",
+      "auto": true
+    },
+    "E_NOT_FILE": {
+      "phase": "spec",
+      "exit": 10,
+      "meaning": "E_NOT_FILE：该模块的校验/运行错误（自动登记）",
+      "action": "按报错位置修正；无法判断时运行 `cvs doctor` 并附 out/error.json",
+      "auto": true
+    },
+    "E_NOT_FOUND": {
+      "phase": "spec",
+      "exit": 10,
+      "meaning": "E_NOT_FOUND：该模块的校验/运行错误（自动登记）",
+      "action": "按报错位置修正；无法判断时运行 `cvs doctor` 并附 out/error.json",
+      "auto": true
+    },
+    "E_NO_AAC": {
+      "phase": "spec",
+      "exit": 10,
+      "meaning": "E_NO_AAC：该模块的校验/运行错误（自动登记）",
+      "action": "按报错位置修正；无法判断时运行 `cvs doctor` 并附 out/error.json",
+      "auto": true
+    },
+    "E_NO_BASH": {
+      "phase": "spec",
+      "exit": 10,
+      "meaning": "E_NO_BASH：该模块的校验/运行错误（自动登记）",
+      "action": "按报错位置修正；无法判断时运行 `cvs doctor` 并附 out/error.json",
+      "auto": true
+    },
+    "E_NO_CHROME": {
+      "phase": "spec",
+      "exit": 10,
+      "meaning": "E_NO_CHROME：该模块的校验/运行错误（自动登记）",
+      "action": "按报错位置修正；无法判断时运行 `cvs doctor` 并附 out/error.json",
+      "auto": true
+    },
+    "E_NO_FFMPEG": {
+      "phase": "ingest",
+      "exit": 15,
+      "meaning": "E_NO_FFMPEG：该模块的校验/运行错误（自动登记）",
+      "action": "按报错位置修正；无法判断时运行 `cvs doctor` 并附 out/error.json",
+      "auto": true
+    },
+    "E_NO_FFPROBE": {
+      "phase": "ingest",
+      "exit": 15,
+      "meaning": "E_NO_FFPROBE：该模块的校验/运行错误（自动登记）",
+      "action": "按报错位置修正；无法判断时运行 `cvs doctor` 并附 out/error.json",
+      "auto": true
+    },
+    "E_NO_FONTS": {
+      "phase": "spec",
+      "exit": 10,
+      "meaning": "E_NO_FONTS：该模块的校验/运行错误（自动登记）",
+      "action": "按报错位置修正；无法判断时运行 `cvs doctor` 并附 out/error.json",
+      "auto": true
+    },
+    "E_NO_FONTS_CSS": {
+      "phase": "spec",
+      "exit": 10,
+      "meaning": "E_NO_FONTS_CSS：该模块的校验/运行错误（自动登记）",
+      "action": "按报错位置修正；无法判断时运行 `cvs doctor` 并附 out/error.json",
+      "auto": true
+    },
+    "E_NO_LOUDNORM": {
+      "phase": "spec",
+      "exit": 10,
+      "meaning": "E_NO_LOUDNORM：该模块的校验/运行错误（自动登记）",
+      "action": "按报错位置修正；无法判断时运行 `cvs doctor` 并附 out/error.json",
+      "auto": true
+    },
+    "E_NO_NUMPY": {
+      "phase": "spec",
+      "exit": 10,
+      "meaning": "E_NO_NUMPY：该模块的校验/运行错误（自动登记）",
+      "action": "按报错位置修正；无法判断时运行 `cvs doctor` 并附 out/error.json",
+      "auto": true
+    },
+    "E_NO_PYTHON": {
+      "phase": "spec",
+      "exit": 10,
+      "meaning": "E_NO_PYTHON：该模块的校验/运行错误（自动登记）",
+      "action": "按报错位置修正；无法判断时运行 `cvs doctor` 并附 out/error.json",
+      "auto": true
+    },
+    "E_NO_QA_FILTERS": {
+      "phase": "spec",
+      "exit": 10,
+      "meaning": "E_NO_QA_FILTERS：该模块的校验/运行错误（自动登记）",
+      "action": "按报错位置修正；无法判断时运行 `cvs doctor` 并附 out/error.json",
+      "auto": true
+    },
+    "E_NO_WEBSOCKET": {
+      "phase": "spec",
+      "exit": 10,
+      "meaning": "E_NO_WEBSOCKET：该模块的校验/运行错误（自动登记）",
+      "action": "按报错位置修正；无法判断时运行 `cvs doctor` 并附 out/error.json",
+      "auto": true
+    },
+    "E_NO_X264": {
+      "phase": "spec",
+      "exit": 10,
+      "meaning": "E_NO_X264：该模块的校验/运行错误（自动登记）",
+      "action": "按报错位置修正；无法判断时运行 `cvs doctor` 并附 out/error.json",
+      "auto": true
+    },
+    "E_RENDERER": {
+      "phase": "spec",
+      "exit": 10,
+      "meaning": "E_RENDERER：该模块的校验/运行错误（自动登记）",
+      "action": "按报错位置修正；无法判断时运行 `cvs doctor` 并附 out/error.json",
+      "auto": true
+    },
+    "E_ROUND_COUNT": {
+      "phase": "spec",
+      "exit": 10,
+      "meaning": "E_ROUND_COUNT：该模块的校验/运行错误（自动登记）",
+      "action": "按报错位置修正；无法判断时运行 `cvs doctor` 并附 out/error.json",
+      "auto": true
+    },
+    "E_ROUND_NAME": {
+      "phase": "spec",
+      "exit": 10,
+      "meaning": "E_ROUND_NAME：该模块的校验/运行错误（自动登记）",
+      "action": "按报错位置修正；无法判断时运行 `cvs doctor` 并附 out/error.json",
+      "auto": true
+    },
+    "E_ROUND_TOTAL": {
+      "phase": "spec",
+      "exit": 10,
+      "meaning": "E_ROUND_TOTAL：该模块的校验/运行错误（自动登记）",
+      "action": "按报错位置修正；无法判断时运行 `cvs doctor` 并附 out/error.json",
+      "auto": true
+    },
+    "E_SCRIPT_COVER": {
+      "phase": "ui",
+      "exit": 2,
+      "meaning": "E_SCRIPT_COVER：该模块的校验/运行错误（自动登记）",
+      "action": "按报错位置修正；无法判断时运行 `cvs doctor` 并附 out/error.json",
+      "auto": true
+    },
+    "E_SCRIPT_GAP": {
+      "phase": "ui",
+      "exit": 2,
+      "meaning": "E_SCRIPT_GAP：该模块的校验/运行错误（自动登记）",
+      "action": "按报错位置修正；无法判断时运行 `cvs doctor` 并附 out/error.json",
+      "auto": true
+    },
+    "E_SCRIPT_T": {
+      "phase": "ui",
+      "exit": 2,
+      "meaning": "E_SCRIPT_T：该模块的校验/运行错误（自动登记）",
+      "action": "按报错位置修正；无法判断时运行 `cvs doctor` 并附 out/error.json",
+      "auto": true
+    },
+    "E_SHOT": {
+      "phase": "spec",
+      "exit": 10,
+      "meaning": "E_SHOT：该模块的校验/运行错误（自动登记）",
+      "action": "按报错位置修正；无法判断时运行 `cvs doctor` 并附 out/error.json",
+      "auto": true
+    },
+    "E_UNSUPPORTED": {
+      "phase": "spec",
+      "exit": 10,
+      "meaning": "E_UNSUPPORTED：该模块的校验/运行错误（自动登记）",
+      "action": "按报错位置修正；无法判断时运行 `cvs doctor` 并附 out/error.json",
+      "auto": true
+    },
+    "E_VALIDATOR": {
+      "phase": "spec",
+      "exit": 10,
+      "meaning": "E_VALIDATOR：该模块的校验/运行错误（自动登记）",
+      "action": "按报错位置修正；无法判断时运行 `cvs doctor` 并附 out/error.json",
+      "auto": true
+    },
+    "E_BRAND_CHECK": {
+      "phase": "spec",
+      "exit": 10,
+      "meaning": "品牌检查有 error（禁用词/logo/对比度）",
+      "action": "按提示改文案或 brand kit；brand apply 也会返回 1"
+    },
+    "E_COVER": {
+      "phase": "qa",
+      "exit": 13,
+      "meaning": "封面渲染失败",
+      "action": "看 image 日志；用 --no-cover 或修 card 页"
+    },
+    "E_SUBTITLES_MISSING": {
+      "phase": "qa",
+      "exit": 13,
+      "meaning": "要烧字幕但 master.srt 不存在",
+      "action": "去掉 --no-deliver，或去掉 --burn-subtitles"
+    },
+    "E_BURN_SUBTITLES": {
+      "phase": "qa",
+      "exit": 13,
+      "meaning": "字幕烧录失败",
+      "action": "检查 ffmpeg 是否带 libass/subtitles 滤镜"
+    },
+    "E_DELIVER": {
+      "phase": "qa",
+      "exit": 13,
+      "meaning": "delivery.json 生成失败",
+      "action": "检查 outDir 写权限与 master.mp4"
+    },
+    "E_NO_FONT_LOCK": {
+      "phase": "env",
+      "exit": 14,
+      "meaning": "缺少 shared/fonts.lock.json 或与磁盘不一致",
+      "action": "node scripts/bundle-fonts.mjs --lock-only"
+    },
+    "E_ENV_MISMATCH": {
+      "phase": "qa",
+      "exit": 13,
+      "meaning": "渲染环境（Chrome/字体）与 committed golden 不一致",
+      "action": "用 --selfcheck 在本机重建基线，或换同一镜像"
+    },
+    "E_NO_MASTER": {
+      "phase": "qa",
+      "exit": 13,
+      "meaning": "快照要求 master.mp4 存在",
+      "action": "先跑 cvs build"
+    },
+    "E_VERSION_UNKNOWN": {
+      "phase": "qa",
+      "exit": 13,
+      "meaning": "指定的版本快照不存在",
+      "action": "cvs history 查看可用版本"
+    },
+    "E_SNAPSHOT_TAMPERED": {
+      "phase": "qa",
+      "exit": 13,
+      "meaning": "快照文件与记录的 sha256 不符，拒绝回滚",
+      "action": "cvs verify <v> 定位文件；从备份恢复"
+    },
+    "E_ROLLBACK_HASH": {
+      "phase": "qa",
+      "exit": 13,
+      "meaning": "回滚后 master 哈希与记录不一致",
+      "action": "检查磁盘写入；不要手工改 versions/"
+    },
+    "E_COMMAND": {
+      "phase": "usage",
+      "exit": 2,
+      "meaning": "未知子命令",
+      "action": "cvs --help"
+    },
+    "E_JOB": {
+      "phase": "env",
+      "exit": 14,
+      "meaning": "job 失败但没有 error.json（旧 job 或非编译失败）",
+      "action": "看 build.log 与 job.error"
+    }
+  }
+}

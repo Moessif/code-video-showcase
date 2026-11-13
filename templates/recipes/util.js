@@ -12,6 +12,9 @@
 
 export const TAU = Math.PI * 2;
 
+// v2.4/P1-06：安全区唯一真值。util.js 只 re-export，页面继续 import safePad。
+import { safe } from '../tokens.mjs';
+
 /* ─────────────────────────────── 数值 / 缓动 ─────────────────────────────── */
 
 export const clamp = (v, a = 0, b = 1) => (v < a ? a : v > b ? b : v);
@@ -115,9 +118,13 @@ export function setupStage(canvas, fallbackW = 1920, fallbackH = 1080) {
   };
 }
 
-/** 安全区边距：1080p 下约 81px，竖屏按短边走。 */
+/**
+ * 安全区边距：1080p 下约 81px，竖屏按短边走。
+ * v2.4/P1-06：唯一真值移到 tokens.mjs 的 safe()，这里只做兼容 re-export，
+ * 避免 13 个页面各自维护一套百分比。
+ */
 export function safePad(W, H) {
-  return Math.round(clamp(Math.min(W, H) * 0.075, 20, 140));
+  return safe(W, H).x;
 }
 
 /* ─────────────────────────────── 排版 ─────────────────────────────── */

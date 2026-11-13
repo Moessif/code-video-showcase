@@ -163,6 +163,27 @@ async function main() {
       assert.equal(body.stats.frames, 120);
       assert.equal(body.stats.segments, 5);
       assert.equal(body.stats.fps, 30);
+      assert.equal(body.errorCode, null, 'done job must have no errorCode');
+      assert.match(body.artifactPath || '', /master\.mp4$/, `artifactPath=${body.artifactPath}`);
+    });
+
+    await test('done job 不受陈旧 error.json 影响（不报假红）', async () => {
+      // 复现：outDir 里躺着上一次构建的失败记录。成功的 job 不该顶着旧错误码。
+      const stale = path.join(ROOT, 'out', 'api', jobId, 'error.json');
+      fs.writeFileSync(stale, JSON.stringify({
+        ok: false, phase: 'render', code: 'E_RENDER', message: 'stale failure from a previous build',
+        failedSegment: '00-opening', failedSegments: ['00-opening'],
+      }));
+      try {
+        const { body } = await jsonFetch(`${base}/jobs/${jobId}`);
+        assert.equal(body.status, 'done');
+        assert.equal(body.errorCode, null, `stale error.json leaked errorCode=${body.errorCode}`);
+        assert.equal(body.phase, null, `stale error.json leaked phase=${body.phase}`);
+        assert.deepEqual(body.failedSegments, []);
+        assert.match(body.artifactPath || '', /master\.mp4$/);
+      } finally {
+        fs.rmSync(stale, { force: true });
+      }
     });
 
     await test('master.mp4 has exactly 120 frames', async () => {
@@ -240,6 +261,39 @@ async function main() {
       const again = await jsonFetch(`${base}/jobs/${id}`);
       assert.equal(again.body.status, 'cancelled');
     });
+
+    await test('失败 job 暴露 errorCode / phase / logPath / errorPath（P1-04）', async () => {
+      // 页面在 renderFrame 里主动抛错：plan 校验通过，渲染阶段必失败。
+      const failPage = path.join(ROOT, 'out', 'api-fail', 'page-throws.html');
+      fs.mkdirSync(path.dirname(failPage), { recursive: true });
+      fs.writeFileSync(failPage, `<!doctype html><meta charset="utf-8"><body><canvas id="c"></canvas>
+<script>
+window.renderFrame = () => { throw new Error('intentional api-test render failure'); };
+window.__ready = true;
+</script></body>`);
+      const spec = buildSpec();
+      spec.opening.page = 'out/api-fail/page-throws.html';
+      spec.opening.name = 'throws';
+      const post = await jsonFetch(`${base}/jobs`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(spec),
+      });
+      assert.equal(post.res.status, 202, JSON.stringify(post.body));
+      // 预算 300s：这个 job 有 5 段真渲染 + 失败段 3 次尝试 + 一次浏览器重启，
+      // 独立实测约 75s；全套并发负载下会翻倍。旧预算 120s 恰好等于渲染器的
+      // --timeout（页面 ready 预算），两者同时到点，看起来像「挂死」其实是预算不够。
+      const job = await pollJob(base, post.body.id, 300000);
+      assert.equal(job.status, 'failed', `expected failed, got ${job.status}`);
+      assert.equal(typeof job.errorCode, 'string', 'errorCode missing');
+      assert.equal(job.phase, 'render', `phase=${job.phase}`);
+      assert.match(job.logPath || '', /build\.log$/, `logPath=${job.logPath}`);
+      // logPath 是构建日志，detailPath 才是阶段诊断产物；两者不能混用一个名字。
+      assert.match(job.detailPath || '', /render-manifest\.json$/, `detailPath=${job.detailPath}`);
+      assert.match(job.errorPath || '', /error\.json$/, `errorPath=${job.errorPath}`);
+      assert.equal(job.artifactPath, null, 'failed job must not claim an artifact');
+      assert.ok(Array.isArray(job.failedSegments), 'failedSegments must be an array');
+    });
   } finally {
     await boot.server.shutdown();
   }
@@ -269,6 +323,62 @@ async function main() {
       });
     } finally {
       await boot2.server.shutdown();
+    }
+  }
+
+  // ── CSRF / 内容类型 / 远程页面（v2.3.5 安全收紧） ──────────────────────────
+  {
+    const boot3 = await startServer({ port: 0, host: '127.0.0.1', root: ROOT });
+    try {
+      await test('POST /jobs 缺 Content-Type: application/json → 415', async () => {
+        const r = await jsonFetch(`${boot3.url}/jobs`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'text/plain', Origin: 'http://evil.example' },
+          body: JSON.stringify(buildSpec()),
+        });
+        assert.equal(r.res.status, 403); // Origin 先于 Content-Type 被拒
+        assert.equal(r.body.code, 'E_ORIGIN');
+
+        const r2 = await jsonFetch(`${boot3.url}/jobs`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'text/plain' },
+          body: JSON.stringify(buildSpec()),
+        });
+        assert.equal(r2.res.status, 415);
+        assert.equal(r2.body.code, 'E_CONTENT_TYPE');
+      });
+
+      await test('跨源 Origin 的 JSON POST → 403 E_ORIGIN（不创建 job）', async () => {
+        const before = (await jsonFetch(`${boot3.url}/health`)).body.jobs;
+        const r = await jsonFetch(`${boot3.url}/jobs`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Origin: 'http://evil.example' },
+          body: JSON.stringify(buildSpec()),
+        });
+        assert.equal(r.res.status, 403);
+        assert.equal(r.body.code, 'E_ORIGIN');
+        const after = (await jsonFetch(`${boot3.url}/health`)).body.jobs;
+        assert.equal(after, before);
+      });
+
+      await test('HTTP 客户端不能自带 allowRemotePages（SSRF 闸门）', async () => {
+        const spec = buildSpec();
+        spec.opening.page = 'http://169.254.169.254/latest/meta-data/';
+        spec.render = { ...(spec.render || {}), allowRemotePages: true };
+        const r = await jsonFetch(`${boot3.url}/jobs`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(spec),
+        });
+        assert.equal(r.res.status, 400);
+        assert.ok(JSON.stringify(r.body.issues).includes('E_PAGE_REMOTE'), JSON.stringify(r.body.issues));
+      });
+
+      await test('非回环 host 且无 token → 拒绝启动', async () => {
+        await assert.rejects(startServer({ port: 0, host: '0.0.0.0', root: ROOT }), /non-loopback/i);
+      });
+    } finally {
+      await boot3.server.shutdown();
     }
   }
 

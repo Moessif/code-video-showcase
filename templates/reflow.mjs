@@ -15,13 +15,16 @@
  */
 
 /** 支持的画幅（与 schema 的 format.aspect 枚举一致）。 */
-export const SUPPORTED_ASPECTS = ['16:9', '9:16', '1:1'];
+export const SUPPORTED_ASPECTS = ['16:9', '9:16', '1:1', '3:4', '6:7'];
 
 /** 每个画幅的标准输出尺寸（偶数，yuv420p 安全）。 */
 export const ASPECT_SIZES = {
   '16:9': { width: 1920, height: 1080 },
   '9:16': { width: 1080, height: 1920 },
   '1:1': { width: 1080, height: 1080 },
+  // 小红书 3:4 与视频号 6:7：以前只能出 9:16 再补黑边，现在是真版面。
+  '3:4': { width: 1080, height: 1440 },
+  '6:7': { width: 1080, height: 1260 },
 };
 
 /**
@@ -36,6 +39,8 @@ const PARAMS = {
   '16:9': { scale: 1, safe: [96, 64], fontScale: 1, maxLines: 2, stack: false },
   '9:16': { scale: 0.72, safe: [80, 120], fontScale: 0.82, maxLines: 3, stack: true },
   '1:1': { scale: 0.86, safe: [64, 96], fontScale: 0.9, maxLines: 2, stack: true },
+  '3:4': { scale: 0.78, safe: [72, 110], fontScale: 0.86, maxLines: 3, stack: true },
+  '6:7': { scale: 0.84, safe: [72, 100], fontScale: 0.9, maxLines: 3, stack: true },
 };
 
 /**
@@ -46,6 +51,8 @@ const LAYOUT_REMAP = {
   '16:9': { 0: 0, 1: 1, 2: 2, 3: 3 },
   '9:16': { 0: 0, 1: 1, 2: 2, 3: 2 },
   '1:1': { 0: 0, 1: 1, 2: 2, 3: 3 },
+  '3:4': { 0: 0, 1: 1, 2: 2, 3: 2 },
+  '6:7': { 0: 0, 1: 1, 2: 2, 3: 2 },
 };
 
 function normalizeAspect(aspect) {
@@ -61,6 +68,8 @@ function aspectFromSize(width, height) {
   if (Math.abs(w / h - 16 / 9) < 0.01) return '16:9';
   if (Math.abs(w / h - 9 / 16) < 0.01) return '9:16';
   if (Math.abs(w / h - 1) < 0.01) return '1:1';
+  if (Math.abs(w / h - 3 / 4) < 0.01) return '3:4';
+  if (Math.abs(w / h - 6 / 7) < 0.01) return '6:7';
   return null;
 }
 

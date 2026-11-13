@@ -22,7 +22,7 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { launch, evaluate, browserCandidates } from '../templates/cdp.mjs';
+import { launch, evaluate, browserCandidates, launchRetry } from '../templates/cdp.mjs';
 import { createStaticServer } from '../app/canvas/serve.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -32,11 +32,22 @@ const RENDER = path.join(ROOT, 'templates', 'render-segment.mjs');
 const FFPROBE = process.env.FFPROBE_EXE || 'ffprobe';
 const SLEEP = (ms) => new Promise((r) => setTimeout(r, ms));
 
-// D7 冻结基线（docs/DECISIONS.md）
+// D7 冻结基线（docs/DECISIONS.md）。v2.4 重定一次，理由见 D7 附注：
+// v2.3.5 去掉开发者占位文案、v2.4 引入排版 token，16:9 像素**有意**变了。
+// 重定前已验证 HEAD 页面仍能复现旧哈希，且本轮 D3 接线修复对基线零像素漂移。
 const D7 = {
-  'big-card': '6915e0bf21ce229725c577f45bdddfe4599b423187553b7f641fde36f477eff0',
-  segment: '16cadad4252c12462cdc92a1c6ca502293e5aed99fc8a595707011c362641905',
+  'big-card': 'af48254753aeaa0758b2489b285e259e50d8b876460d43e2ab22b63ba298dc0c',
+  segment: 'b39be97209eba14714bd57b9d313779eb3882d4d371c74d6c43aab08bfd8f08e',
+  // 带内容的基线：无参数形态在 v2.3.5 之后几乎只剩 HUD/背景，守不住标题排版。
+  'big-card-content': '416a84f63e44e33266c12f9f7c548ecf10a4ce5b9b246e575c3bc0e6610988d3',
+  'segment-content': 'cd9142a5fe5499e316914318ff1b30d769a7235970722117eaec0fd1b1c19641',
 };
+const D7_CONTENT_PAGE = {
+  'big-card': 'templates/big-card.html?first=契约&keyword=基线？&brand=CVS',
+  segment: 'templates/segment.html?title=契约基线&sub=副标题&brand=CVS',
+};
+// 命中表审计必须带内容：空文本不注册命中区（D7 v2.4），没有标题就无从验证标题重排。
+const SEG_AUDIT_QS = 'seg=1&t0=0&speed=1&dur=3&title=契约基线&sub=副标题&brand=CVS';
 
 let passed = 0;
 let failed = 0;
@@ -209,6 +220,19 @@ async function main() {
       dim.ok ? `${dim.width}x${dim.height}` : dim.error);
   }
 
+  // 带内容的 16:9 基线：标题/副标题真的在画面上，才守得住排版回归。
+  for (const [name, t] of [['big-card', 0.5], ['segment', 1.2]]) {
+    const r = renderStill({
+      page: D7_CONTENT_PAGE[name], width: 1920, height: 1080, t,
+      outdir: path.join(OUT, 'baseline-16x9-content', name),
+    });
+    check(`16:9 ${name}(带内容) still 产出`, r.ok && fileSize(r.file) > 5000, `${r.file} (${fileSize(r.file)} B)`);
+    if (r.ok) {
+      const h = sha256(r.file);
+      check(`16:9 ${name}(带内容) SHA-256 === D7`, h === D7[`${name}-content`], h);
+    }
+  }
+
   // ---------- 2. 1080×1920 still ----------
   section('9:16 still（render-segment --width 1080 --height 1920 + ffprobe）');
   const vBig = renderStill({ page: 'templates/big-card.html', width: 1080, height: 1920, t: 0.5, outdir: path.join(OUT, '9x16', 'big-card') });
@@ -246,7 +270,7 @@ async function main() {
 
   let browser = null;
   try {
-    browser = await launch({ executablePath: chrome, width: 1080, height: 1920, timeout: 40000 });
+    browser = await launchRetry({ executablePath: chrome, width: 1080, height: 1920, timeout: 40000 });
     const bigAudit = await auditPage(browser, origin, {
       pagePath: '/templates/big-card.html?seg=1&t0=0&speed=1&dur=1',
       t: 1.0,
@@ -256,7 +280,7 @@ async function main() {
     reportAudit('9:16 big-card', bigAudit, { width: 1080, height: 1920 });
 
     const segAudit = await auditPage(browser, origin, {
-      pagePath: '/templates/segment.html?seg=1&t0=0&speed=1&dur=3',
+      pagePath: `/templates/segment.html?${SEG_AUDIT_QS}`,
       t: 1.2,
       expectIds: ['title.main', 'title.sub', 'hud.capsule', 'hud.countdown', 'hud.stamp'],
       probeIds: ['title.main', 'hud.capsule', 'hud.countdown'],
@@ -277,7 +301,7 @@ async function main() {
     });
     reportAudit('1:1 big-card', sqBig, { width: 1080, height: 1080 });
     const sqSeg = await auditPage(browser, origin, {
-      pagePath: '/templates/segment.html?seg=1&t0=0&speed=1&dur=3',
+      pagePath: `/templates/segment.html?${SEG_AUDIT_QS}`,
       t: 1.2,
       expectIds: ['title.main', 'hud.capsule'],
       probeIds: ['title.main', 'hud.capsule'],

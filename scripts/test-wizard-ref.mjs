@@ -16,7 +16,7 @@
 import { spawn } from 'node:child_process';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { launch, evaluate, waitFor, browserCandidates } from '../templates/cdp.mjs';
+import { launch, evaluate, waitFor, browserCandidates, launchRetry } from '../templates/cdp.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(HERE, '..');
@@ -47,7 +47,7 @@ async function main() {
 
   let browser = null;
   try {
-    browser = await launch({
+    browser = await launchRetry({
       executablePath: process.env.CHROME_EXE || candidates[0],
       width: 1440, height: 900, timeout: 30000,
     });

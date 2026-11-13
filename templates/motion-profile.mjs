@@ -147,6 +147,14 @@ const STYLE_MOTION = {
   flat: 'standard',
   minimal: 'calm',
   vertical: 'dynamic',
+  // v2.5 新增画风 + kinetic
+  kinetic: 'dynamic',
+  swiss: 'calm',
+  editorial: 'calm',
+  brutalist: 'dynamic',
+  vaporwave: 'dynamic',
+  blueprint: 'standard',
+  risograph: 'calm',
 };
 
 const KIND_MOTION = {
@@ -158,6 +166,23 @@ const KIND_MOTION = {
   'data-report': 'standard',
   recruiting: 'standard',
   annual: 'calm',
+  // v2.5 新增垂直领域
+  tutorial: 'standard',
+  changelog: 'dynamic',
+  event: 'dynamic',
+  podcast: 'calm',
+  travel: 'calm',
+  food: 'standard',
+  fitness: 'maximal',
+  realestate: 'calm',
+  fintech: 'standard',
+  healthcare: 'calm',
+  course: 'calm',
+  gaming: 'maximal',
+  music: 'dynamic',
+  nonprofit: 'calm',
+  sports: 'maximal',
+  localbiz: 'standard',
 };
 
 /** 合法档位名；非法值返回 null（调用方决定是报错还是回退）。 */

@@ -1,0 +1,163 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<link rel="stylesheet" href="/shared/fonts.css">
+<title>recipe 24 · swiss</title>
+<style>
+  html, body { margin: 0; padding: 0; overflow: hidden; background: #f4f4f2; }
+  #c { display: block; }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+
+<script type="module">
+// recipe-swiss.html — 风格段 24「瑞士国际主义 / 严格网格 / Helvetica / 红黑白的」。
+//
+// 渲染契约：window.DURATION / window.renderFrame(t)（纯函数）/ __ready / __bootError。
+// 画幅（D7）：setupStage() 取视口；竖屏把网格列数收窄、标题左对齐堆叠。
+//
+// 视觉（guizang Swiss 教义）：12 列网格、发丝线、单一强调色（红）、
+// 「越大越轻」——主标题 ≥72px 用 weight 300；≥75% 画面留白；不对称布局。
+// 入场：发丝线先画（outCubic），红色方块锚点落下，标题淡入 + 极轻上移。
+// 确定性：全部 t 的纯函数，无 Math.random / Date.now / rAF。
+import { createSegment, applyImpact2D, drawFlash, loadFonts, vars } from './common.js';
+import { themeFromURL, getTheme, loadFontsFor, hexToRgba } from './themes.js';
+import { clamp, ease, setupStage, safePad, fitTextSize, drawTracked, drawHud, drawTopMeta } from './recipes/util.js';
+import { typeSize, safe, probe } from './tokens.mjs';
+
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d', { alpha: false });
+const { W, H, portrait } = setupStage(canvas);
+const pad = safePad(W, H);
+
+const params = new URLSearchParams(location.search);
+const seg = createSegment({ duration: 3.0 });
+window.DURATION = seg.duration;
+const THEME = getTheme(themeFromURL(location.search));
+const V = vars();
+const BRAND = String(V.brand || 'CVS').slice(0, 24);
+const TITLE = String(params.get('title') || V.title || '网格即秩序').slice(0, 16);
+const SUB = String(V.subtitle || 'GRID · TYPOGRAPHY · CLARITY').slice(0, 48);
+
+// 瑞士派固定调色板（不随主题漂移）：纸白 / 墨黑 / 信号红。
+const PAPER = '#f4f4f2';
+const INK = '#111111';
+const RED = '#e2231a';
+const HAIR = hexToRgba(INK, 0.16);
+const MUTED = hexToRgba(INK, 0.55);
+
+const SANS = '"Inter", "Noto Sans SC", "Helvetica Neue", sans-serif';
+const MONO = '"JetBrains Mono", ui-monospace, monospace';
+const FAMILIES = Array.from(new Set([...(loadFontsFor(THEME) || []), 'Inter', 'Noto Sans SC', 'JetBrains Mono']));
+
+let L = null;
+function buildLayout() {
+  const cols = portrait ? 6 : 12;
+  const colW = (W - pad * 2) / cols;
+  // 主标题：越大越轻（weight 300），占 8 列宽。
+  const titleMaxW = colW * (portrait ? cols : 8);
+  const size = fitTextSize(ctx, TITLE, { maxWidth: titleMaxW, family: SANS, weight: 300, maxSize: typeSize('title', W, H) * 1.25, minSize: 48, spacing: 0.01 });
+  probe('title', size, safe(W, H));
+  const titleX = pad;
+  const titleY = Math.round(H * (portrait ? 0.40 : 0.46));
+  const anchor = Math.round(colW * 0.9);
+  return {
+    cols, colW, size, titleX, titleY, titleMaxW, anchor,
+    subSize: Math.max(13, Math.round(size * 0.16)),
+    indexSize: Math.max(12, Math.round(size * 0.14)),
+    ruleY: Math.round(titleY + size * 0.72),
+  };
+}
+
+function drawGrid() {
+  ctx.save();
+  ctx.strokeStyle = HAIR;
+  ctx.lineWidth = 1;
+  for (let i = 0; i <= L.cols; i++) {
+    const x = Math.round(pad + i * L.colW) + 0.5;
+    ctx.beginPath(); ctx.moveTo(x, pad); ctx.lineTo(x, H - pad); ctx.stroke();
+  }
+  ctx.restore();
+}
+
+function drawScene(t) {
+  // 发丝横线先画
+  const rk = ease.outCubic(clamp(t / 0.5));
+  ctx.save();
+  ctx.strokeStyle = hexToRgba(INK, 0.4);
+  ctx.lineWidth = 1;
+  const rw = (W - pad * 2) * rk;
+  ctx.beginPath(); ctx.moveTo(pad, L.ruleY + 0.5); ctx.lineTo(pad + rw, L.ruleY + 0.5); ctx.stroke();
+  ctx.restore();
+
+  // 红色方块锚点（落下，outCubic）
+  const ak = ease.outCubic(clamp((t - 0.15) / 0.5));
+  if (ak > 0.001) {
+    const drop = (1 - ak) * -L.anchor * 0.6;
+    ctx.save();
+    ctx.globalAlpha = ak;
+    ctx.fillStyle = RED;
+    ctx.fillRect(Math.round(pad), Math.round(L.titleY - L.size * 1.18 + drop), L.anchor, L.anchor);
+    ctx.restore();
+  }
+
+  // 主标题（轻 weight，淡入 + 极轻上移）
+  const tk = ease.outCubic(clamp((t - 0.3) / 0.6));
+  if (tk > 0.001) {
+    ctx.save();
+    ctx.globalAlpha = tk;
+    ctx.fillStyle = INK;
+    ctx.font = `300 ${L.size}px ${SANS}`;
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'alphabetic';
+    ctx.fillText(TITLE, L.titleX, L.titleY + (1 - tk) * 10);
+    ctx.restore();
+  }
+
+  // 副题（等宽、字距拉开）+ 编号
+  const sk = ease.outCubic(clamp((t - 0.6) / 0.5));
+  if (sk > 0.001) {
+    ctx.save();
+    ctx.globalAlpha = sk;
+    drawTracked(ctx, SUB, L.titleX, L.ruleY + L.subSize * 2.2, {
+      size: L.subSize, family: MONO, weight: 500, color: MUTED, tracking: L.subSize * 0.3, align: 'left', baseline: 'middle',
+    });
+    ctx.font = `600 ${L.indexSize}px ${MONO}`;
+    ctx.fillStyle = RED;
+    ctx.textAlign = 'right';
+    ctx.fillText('No. 24', W - pad, L.ruleY + L.subSize * 2.2);
+    ctx.restore();
+  }
+}
+
+window.renderFrame = (u) => {
+  const { t, fx } = seg.sample(u);
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.globalAlpha = 1;
+  ctx.globalCompositeOperation = 'source-over';
+  ctx.save();
+  applyImpact2D(ctx, fx, W, H);
+  ctx.fillStyle = PAPER;
+  ctx.fillRect(-W, -H, W * 3, H * 3);
+  drawGrid();
+  drawScene(t);
+  drawTopMeta(ctx, { W, H, pad, text: `${BRAND} · SWISS`, sub: 'RECIPE 24 · INTERNATIONAL', color: MUTED, accent: RED });
+  drawHud(ctx, { W, H, u, duration: seg.duration, theme: THEME, label: 'STYLE 24', name: 'SWISS', brand: BRAND, pad, accent: RED, ink: MUTED, frameColor: INK });
+  ctx.restore();
+  drawFlash(ctx, fx.flash, W, H, '#ffffff');
+};
+
+window.__ready = false;
+window.__bootError = null;
+(async () => {
+  await loadFonts(FAMILIES);
+  L = buildLayout();
+  window.renderFrame(0);
+  window.__ready = true;
+})().catch((err) => { window.__bootError = String((err && err.stack) || err); });
+window.__seg = seg;
+</script>
+</body>
+</html>

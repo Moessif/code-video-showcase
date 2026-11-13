@@ -64,11 +64,38 @@ const CARD = {
   color: p.get('color') ?? '#ffcf5c',
   first: p.get('first') ?? '想做',
   keyword: p.get('keyword') ?? '科普视频？',
-  brand: p.get('brand') ?? '{{BRAND}}',
+  brand: p.get('brand') ?? '',
 };
 
-const FONT = '"Noto Sans SC", "Inter", sans-serif';
+const BRAND_FONT = String(p.get('brandFont') || '').trim().replace(/["'<>&\\]/g, '').slice(0, 80);
+const BRAND_LOGO = String(p.get('logo') || '').trim();
+const FONT = BRAND_FONT
+  ? `"${BRAND_FONT}", "Noto Sans SC", "Inter", sans-serif`
+  : '"Noto Sans SC", "Inter", sans-serif';
+let LOGO_IMG = null;
 let rnd = rng(1200 + CARD.index * 37);
+
+async function loadBrandLogo() {
+  if (!BRAND_LOGO) return;
+  const url = new URL(`/${BRAND_LOGO.replace(/^\/+/, '')}`, location.origin).href;
+  LOGO_IMG = await new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => resolve(img);
+    img.onerror = () => reject(new Error(`brand logo failed to load: ${BRAND_LOGO}`));
+    img.src = url;
+  });
+}
+
+function drawBrandLogo() {
+  if (!LOGO_IMG) return;
+  const h = Math.max(22, Math.round(Math.min(W, H) * 0.052));
+  const w = LOGO_IMG.naturalWidth * (h / LOGO_IMG.naturalHeight);
+  const m = Math.max(20, Math.round(Math.min(W, H) * 0.036));
+  ctx.save();
+  ctx.globalAlpha = 0.92;
+  ctx.drawImage(LOGO_IMG, W - m - w, m, w, h);
+  ctx.restore();
+}
 
 // ---------- theme ----------
 // 不传 ?theme= 时保留旧模板的默认路径（旧硬编码配色 + ?color= 强调色），保证逐像素不变。
@@ -383,7 +410,10 @@ function makeLayers(S) {
 // 默认 patches 为空 → 每个字段都回退到 CARD，与旧模板完全相同。
 function effectiveState() {
   const P = SPEC.patches;
-  const scope = mergePatches(P, 'card', null, {});
+  // 基座取 SPEC.params.card（与 segment.html 同一修复）：mergePatches 只叠加 patch，
+  // 传 {} 会让 params 变成装饰品。这里的值与 CARD.* 逐项相同，所以像素不变，
+  // 但「改 spec.params 就能改画面」这条 D3 契约从此真的成立。
+  const scope = mergePatches(P, 'card', null, { ...SPEC.params.card });
   const fp = mergePatches(P, 'card', 'card.first', {});
   const kp = mergePatches(P, 'card', 'card.keyword', {});
   const cp = mergePatches(P, 'card', 'card.color', {});
@@ -761,6 +791,7 @@ window.renderFrame = (u) => {
   // 质感层（v2.3）：颗粒 / 扫描线 / 纸纹。
   // standard 档三者的强度都是 0 → 完全不画 → 像素不变。
   drawTexture(t);
+  drawBrandLogo();
 
   registerHits(S, { s1, s2, sx, sy, footIndex });
 };
@@ -776,7 +807,8 @@ bridge.install();
 
 window.__ready = false;
 (async () => {
-  await loadFonts(['Noto Sans SC', 'Inter', 'JetBrains Mono', 'Orbitron']);
+  await loadBrandLogo();
+  await loadFonts(['Noto Sans SC', 'Inter', 'JetBrains Mono', 'Orbitron', ...(BRAND_FONT ? [BRAND_FONT] : [])]);
   ASSETS = makeLayers(STATE);     // rebuild text canvases with the real fonts
   window.renderFrame(0);
   window.__ready = true;

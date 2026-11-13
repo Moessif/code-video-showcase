@@ -1,0 +1,171 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<link rel="stylesheet" href="/shared/fonts.css">
+<title>recipe 25 · editorial</title>
+<style>
+  html, body { margin: 0; padding: 0; overflow: hidden; background: #f5f1e8; }
+  #c { display: block; }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+
+<script type="module">
+// recipe-editorial.html — 风格段 25「报纸编辑 / 衬线大标题 / 栏线 / 首字下沉 / 半调图」。
+//
+// 渲染契约：window.DURATION / window.renderFrame(t)（纯函数）/ __ready / __bootError。
+// 画幅（D7）：setupStage() 取视口；竖屏把双栏改单栏、半调图块移到标题上方。
+//
+// 视觉（Editorial E-ink 教义）：奶油纸底、衬线标题、细栏线、kicker（小标）+
+// headline（大标）+ deck（导语）、首字下沉、半调网点图块、纸纤维纹理。
+// 入场：栏线先画，kicker 淡入，标题逐字升起（kinetic），半调图块擦除揭示。
+// 确定性：全部 t 的纯函数；半调用 effects.mjs，纸纹用 motion.js。
+import { createSegment, applyImpact2D, drawFlash, loadFonts, vars } from './common.js';
+import { themeFromURL, getTheme, loadFontsFor, hexToRgba } from './themes.js';
+import { clamp, ease, setupStage, safePad, fitTextSize, drawTracked, drawHud, drawTopMeta } from './recipes/util.js';
+import { typeSize, safe, probe } from './tokens.mjs';
+import { drawHalftone } from './effects.mjs';
+import { drawPaperTexture, drawKineticText } from './motion.js';
+
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d', { alpha: false });
+const { W, H, portrait } = setupStage(canvas);
+const pad = safePad(W, H);
+
+const params = new URLSearchParams(location.search);
+const seg = createSegment({ duration: 3.0 });
+window.DURATION = seg.duration;
+const THEME = getTheme(themeFromURL(location.search));
+const V = vars();
+const BRAND = String(V.brand || 'CVS').slice(0, 24);
+const KICKER = String(V.caption || '特稿 · FEATURE').slice(0, 24);
+const TITLE = String(params.get('title') || V.title || '标题的诞生').slice(0, 18);
+const DECK = String(V.subtitle || '一份报纸的版面，如何把一件事讲清楚').slice(0, 40);
+
+const PAPER = '#f5f1e8';
+const INK = '#1a1a1a';
+const RED = '#9e2b25';
+const RULE = hexToRgba(INK, 0.3);
+const MUTED = hexToRgba(INK, 0.6);
+
+const SERIF = '"Noto Serif SC", "Songti SC", Georgia, serif';
+const SANS = '"Noto Sans SC", sans-serif';
+const MONO = '"JetBrains Mono", ui-monospace, monospace';
+const FAMILIES = Array.from(new Set([...(loadFontsFor(THEME) || []), 'Noto Serif SC', 'Noto Sans SC', 'JetBrains Mono']));
+
+let L = null;
+function buildLayout() {
+  const headMaxW = W - pad * 2;
+  const headSize = fitTextSize(ctx, TITLE, { maxWidth: headMaxW, family: SERIF, weight: 900, maxSize: typeSize('title', W, H), minSize: 44, spacing: 0.01 });
+  probe('title', headSize, safe(W, H));
+  const headY = Math.round(H * (portrait ? 0.46 : 0.42));
+  // 半调图块：横屏在右下，竖屏在标题上方。
+  const figW = Math.round(W * (portrait ? 0.7 : 0.30));
+  const figH = Math.round(H * (portrait ? 0.16 : 0.30));
+  const figX = portrait ? Math.round((W - figW) / 2) : Math.round(W - pad - figW);
+  const figY = portrait ? Math.round(H * 0.16) : Math.round(H * 0.50);
+  return {
+    headSize, headY, headMaxW, figW, figH, figX, figY,
+    kickerSize: Math.max(13, Math.round(headSize * 0.18)),
+    deckSize: Math.max(14, Math.round(headSize * 0.22)),
+    deckY: headY + Math.round(headSize * 0.9),
+    colX: Math.round(W * 0.5),
+  };
+}
+
+function drawScene(t) {
+  // 顶部双栏线 + 报头线
+  const rk = ease.outCubic(clamp(t / 0.45));
+  ctx.save();
+  ctx.strokeStyle = RULE;
+  ctx.lineWidth = 1;
+  const topY = pad * 1.4;
+  ctx.beginPath(); ctx.moveTo(pad, topY + 0.5); ctx.lineTo(pad + (W - pad * 2) * rk, topY + 0.5); ctx.stroke();
+  if (!portrait) {
+    ctx.beginPath(); ctx.moveTo(L.colX + 0.5, topY); ctx.lineTo(L.colX + 0.5, topY + (H - pad * 2.4) * rk); ctx.stroke();
+  }
+  ctx.restore();
+
+  // kicker（小标，红色）
+  const kk = ease.outCubic(clamp((t - 0.2) / 0.4));
+  if (kk > 0.001) {
+    ctx.save();
+    ctx.globalAlpha = kk;
+    drawTracked(ctx, KICKER, pad, topYFor(), { size: L.kickerSize, family: MONO, weight: 600, color: RED, tracking: L.kickerSize * 0.24, align: 'left', baseline: 'middle' });
+    ctx.restore();
+  }
+
+  // 半调图块（擦除揭示）
+  const fk = ease.outCubic(clamp((t - 0.35) / 0.6));
+  if (fk > 0.001) {
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(L.figX, L.figY, L.figW * fk, L.figH);
+    ctx.clip();
+    ctx.fillStyle = hexToRgba(INK, 0.06);
+    ctx.fillRect(L.figX, L.figY, L.figW, L.figH);
+    drawHalftone(ctx, { W, H, cell: 9, color: hexToRgba(INK, 0.7), alpha: 0.85, t });
+    ctx.strokeStyle = RULE;
+    ctx.strokeRect(L.figX + 0.5, L.figY + 0.5, L.figW, L.figH);
+    ctx.restore();
+  }
+
+  // 大标题（衬线，逐字升起）
+  const tk = clamp((t - 0.3) / 0.7);
+  if (tk > 0.001) {
+    drawKineticText(ctx, TITLE, tk, {
+      x: pad, y: L.headY, maxWidth: L.headMaxW, font: `900 ${L.headSize}px ${SERIF}`,
+      color: INK, mode: 'rise', stagger: 0.5, duration: 0.5, rise: 0.3, align: 'left',
+    });
+  }
+
+  // 导语 + 首字下沉
+  const dk = ease.outCubic(clamp((t - 0.8) / 0.5));
+  if (dk > 0.001) {
+    ctx.save();
+    ctx.globalAlpha = dk;
+    const dropCap = Array.from(DECK)[0] || '';
+    ctx.fillStyle = RED;
+    ctx.font = `900 ${Math.round(L.deckSize * 2.6)}px ${SERIF}`;
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'alphabetic';
+    ctx.fillText(dropCap, pad, L.deckY + L.deckSize * 1.4);
+    ctx.fillStyle = MUTED;
+    ctx.font = `400 ${L.deckSize}px ${SERIF}`;
+    ctx.fillText(Array.from(DECK).slice(1).join(''), pad + L.deckSize * 2.2, L.deckY + L.deckSize * 0.6);
+    ctx.restore();
+  }
+}
+function topYFor() { return pad * 1.4 + L.kickerSize * 1.8; }
+
+window.renderFrame = (u) => {
+  const { t, fx } = seg.sample(u);
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.globalAlpha = 1;
+  ctx.globalCompositeOperation = 'source-over';
+  ctx.save();
+  applyImpact2D(ctx, fx, W, H);
+  ctx.fillStyle = PAPER;
+  ctx.fillRect(-W, -H, W * 3, H * 3);
+  drawPaperTexture(ctx, { W, H, alpha: 0.05, seed: 7, t });
+  drawScene(t);
+  drawTopMeta(ctx, { W, H, pad, text: `${BRAND} · EDITORIAL`, sub: 'RECIPE 25 · PRESS', color: MUTED, accent: RED });
+  drawHud(ctx, { W, H, u, duration: seg.duration, theme: THEME, label: 'STYLE 25', name: 'EDITORIAL', brand: BRAND, pad, accent: RED, ink: MUTED, frameColor: INK });
+  ctx.restore();
+  drawFlash(ctx, fx.flash, W, H, '#ffffff');
+};
+
+window.__ready = false;
+window.__bootError = null;
+(async () => {
+  await loadFonts(FAMILIES);
+  L = buildLayout();
+  window.renderFrame(0);
+  window.__ready = true;
+})().catch((err) => { window.__bootError = String((err && err.stack) || err); });
+window.__seg = seg;
+</script>
+</body>
+</html>

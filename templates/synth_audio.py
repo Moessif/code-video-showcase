@@ -264,7 +264,13 @@ def kick_sidechain(n: int, kicks: list[float], depth: float = 0.55) -> np.ndarra
     return env
 
 
-def master(x: np.ndarray, peak_db: float = -0.6, drive: float = 1.1) -> np.ndarray:
+def master(x: np.ndarray, peak_db: float = -1.5, drive: float = 1.1) -> np.ndarray:
+    """Master bus: soft-clip then normalise to `peak_db`.
+
+    v2.3.5: 默认峰值从 -0.6 dB 收到 **-1.5 dB**。原来的 -0.6 dB 让合成器自己
+    就超过 qa-audio 的 -1.0 dBFS 门限 —— 自动配乐出的片子在质检里必然 WARN，
+    `--strict` 下必然失败。留 1.5 dB 余量给 AAC 编码与 loudnorm。
+    """
     x = np.tanh(x * drive)
     peak = np.max(np.abs(x)) or 1.0
     target = 10 ** (peak_db / 20)

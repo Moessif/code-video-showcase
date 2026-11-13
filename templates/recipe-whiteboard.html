@@ -34,6 +34,7 @@ import {
   TAU, clamp, ease, smooth, hash01, setupStage, safePad,
   fitTextSize, drawTracked, drawHud, drawTopMeta, roundRectPath,
 } from './recipes/util.js';
+import { typeSize, safe, probe } from './tokens.mjs';
 
 const canvas = document.getElementById('c');
 const ctx = canvas.getContext('2d', { alpha: false });
@@ -185,8 +186,9 @@ function buildLayout() {
   const titleMaxW = (W - pad * 2) * (portrait ? 0.9 : 0.62);
   const titleSize = fitTextSize(ctx, TITLE, {
     maxWidth: titleMaxW, family: HAND, weight: 700,
-    maxSize: Math.round(H * (portrait ? 0.085 : 0.105)), minSize: 30, spacing: 0.01,
+    maxSize: typeSize('title', W, H), minSize: 30, spacing: 0.01,
   });
+  probe('title', titleSize, safe(W, H));
 
   const availH = H - pad * 2;
   const titleY = Math.round(pad * 1.5 + titleSize * 0.7);

@@ -12,10 +12,15 @@
  */
 import { query } from './timeline.mjs';
 import { MOTION_LEVELS, deriveMotionProfile, motionQuery } from './motion-profile.mjs';
+import { isTransition, isTransitionOff, normalizeTransition } from './transitions.mjs';
 
 export const SPEC_VERSION = 1;
-/** 引擎版本：任何会改变逐帧像素的实现变更都必须 +1（进入段哈希）。 */
-export const ENGINE_VERSION = 1;
+/**
+ * 引擎版本：任何会改变逐帧像素的实现变更都必须 +1（进入段哈希）。
+ * v2.3.5 → 2：页面开始消费 title/sub/brand/capsule 参数，默认画面文案变了，
+ * 所有旧缓存段必须失效一次（一次性全量重渲，是有意为之）。
+ */
+export const ENGINE_VERSION = 2;
 
 const HEX = /^#([0-9a-f]{3}|[0-9a-f]{6})$/i;
 
@@ -35,6 +40,13 @@ const ABS_URL_RE = /^https?:\/\//i;
  * 纯正则实现——spec.mjs 要能在浏览器里跑，不能 import path/fs。
  */
 const ABS_PATH_RE = /^(?:\/|[A-Za-z]:[\\/]|\\\\)/;
+
+/**
+ * style 块允许的字段。未知字段直接报错，而不是静默吞掉——
+ * 之前 `style.motion:'maximal'` 能被读入、写进 spec、再被忽略，出片毫无变化。
+ * `params` 是给页面自定义参数留的逃生口。
+ */
+const STYLE_KEYS = new Set(['page', 'recipe', 't0', 'speed', 'motion', 'copy', 'reflow', 'name', 'label', 'params']);
 
 /** 资源上限（防止一个 spec 排出天文数字的段与帧）。 */
 export const MAX_FLASH_COUNT = 256;
@@ -61,7 +73,7 @@ export const DEFAULT_PAGES = {
 
 const DEFAULTS = {
   specVersion: SPEC_VERSION,
-  meta: { name: 'untitled', brand: '{{BRAND}}', cta: '', locale: 'zh-CN' },
+  meta: { name: 'untitled', title: '', description: '', tags: [], brand: '{{BRAND}}', cta: '', locale: 'zh-CN' },
   format: { width: 1920, height: 1080, fps: 30, aspect: '16:9', duration: null },
   look: { mode: 'showcase', style: null, theme: 'coral-noir', accentOverride: null, motion: null },
   audio: { mood: 'electronic', bpm: 120, vo: null },
@@ -74,10 +86,10 @@ const DEFAULTS = {
   script: null,
   assets: [],
   patches: [],
-  render: { quality: 'master', preset: 'bilibili', concurrency: 4, outDir: 'out', allowRemotePages: false },
+  render: { quality: 'master', preset: 'master', concurrency: 4, outDir: 'out', allowRemotePages: false },
 };
 
-const PRESETS = ['bilibili', 'douyin', 'youtube', 'wechat', 'master', 'square'];
+const PRESETS = ['bilibili', 'douyin', 'youtube', 'wechat', 'weixin', 'xiaohongshu', 'master', 'square'];
 const MOODS = ['electronic', 'restrained', 'epic', 'upbeat', 'guofeng'];
 
 const clone = (v) => (v === undefined ? undefined : JSON.parse(JSON.stringify(v)));
@@ -110,7 +122,7 @@ export function normalizeAccentOverride(input) {
 }
 
 const cjkLength = (s) => [...String(s ?? '')].length;
-const aspectOf = (w, h) => (Math.abs(w / h - 16 / 9) < 0.01 ? '16:9' : Math.abs(w / h - 9 / 16) < 0.01 ? '9:16' : Math.abs(w / h - 1) < 0.01 ? '1:1' : `${w}:${h}`);
+const aspectOf = (w, h) => (Math.abs(w / h - 16 / 9) < 0.01 ? '16:9' : Math.abs(w / h - 9 / 16) < 0.01 ? '9:16' : Math.abs(w / h - 1) < 0.01 ? '1:1' : Math.abs(w / h - 3 / 4) < 0.01 ? '3:4' : Math.abs(w / h - 6 / 7) < 0.01 ? '6:7' : `${w}:${h}`);
 
 /** timeline v1（旧格式）→ spec v1 */
 export function migrateTimeline(raw) {
@@ -140,7 +152,7 @@ export function migrateTimeline(raw) {
     ending: raw.ending || {},
     assets: raw.assets || [],
     patches: raw.patches || [],
-    render: { outDir: raw.meta?.outDir || 'out', quality: 'master', preset: 'bilibili', concurrency: 4 },
+    render: { outDir: raw.meta?.outDir || 'out', quality: 'master', preset: 'master', concurrency: 4 },
   };
 }
 
@@ -149,6 +161,10 @@ export function migrateTimeline(raw) {
  * 支持的 role：opening / card / scene / more / flash / ending。
  * card 与紧随其后的 scene 配对成一轮；未配对的 card 会被忽略并在 validate 中告警。
  */
+// beat 没给 copy 时的卡片文案缺省值。这不是用户内容，所以 validateSpec 会发
+// W_COPY_DEFAULT 把它暴露出来——静默把「想做 / 视频？」烧进成片是不诚实的。
+export const CARD_COPY_DEFAULT = { first: '想做', keyword: '视频？' };
+
 export function deriveFromScript(script, base = {}) {
   const blocks = [...script].sort((a, b) => (a.t?.[0] ?? 0) - (b.t?.[0] ?? 0));
   const structure = { ...DEFAULT_STRUCTURE, ...(base.structure || {}), flash: { ...DEFAULT_STRUCTURE.flash, ...(base.structure?.flash || {}) } };
@@ -183,8 +199,8 @@ export function deriveFromScript(script, base = {}) {
           card: {
             page: pendingCard.page || DEFAULT_PAGES.card,
             layout: pendingCard.layout,
-            first: (pendingCard.copy || [])[0] ?? '想做',
-            keyword: (pendingCard.copy || [])[1] ?? (pendingCard.copy || [])[0] ?? '视频？',
+            first: (pendingCard.copy || [])[0] ?? CARD_COPY_DEFAULT.first,
+            keyword: (pendingCard.copy || [])[1] ?? (pendingCard.copy || [])[0] ?? CARD_COPY_DEFAULT.keyword,
             color: pendingCard.color,
           },
           style: {
@@ -254,8 +270,8 @@ export function normalizeSpec(input) {
         layout: card.layout ?? i % 4,
         index: card.index ?? i + 1,
         total: card.total ?? spec.rounds.length,
-        first: card.first ?? '想做',
-        keyword: card.keyword ?? '视频？',
+        first: card.first ?? CARD_COPY_DEFAULT.first,
+        keyword: card.keyword ?? CARD_COPY_DEFAULT.keyword,
         color: card.color ?? '#ffcf5c',
         ...card,
       },
@@ -354,7 +370,32 @@ export function validateSpec(spec) {
     }
     if (!r.style?.page && !r.style?.recipe) err('E_STYLE_PAGE', `${at}.style`, 'style.page or style.recipe is required');
     if (r.style?.speed !== undefined && !(Number(r.style.speed) > 0)) err('E_SPEED', `${at}.style.speed`, 'speed must be > 0');
+    for (const k of Object.keys(r.style || {})) {
+      if (!STYLE_KEYS.has(k)) {
+        err('E_UNKNOWN_FIELD', `${at}.style.${k}`,
+          `unknown style field "${k}"; allowed: ${[...STYLE_KEYS].join(', ')}`);
+      }
+    }
+    if (r.style?.motion != null && !MOTION_LEVELS.includes(r.style.motion)) {
+      err('E_MOTION', `${at}.style.motion`, `motion must be one of ${MOTION_LEVELS.join('|')}, got ${r.style.motion}`);
+    }
+    if (r.style?.copy != null) {
+      if (typeof r.style.copy !== 'object' || Array.isArray(r.style.copy)) {
+        err('E_COPY', `${at}.style.copy`, 'copy must be an object {title, subtitle, caption}');
+      } else {
+        for (const k of Object.keys(r.style.copy)) {
+          if (!['title', 'subtitle', 'caption'].includes(k)) {
+            err('E_UNKNOWN_FIELD', `${at}.style.copy.${k}`, `unknown copy field "${k}"; allowed: title, subtitle, caption`);
+          } else if (typeof r.style.copy[k] !== 'string') {
+            err('E_COPY', `${at}.style.copy.${k}`, `${k} must be a string`);
+          }
+        }
+      }
+    }
     if (r.card?.color && !isHex(r.card.color)) warn('W_CARD_COLOR', `${at}.card.color`, `"${r.card.color}" is not #rgb/#rrggbb`);
+    if (r.card?.first === CARD_COPY_DEFAULT.first && r.card?.keyword === CARD_COPY_DEFAULT.keyword) {
+      warn('W_COPY_DEFAULT', `${at}.card`, `card copy is the built-in default ("${CARD_COPY_DEFAULT.first} / ${CARD_COPY_DEFAULT.keyword}"), not user content; supply beats[].copy[] (ignore if intentional)`);
+    }
     if (cjkLength(r.card?.first) > 8) warn('W_COPY_LEN', `${at}.card.first`, `first copy is ${cjkLength(r.card.first)} chars (recommended <= 8)`);
     if (cjkLength(r.card?.keyword) > 12) warn('W_COPY_LEN', `${at}.card.keyword`, `keyword is ${cjkLength(r.card.keyword)} chars (recommended <= 12)`);
   });
@@ -396,6 +437,30 @@ export function validateSpec(spec) {
     }
   }
 
+  // 素材路径同样是不可信输入：assets[].path 会被资产注册/打包链路读取。
+  // 绝对路径、盘符、UNC 与 `..` 一律拒绝（v2.4 / P1-10）。
+  const assets = Array.isArray(spec.assets) ? spec.assets : [];
+  assets.forEach((a, i) => {
+    const at = `assets[${i}]`;
+    if (!a || typeof a !== 'object' || Array.isArray(a)) {
+      err('E_ASSET', at, 'asset must be an object');
+      return;
+    }
+    if (a.path == null) return;
+    if (typeof a.path !== 'string' || !a.path.trim()) {
+      err('E_ASSET_PATH', `${at}.path`, 'asset path must be a non-empty string');
+      return;
+    }
+    const bare = String(a.path).split('?')[0].split('#')[0];
+    const segments = bare.split(/[\\/]+/);
+    if (ABS_URL_RE.test(bare)) {
+      err('E_ASSET_PATH', `${at}.path`, `remote asset "${bare}" is not allowed; assets must live inside the project`);
+    } else if (ABS_PATH_RE.test(bare) || segments.includes('..')) {
+      err('E_ASSET_PATH', `${at}.path`,
+        `asset path "${bare}" escapes the project root; use a relative path without ".."`);
+    }
+  });
+
   if (!spec.look?.theme) err('E_THEME', 'look.theme', 'theme id is required');
   if (spec.look?.motion != null && !MOTION_LEVELS.includes(spec.look.motion)) {
     err('E_MOTION', 'look.motion', `motion must be one of ${MOTION_LEVELS.join('|')}, got ${spec.look.motion}`);
@@ -410,6 +475,24 @@ export function validateSpec(spec) {
   if (spec.render?.preset && !PRESETS.includes(spec.render.preset)) err('E_PRESET', 'render.preset', `preset must be one of ${PRESETS.join('|')}`);
   if (spec.render?.concurrency !== undefined && !(Number(spec.render.concurrency) >= 1 && Number(spec.render.concurrency) <= 16)) {
     err('E_CONCURRENCY', 'render.concurrency', 'concurrency must be 1..16');
+  }
+  // 转场（v2.5）：名字与时长都要闸门，非法值不能静默变成硬切或抛裸异常。
+  if (!isTransitionOff(spec.render?.transition) && !isTransition(spec.render.transition)) {
+    err('E_TRANSITION', 'render.transition', `unknown transition "${spec.render.transition}"; see templates/transitions.mjs TRANSITIONS`);
+  }
+  if (spec.render?.transitionDuration !== undefined) {
+    const td = Number(spec.render.transitionDuration);
+    if (!Number.isFinite(td) || td <= 0 || td > 2) err('E_TRANSITION_DURATION', 'render.transitionDuration', 'transitionDuration must be in (0, 2] seconds');
+  }
+  // outDir 是 spec 里唯一能决定「写到哪」的字段，必须钉在项目根内。
+  // page 有闸门、id 有闸门，唯独它以前没有：`../../escape` 能把 plan/master 写到仓库外。
+  if (spec.render?.outDir !== undefined) {
+    const rawOut = String(spec.render.outDir);
+    const segments = rawOut.split(/[\\/]+/);
+    if (ABS_PATH_RE.test(rawOut) || segments.includes('..')) {
+      err('E_OUTDIR', 'render.outDir',
+        `outDir "${rawOut}" escapes the project root; use a relative path without ".."`);
+    }
   }
 
   // 剧本覆盖校验（仅 script 作者模式）
@@ -427,7 +510,25 @@ export function validateSpec(spec) {
     if (spec.meta?.orphanCards) warn('W_ORPHAN_CARD', 'script', `${spec.meta.orphanCards} card block(s) not followed by a scene; ignored`);
   }
 
-  if (spec.meta?.brand === '{{BRAND}}') warn('W_BRAND', 'meta.brand', 'brand is still the {{BRAND}} placeholder');
+  // 交付内容门禁：占位品牌 / 空标题以前只是 warning，默认路径会把
+  // `{{BRAND}}` 与开发者占位文案直接印进成片。现在它们是 error。
+  const brand = String(spec.meta?.brand ?? '').trim();
+  if (!brand) {
+    err('E_BRAND_MISSING', 'meta.brand', 'meta.brand is empty; set the brand name or run `cvs brand apply <kit>`');
+  } else if (brand === '{{BRAND}}') {
+    err('E_BRAND_PLACEHOLDER', 'meta.brand',
+      'brand is still the {{BRAND}} placeholder; set meta.brand (or meta.name) before building');
+  }
+  const title = String(spec.meta?.title || spec.opening?.title || spec.meta?.name || '').trim();
+  if (!title || title === 'untitled' || title === 'segment') {
+    err('E_TITLE_MISSING', 'meta.title',
+      'film has no title; set meta.title (or a real meta.name) — the opening/ending pages render it');
+  } else if (cjkLength(title) > 24) {
+    warn('W_TITLE_LEN', 'meta.title', `title is ${cjkLength(title)} chars (recommended <= 24)`);
+  }
+  if (spec.meta?.description != null && typeof spec.meta.description !== 'string') {
+    err('E_DESCRIPTION', 'meta.description', 'description must be a string');
+  }
   if (!String(spec.meta?.name || '').trim()) warn('W_NAME', 'meta.name', 'meta.name is empty');
 
   return issues;
@@ -454,6 +555,22 @@ export function specToTimeline(spec, { root, outDir } = {}) {
     width: spec.format.width,
     height: spec.format.height,
     outDir: outDir || spec.render?.outDir || 'out',
+    // 内容参数（v2.3.5）：页面不再回退到开发者占位文案。
+    // specMode 让 buildPlan 只对 spec 输入下发这些参数，timeline v1 输出保持逐字节不变。
+    specMode: true,
+    copyTitle: String(spec.meta?.title || spec.opening?.title || spec.meta?.name || '').trim(),
+    copySub: String(spec.opening?.sub || spec.meta?.description || '').trim(),
+    copyCta: String(spec.meta?.cta || '').trim(),
+    description: String(spec.meta?.description || '').trim(),
+    // 品牌视觉（v2.4 / P1-12）：logo 与品牌字族也下发到页面 URL。
+    // 页面只读 URL、不读 spec，所以必须和 theme/accent 一样由 plan 展开。
+    ...(spec.meta?.brandKit?.logo?.path ? { logo: spec.meta.brandKit.logo.path } : {}),
+    ...(spec.meta?.brandKit?.fonts?.heading ? { brandFont: spec.meta.brandKit.fonts.heading } : {}),
+    // 转场（v2.5）：非法值由 validateSpec 报 E_TRANSITION；这里只在合法时下发，
+    // 保证直接调 specToTimeline 也不会抛。null/缺省 = 硬切，与旧版逐字节一致。
+    ...(isTransition(spec.render?.transition)
+      ? { transition: normalizeTransition(spec.render.transition, spec.render?.transitionDuration) }
+      : {}),
   };
   if (root) meta.root = root;
 
@@ -466,7 +583,6 @@ export function specToTimeline(spec, { root, outDir } = {}) {
       page: query(r.style.page, r.style.recipe ? { recipe: r.style.recipe } : {}),
     },
   }));
-
   return {
     version: 1,
     meta,

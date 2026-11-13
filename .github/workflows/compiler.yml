@@ -12,16 +12,33 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
+          cache: npm
 
       - name: Install ffmpeg
         run: sudo apt-get update && sudo apt-get install -y ffmpeg
 
       - name: Install dependencies
-        run: npm ci --no-audit --no-fund || npm install --no-audit --no-fund
+        run: npm ci --no-audit --no-fund
 
-      - name: Pure-Node test suites
-        run: npm run test:all
+      - name: Error-code registry
+        run: node scripts/errors.mjs --check
+
+      - name: Font lock present and consistent
+        run: node -e "const fs=require('fs');const l=JSON.parse(fs.readFileSync('shared/fonts.lock.json','utf8'));if(!l.count||!l.setSha256)process.exit(1);console.log('fonts:',l.count,'set',l.setSha256.slice(0,12))"
+
+      - name: Pure-Node test suites (machine-readable)
+        run: |
+          mkdir -p out
+          node scripts/test-all.mjs --json | tee out/test-all.json
+
+      - name: Upload test report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-all-report
+          path: out/test-all.json
+          if-no-files-found: ignore
 
       - name: Spec gates (pages / theme / APCA)
         run: node scripts/spec-lint.mjs --spec fixtures/mini-41s/spec.json --root .
@@ -48,10 +65,11 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
+          cache: npm
 
       - name: Install dependencies
-        run: npm ci --no-audit --no-fund || npm install --no-audit --no-fund
+        run: npm ci --no-audit --no-fund
 
       - name: Build local fonts
         run: node scripts/build-fonts.mjs
@@ -63,3 +81,37 @@ jobs:
         env:
           CHROME_EXE: google-chrome
         run: node scripts/golden.mjs --selfcheck
+
+  windows-static:
+    # 跨平台契约：Windows 路径 / CRLF / 反斜杠不能只在作者机器上成立。
+    # 不渲染，只跑纯模块与 spec 闸门。
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci --no-audit --no-fund
+
+      - name: Pure-Node tests
+        run: node scripts/test-core.mjs
+
+      - name: Compiler contract
+        run: node scripts/test-compiler-contract.mjs
+
+      - name: Versioning contract
+        run: node scripts/test-versioning.mjs
+
+      - name: Type tokens (static half)
+        run: node scripts/test-type-tokens.mjs
+
+      - name: Spec gates
+        run: node scripts/spec-lint.mjs --spec fixtures/mini-41s/spec.json --root .
+
+      - name: Plan gates
+        run: node bin/cvs.mjs plan fixtures/mini-41s/spec.json --root . --check
+

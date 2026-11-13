@@ -5,13 +5,12 @@
  *   cvs new "帮我做个赛博像素的宣传片，30秒竖屏" --out project.spec.json
  *   cvs ref poster.jpg --spec project.spec.json --out project.spec.json
  *   cvs lint project.spec.json --root .
- *   cvs build project.spec.json --concurrency 4
- *   cvs variant project.spec.json --axes axes.json --out out/variants
- *   cvs ingest ./footage --target 60 --out out/ingest
- *   cvs wizard | canvas | script | versions
- *   cvs test [--browser]
+ *   cvs build project.spec.json --platform douyin --strict
+ *   cvs again --set look.theme=amber-noir
+ *   cvs deliver --spec project.spec.json
  *
  * 所有命令都是对现有脚本的薄封装；不引入新依赖。
+ * 退出码：0 成功；2 用法/未知命令；10 spec；11 render；12 concat；13 qa；14 env。
  */
 import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
@@ -19,6 +18,10 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+const VERSION = (() => {
+  try { return JSON.parse(fs.readFileSync(path.join(ROOT, 'package.json'), 'utf8')).version; }
+  catch { return '0.0.0'; }
+})();
 const [cmd, ...rest] = process.argv.slice(2);
 
 const node = (script, args) => spawnSync(process.execPath, [path.join(ROOT, script), ...args], {
@@ -39,10 +42,17 @@ const commands = {
   plan:     (a) => node('templates/plan.mjs', specArgs(a)),
   build:    (a) => node('scripts/compile.mjs', specArgs(a)),
   compile:  (a) => node('scripts/compile.mjs', specArgs(a)),
+  again:    (a) => node('scripts/again.mjs', a),
+  deliver:  (a) => node('scripts/deliver.mjs', specArgs(a)),
+  snapshot: (a) => node('scripts/versions.mjs', ['snapshot', ...specArgs(a)]),
+  rollback: (a) => node('scripts/versions.mjs', ['rollback', ...a]),
+  history:  (a) => node('scripts/versions.mjs', ['list', ...a]),
+  verify:   (a) => node('scripts/versions.mjs', ['verify', ...a]),
   variant:  (a) => node('scripts/variants.mjs', specArgs(a)),
   variants: (a) => node('scripts/variants.mjs', specArgs(a)),
   ingest:   (a) => node('ingest/cli.mjs', a.length && !a[0].startsWith('--') ? ['--input', ...a] : a),
   doctor:   (a) => node('scripts/doctor.mjs', a),
+  errors:   (a) => node('scripts/errors.mjs', a),
   brand:    (a) => node('scripts/brand.mjs', a),
   golden:   (a) => node('scripts/golden.mjs', a),
   image:    (a) => node('scripts/image.mjs', a),
@@ -53,67 +63,56 @@ const commands = {
   script:   () => node('app/script/serve.mjs', []),
   versions: () => node('app/versions/serve.mjs', []),
   review:   () => node('app/review/serve.mjs', []),
-  test:     (a) => {
-    const suites = [
-      'scripts/test-core.mjs',
-      'scripts/test-nl2spec.mjs',
-      'scripts/test-script.mjs',
-      'scripts/test-assets.mjs',
-      'scripts/test-variants.mjs',
-      'scripts/test-reflow.mjs',
-      'scripts/test-ref-core.mjs',
-      'scripts/test-from-reference.mjs',
-      'scripts/test-brand.mjs',
-      'scripts/test-motion-profile.mjs',
-      'scripts/test-style-pages.mjs',
-      'scripts/test-spec-security.mjs',
-      'scripts/test-accent-route.mjs',
-      'ingest/test-edl.mjs',
-    ];
-    if (a.includes('--browser')) {
-      suites.push(
-        'scripts/test-inspect.mjs',
-        'scripts/test-wizard-ref.mjs',
-        'scripts/test-reflow-pages.mjs',
-        'scripts/still-cyber-pixel.mjs',
-        'scripts/test-recipes.mjs',
-        'scripts/test-style-pages-render.mjs',
-        'scripts/test-image.mjs',
-        'server/test-api.mjs',
-      );
-    }
-    for (const s of suites) {
-      console.log(`\n=== ${s} ===`);
-      const r = node(s, []);
-      if (r.status !== 0) process.exit(r.status || 1);
-    }
-  },
+  test:     (a) => node('scripts/test-all.mjs', a),
 };
 
-if (!cmd || cmd === 'help' || cmd === '--help' || cmd === '-h' || !commands[cmd]) {
-  console.log(`cvs — video compiler
+function help() {
+  console.log(`cvs ${VERSION} — video compiler
 
 usage: cvs <command> [args]
 
   new "<text>" [--out spec.json]         natural language -> spec (deterministic rules)
   ref <image> [--spec spec] [--out f]    reference image -> theme / accent / density
-  lint <spec> [--root .]                 pages / theme / APCA / structure gates
+  lint <spec> [--root .] [--strict]      pages / theme / APCA / placeholder gates
   plan <spec> [--print]                  spec -> plan.json with per-segment hashes
-  build <spec> [--audio f] [--concurrency n] [--no-qa]
-                                         lint -> plan -> incremental render -> concat -> qa
-  variant <spec> --axes <file> [--out d] cartesian variants + manifest
+  build <spec> [--audio f|--no-audio] [--platform douyin] [--strict] [--burn-subtitles] [--cover]
+                                         validate -> plan -> incremental render -> concat -> qa
+  again [--set k=v] [--no-build]         edit last spec + rebuild only dirty segments
+  deliver [--spec f] [--json] [--cover img]  delivery.json + master.srt/.vtt + cover
+  snapshot [--spec f] [--label name]     version snapshot of master/spec/plan/qa (+ review.json)
+  history [--spec f] [--json]            list version snapshots in <outDir>/versions
+  verify <version> [--spec f]            re-hash a snapshot against its record
+  rollback <version> [--spec f]          restore a verified snapshot to outDir
+  variant <spec> --axes <file> [--out d] cartesian variants + manifest (one outDir per variant)
   ingest <file|dir> --target <sec>       footage -> EDL + spec draft
   brand apply|check|list                 brand kit apply / compliance check
   motion list|show|derive|matrix         motion profile levels + kind×style derivation
   golden [--update|--selfcheck]          byte-exact still regression
   image [--spec f] [--set a,b] [--at t]  spec -> image set (cover/card/poster/story/...); --list shows presets
-  api [--port 5190]                      job-queue HTTP service
+  api [--port 5190] [--host h] [--token t]  job-queue HTTP service (origin-checked)
   wizard | canvas | script | versions | review    start a dev surface (5181-5185)
   test [--browser]                       run all suites
-  doctor                                 environment check
+  doctor                                 environment check (renderer capability probe)
+  errors [--check|--write]               error-code registry / docs/ERRORS.md
 
-default spec: ./project.spec.json when present.`);
-  process.exit(cmd && cmd !== 'help' && cmd !== '--help' && cmd !== '-h' ? 2 : 0);
+default spec: ./project.spec.json when present.
+exit codes: 0 ok · 2 usage · 10 spec · 11 render · 12 concat · 13 qa · 14 env`);
+}
+
+if (cmd === '--version' || cmd === '-V' || cmd === 'version') {
+  console.log(VERSION);
+  process.exit(0);
+}
+
+if (!cmd || cmd === 'help' || cmd === '--help' || cmd === '-h') {
+  help();
+  process.exit(0);
+}
+
+if (!commands[cmd]) {
+  console.error(`[error] [E_UNKNOWN_COMMAND] ${cmd}`);
+  console.error(`run "cvs --help" to see the 20 supported commands`);
+  process.exit(2);
 }
 
 const r = commands[cmd](rest);

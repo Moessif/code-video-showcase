@@ -3,6 +3,259 @@
 本项目的版本更新记录。版本号遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)，格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
 每个版本同时发布在 [GitHub Releases](https://github.com/Moessif/code-video-showcase/releases)。
 
+## [v2.5.0] - 2026-11-13 — 覆盖领域 × 风格 × 效果 × 转场（研究背书）
+
+对标 Remotion / Motion Canvas / editly / FFCreator / GSAP 与本地 motion-doctrine /
+guizang / theme-factory / subtitled 等 skill，把编译器在四个维度上的覆盖补齐，
+每一项都带回归测试与真机渲染。新增 `docs/COVERAGE.md` 作为覆盖矩阵单一真值投影。
+
+### 新增
+- **段间转场（35 种）**：`templates/transitions.mjs` 是单一真值——FFmpeg `xfade`，
+  段 mp4 仍各自独立渲染（逐段确定性 / 缓存 / resume 不变），转场只在拼接阶段做。
+  「段起点平移」数学同时驱动 plan / 字幕 cue / 配乐 / concat：N 段、转场 t、fps，
+  第 i 段成片起点 = 原起点 − i·round(t·fps)，成片总帧 = 原总帧 − (N−1)·tf，
+  xfade offset = 平移后段起点。**默认关闭逐字节不变**。CLI `--transition` /
+  `--transition-duration`，spec `render.transition`。`schema/errors.json` 增
+  `E_TRANSITION` / `E_TRANSITION_DURATION`。
+- **共享确定性效果库（26 个）**：`templates/effects.mjs` 命名目录，5 类
+  （text/particle/post/camera/audio）。纯核是 `(t,seed)` 纯函数（Node 可测确定性），
+  canvas 包装复用 motion.js 的 grain/scanlines/RGBSplit/bloom/halation/kineticText。
+  新增 scramble/splitFlap/typewriter、confetti/sparks/snow/bubbles/embers 粒子、
+  vignette/halftone/dotGrid/lightLeak/crt/duotone 后期、kenBurns/shake/parallax 相机、
+  beatPulse/spectrum 音频反应。探针页 `effects-probe.html`。
+- **6 个新风格页 + 收编 kinetic（共 20 风格）**：swiss（瑞士网格）、editorial（报纸编辑）、
+  brutalist（新粗野）、vaporwave（蒸汽波）、blueprint（工程蓝图）、risograph（孔版印刷），
+  并把此前未注册的 `recipe-kinetic.html` 收编进 `STYLE_PAGES`。全部逐帧确定性、横竖屏真重排，
+  注册进 style-pages / motion-profile / nl2spec 三处真值。
+- **领域 8 → 24**：新增 tutorial/changelog/event/podcast/travel/food/fitness/realestate/
+  fintech/healthcare/course/gaming/music/nonprofit/sports/localbiz 共 16 个垂直场景，
+  各带默认风格/主题/mood/时长/CTA/文案与关键词识别。`content/presets.json` 首屏预设 8 → 16。
+
+### 修复
+- **xfade 拼接 OOM**（真缺陷）：N 路 xfade 同时解码 N 段，默认线程 + x264 lookahead
+  在 Windows 耗尽 commit，表现为 `x264 malloc failed` / 伪 `decode_slice_header error`。
+  shell 与 compile 两条路径都加内存上限：解码线程 2、滤镜图单线程、x264
+  `rc-lookahead=8:sync-lookahead=0`。7 段实测从崩溃到稳定输出 66 帧。
+- **xfade offset 二次平移**（真缺陷）：`plan.segments` 已被 timeline 平移，旧
+  `xfadeOffsets` 内部又 `shiftSegments` 一次 → 负 offset → 成片塌缩成最后一段（18f 而非 66f）。
+  现在 `xfade*` 接收**已平移**段、不再内部平移；`shiftSegments`/`totalFrames` 接收原始段。
+  新增 plan 级回归测试钉死「offset 严格递增非负」。
+- **转场长于最短段**：新增 plan 阶段闸门——转场时长 ≥ 最短段帧数时报
+  `E_TRANSITION_DURATION`（否则该段被两侧重叠吃光、起点非单调）。
+- **效果库 re-export 缺失**（真缺陷）：vaporwave/risograph 从 effects.mjs import
+  `drawScanlines`/`drawGrain`，但 effects.mjs 只 import 未 re-export → 页面拿到 undefined →
+  启动期 TypeError、`__ready` 永不置位。现在目录复用的 motion.js 原语一并 re-export；
+  `test-effects.mjs` 加强为「每个 draw 目标必须由 effects.mjs 自己导出」。
+
+### 测试
+- 新增 `test-transitions.mjs`（14）、`test-effects.mjs`（14）、`test-effects-render.mjs`（5，真机）、
+  `test-domains.mjs`（7），全部并入 `test-all.mjs`。
+- 转场真机 e2e：7 段 + fade 0.4s → 成片 180f/6.0s（= 252 − 6×12），video QA 19/0、audio QA 6/0、BUILD=0。
+- 新风格真机渲染 + 视觉验收（vaporwave/brutalist/swiss/risograph 逐项确认无缺陷）。
+
+## [v2.4.0] - 2026-11-13 — 把 v2.3.4 台账里剩下的 11 项做完
+
+内测台账 26 项在 v2.3.5 落地 15 项、部分 7 项、未做 4 项。本版把**全部 11 项缺口**补齐：
+品牌合规进 build、失败契约机器可读、跨机确定性、字幕烧录、安全纵深、品牌视觉、封面版式、
+排版 token、新手门槛、审片回滚。过程中 e2e 又抓到一个真缺陷（见「修复」第一条）。
+
+### 修复
+- **玻璃主题把用户副标题换成材质描述占位文案**（真缺陷，会污染成片）：`segment.html` 的 `eff()`
+  从 `params.hud.sub` 取副标题，而该字段不存在（副标题在 `params.title.sub`），于是一路回退到
+  `DEF.subText`——玻璃主题的 `DEF.subText` 是「半透明白 · 1px 高光边 · 淡绿/淡粉柔光只从玻璃里透出来」。
+  非玻璃主题只是**碰巧**正确（常量恰好等于 URL 参数）。根因是 `mergePatches(..., {})` 不读 `SPEC.params`，
+  让 params 变成装饰品、D3「SPEC 是唯一真相」失效。现在以 `{ ...SPEC.params.* }` 为合并基座，
+  删掉玻璃占位文案；`big-card.html` 同一修法（值逐项相同，像素不变）。
+- **失败页面让整条流水线空等 141.7s，且报错误导**（真缺陷，三个独立原因叠加）：
+  ① 复用 persistent profile 时旧 `DevToolsActivePort` 没删，等待循环第一轮读到**上一轮的端口**，
+  `connect()` 对着死 ws 重试满 timeout；② Windows 上 `proc.kill()` 只杀父进程，renderer/GPU 子进程
+  活下来占住 profile 锁（实测留下 8 个孤儿 chrome）；③ 浏览器**启动**超时继承了页面 ready 的 120s 预算。
+  现在启动超时独立（`--launch-timeout`，默认 30s）、`taskkill /T /F` 收整棵树、`close()` 等进程真的消失、
+  `restart()` 换全新 profile 目录。实测 **141.7s → 27.3s**，重启从失败变成功，报错从
+  `renderer is not running` 变成真实页面错误栈，孤儿进程 8 → 0。
+- **抓帧失败时 ffmpeg 不死，进程挂住**：页面在 `renderFrame` 里抛错后 ffmpeg 仍持有 stdin 管道，
+  `render-batch` 打印 `[batch] done` 却不退出。`launchFfmpeg` 暴露 `kill()`，catch 里先 kill 再消费掉
+  必然 reject 的 `done`（否则成为未处理拒绝）。
+- **失败的 WebSocket 从不关闭，进程打印完 done 也退不出去**（真缺陷）：`cdp.mjs` `connect()`
+  的重试循环把失败的 `new WebSocket()` 直接丢掉，留在 CONNECTING/CLOSING 的 socket 一直持有
+  事件循环句柄。症状是 `[batch] done: 2/3 ok, 1 failed` 已打印、错误也正确，但 farm/compile
+  永远等下去，API job 卡在 `running` 直到 120s 超时。现在 catch 里 `close()`（+ `terminate` 若有），
+  `Cdp.close()` 同理。实测失败渲染子进程 **11.8s 退出（status=1）**，API 套件 22/22。
+- **成功构建顶着上一次的错误码**（假红）：`compile.mjs` 不清旧 `error.json`，`jobView` 也不看
+  job 状态就投影失败字段。现在新构建一开始就作废旧记录，且 `status === 'done'` 时不投影失败字段。
+- **`test-all` 的机器可读报告少报失败断言**（真缺陷，两处）：① `parseSummary` 用 `m.length===4`
+  判断「有 total」，但 `N passed, M failed` 只有 2 个捕获组，于是 `failed` 被丢成 **0**、`total` 被读成
+  passed——只看 JSON 会以为全绿；② 在整段尾部取**第一个**匹配，而测试用例名本身可能含汇总格式
+  字符串，会把用例名当成汇总。现在每种格式显式标注语义、**从后往前逐行**找，并抽成纯模块
+  `scripts/summary-parse.mjs` 以便单测（13 项）。
+- **`cvs history` / `cvs verify` 静默忽略 `--spec`**：同一组版本命令里 `snapshot`/`rollback` 认
+  `--spec`，`list`/`verify` 只认 `--outdir`，于是 `cvs verify v001 --spec X` 跑去 `out/` 找并报
+  `E_VERSION_UNKNOWN`。现在四个命令一致（`--spec` 或 `--outdir` 都能定位）。默认 outDir 的用例
+  抓不到这个错，回归特意用非默认 outDir。
+- **重启后页面卡住时日志全静默**：`cdp waitFor` 现在超过 30s 先告警一次（`[wait] … still pending`），
+  不再静默到 `--timeout`（120s）才报错——那种日志看起来像挂死，其实是在等页面 ready。
+- **D3 宣告没有像素的编辑目标**：`addTextHit` / `addStampHit` 对空文本照样注册命中矩形，
+  于是 `__hit` 里出现宽度 0 的「可编辑目标」，改它的颜色看不到任何变化。现在空文本直接返回，
+  与 `recipes/util.js` `drawTopMeta` 的既有约定一致。
+- **`cvs image --at` 在短段上失效**：cover 改用卡片段后，`at` 仍按正片时长算一次再套到所有图上，
+  auto 与 `--at 1.0` 都被夹到同一帧。现在按**每张图自己的源**算时间并夹到该源时长内，
+  清单逐图记 `at` / `atRequested` / `sourceDuration`。
+- **失败对象 `logPath` 指向 manifest 而不是构建日志**：CLI 的 `logPath` 语义是「阶段诊断产物」，
+  API 的 `logPath` 语义是「构建日志」，同名两义。现在 CLI 写 `detailPath`，`jobView.logPath` 恒指
+  `build.log`、新增 `detailPath`（兼容旧 `error.json`）。
+- **`test-all` 汇总少报总数**：`parseSummary` 强制要求 `Ran N tests:` 前缀，于是
+  `34 tests: 32 passed, 2 failed` 落到通用模式，total 被读成 32。现在前缀可选，并加
+  `total === passed + failed` 自洽兜底。
+- **占位文案静默进成片**：`spec.mjs` 在 beat 缺 `copy` 时填「想做 / 视频？」。这不是用户内容，
+  现在 `validateSpec` 发 `W_COPY_DEFAULT`（warn）把它暴露出来；两处回退共用 `CARD_COPY_DEFAULT` 常量。
+- **带 `--platform` 时母版被污染**：`compile.mjs` 用同一个平台预设编 master 和平台版，
+  `build --platform douyin` 出来的 `master.mp4` 是 1080×1920，随后 `qa-video` 的 `size`
+  断言按 1920×1080 判 FAIL（e2e 实测 18 pass / 1 fail）。现在 master 永远按 `master` 预设编，
+  平台版是附加产物。**这是「假绿」的镜像：假红——看起来像质检的问题，其实是母版被写错了。**
+- **screencast 页加主标题后压到底部 HUD**：v2.4 引入 4 级字阶后，screencast 的主标题放在代码卡片
+  下方，直接撞上 `drawHud` 的 `STYLE 21 / 23`。改为标题在卡片上方，并把标题高度从可用高度里先扣掉
+  再计算代码字号。（看画面才发现的问题，静态断言查不出。）
+- **`cvs image` 默认封面是带 HUD 的正片帧**：改为默认用第一条 `card` 段（大卡版式，无编号/倒计时），
+  `--cover style` 可回退。同时不再每次清空输出目录：默认只替换本次请求的尺寸，`--force` 才整目录重出。
+- **cyber-pixel 标题字阶**：页面标题是「街机大标题」，按 `display` 档（0.19 × 短边）而非 `title` 档；
+  转换到低分辨率画布时按 `lh/H` 换算。
+- **`deliver.mjs` 读不到封面**：现在依次找 `outDir`、`outDir/images`、`out/images`，
+  支持 `--cover <file>` 显式指定；`delivery.json` 新增顶层 `cover` 与 `subtitles{ srt, vtt, cues, burnedInto }`。
+
+### 新增
+- **品牌合规进 build（P1-03）**：`brand apply` 把整包（colors/logo/fonts/voice）写进 `meta.brandKit`；
+  `deepValidate()` 因此可在**没有 content/brands 的机器上**跑 `checkBrand`。检查面扩到
+  `meta.title/description/tags`、`opening.title/sub`、`ending.*`、`style.copy.*`。
+  build 命中禁用词/缺 logo/对比度不足 → exit 10；`brand apply` 有 error → exit 1（spec 仍写出，便于修）。
+- **失败契约机器可读（P1-04）**：`GET /jobs/<id>` 新增 `errorCode / phase / failedSegment /
+  failedSegments / logPath / detailPath / errorPath / artifactPath`，直接从 `<job>/error.json` 投影
+  （`logPath` 恒指 `build.log`，`detailPath` 是阶段诊断产物）。
+  `scripts/test-all.mjs` 统一 16 个测试脚本的四种汇总格式为 `{ok,suites,passed,failed,results[]}`，
+  支持 `--json` / `--tap` / `--browser` / `--only`；`cvs test` 转为它的薄封装。
+- **跨机确定性（P1-07 / P2-03）**：`golden.mjs` 的 manifest 记录 Chrome / Node / platform /
+  字体集合哈希；`--check` 先比环境，不一致时**跳过哈希比对并告警**（`--strict-env` 改为失败），
+  因为字体或 Chrome 变了，逐字节比对的结论没有意义。`--json` 输出单行报告。
+  `scripts/bundle-fonts.mjs --lock-only` 生成可提交的 `shared/fonts.lock.json`（1187 个文件、
+  set sha256），`doctor` 校验它。
+- **字幕烧录（P1-08）**：`cvs build --burn-subtitles`（或 `spec.render.burnSubtitles`）。母版保持干净，
+  硬字幕只进投放版；写 `<outDir>/.cvs/burned.json`，`delivery.json.subtitles.burnedInto` 如实标注。
+- **封面（P2-02）**：`cvs build --cover`（或 `spec.render.cover`）复用 `cvs image` 出 card 版式封面到
+  `<outDir>/images`，`delivery.json.cover` 自动引用。
+- **版本快照/校验/回滚（P1-13）**：`scripts/versions.mjs` + `cvs snapshot|history|verify|rollback`。
+  快照收 master/spec/plan/清单/字幕/QA/`review.json`，逐文件记 sha256+bytes；回滚**先校验再写盘**，
+  回滚后核对 master 哈希并写 `rollback.json`；快照被改动则 exit 13 拒绝回滚。
+- **排版 token（P1-06）**：`templates/tokens.mjs` —— 4 级字阶（display/title/body/caption，按短边归一）
+  + 单一 `safe()` 安全区。13 个配方页全部 import 并写 `window.__typeProbe`；`util.js` 的 `safePad()`
+  改为委托 `safe().x`。真机验收：13 页 titlePx 145..148（比值 1.021）、左右安全区逐页相等。
+- **新手门槛（P1-11）**：`install.sh` / `install.ps1`（检查 Node ≥22 → `npm ci` → doctor → 下一步）；
+  wizard 首屏加横幅明说「需要 Node 22+/Chrome/FFmpeg，这是本地开发页，没有托管版」。
+- CLI 增 `snapshot` / `history` / `verify` / `rollback`；`--cover` / `--burn-subtitles` / `--no-deliver`。
+- 错误码 112 → 125（新增 13 个本轮引入的码），注册表覆盖率 100%。
+
+### 变更
+- **安全纵深（P1-10）**：concat 清单不再用 `-safe 0`。`concatList(plan,{baseDir})` 只产出相对
+  文件名并拒绝越界；`concat-and-encode.sh` 先把任意输入清单改写成安全清单再 `-safe 1`；
+  `compile.mjs` 无音轨分支也在 `outDir` 内用 `-safe 1`。`assets[].path` 加根约束
+  （绝对路径/盘符/UNC/`..`/远程 URL → `E_ASSET_PATH`），并补 `E_ASSET_MISSING` 磁盘检查。
+- **品牌视觉进画面（P1-12）**：`meta.brandKit.logo.path` / `fonts.heading` 由 plan 展开成段 URL 的
+  `?logo=` / `?brandFont=`；`segment.html` 与 `big-card.html` 右上角绘制 logo、标题用品牌字族。
+  logo 加载失败写 `window.__bootError` → 渲染直接失败，不静默出片。不传参数时像素不变。
+- **D7 16:9 基线重定（有意变更，不是回归）**：v2.3.5 删占位文案 + v2.4 排版 token 都**有意**改了
+  16:9 像素。重定前验证过：① `git show HEAD:` 的旧页面仍逐字节复现旧哈希，说明漂移全部来自工作区的
+  有意改动；② 本轮 D3 接线修复对基线**零像素漂移**。另补一组**带内容**的基线——旧基线渲染的是无
+  `?title/?sub` 的页面，v2.3.5 之后那几乎只剩 HUD/背景，冻结它守不住标题排版。详见 `docs/DECISIONS.md` D7。
+- **`--launch-timeout` 与 `--timeout` 分离**：页面 ready 预算（120s）不再被浏览器启动继承（30s）。
+- **golden 基线重定 2/9 张（有意变更）**：`mixed/02`（aqua-morandi、无 `sub`）与 `mixed/03`
+  （aqua-morandi、`sub=现在就试试`）因删掉玻璃占位副标题而改变像素。重定前**目视对照**了 HEAD 版
+  与新版的渲染：02 的副标题从材质描述变为「无」（该段没给 sub），03 的副标题从材质描述变回用户
+  真实的「现在就试试」；其余 7 张逐字节不变（含 big-card，证明接线修复零像素漂移）。
+  重定后 `golden --check --json` **9/9 相符、环境四项全 match**。
+- **浏览器测试启动加重试**：`cdp.mjs` 新增 `launchRetry()`（默认 2 次）。全套并发负载下 Chrome
+  冷启动可能超过单次 30s 预算，`test-wizard-ref` 曾因此瞬时失败；与 `renderStill` 的两次尝试约定一致。
+- `npm run test:all` 改走 `scripts/test-all.mjs`；新增 `test:all:browser`。
+
+### 实测
+- `node scripts/test-all.mjs --browser --json`（**17 套纯 Node + 11 套真实 Chrome = 28 套**）：
+  **670 passed / 0 failed**（1018s，`ok:true`）。逐套：core 15、assets 20、variants 13、reflow 18、
+  ref-core 11、from-reference 29、brand 28、motion 29、style-pages 14、spec-security 34、accent 19、
+  contract 24、versioning 10、summary-parse 13、edl 22、inspect 55、wizard-ref 12、reflow-pages 55、
+  recipes 92、style-pages-render 32、image 33、api 22、brand-visual 3、type-tokens 46、recovery 21。
+- 3 秒 strict 全链路 `build --platform douyin --strict`（spec 内 `burnSubtitles`/`cover`）**BUILD=0**：
+  master **1920×1080 / 90 帧**（干净）+ douyin **1080×1920 / 90 帧**（硬字幕）+ cover **1920×1080**
+  → `qa-video` **19 pass / 0 warn / 0 fail**、`qa-audio` **5 pass / 0 warn / 3 advisory / 0 fail**
+  → `delivery.json.cover` 指向封面、`subtitles.burnedInto` 只有 douyin（4 条 cue）
+  → 成功构建后**无残留 `error.json`** → `cvs snapshot --label 终验` 收 **10 个文件**
+  → `cvs history --spec` / `cvs verify v001 --spec` 全过（10 文件 sha256 相符）
+  → `cvs rollback v001 --spec` **EXIT=0**，恢复 6 文件、master sha `472aeca9e039` 与记录一致、写 `rollback.json` 回执。
+- `golden --check --json`：chrome/fonts/node/platform 四项 match，3 specs / 9 stills 全等。
+- `test-type-tokens`（真机 13 页 × 2 次）：46/46，titlePx 145..148，安全区左右逐页相等。
+- `test-brand-visual`（真机）：3/3 —— logo+品牌字族改变同帧 sha256；logo 缺失必然渲染失败。
+- `test-versioning`：**10/10**（含篡改拒绝、回滚后哈希核对、`--spec` 定位非默认 outDir）。
+- `test-spec-security`：**34/34**（assets 闸门 3 项、concat 安全 3 项、`W_COPY_DEFAULT` 3 项）。
+- `test-image`：**33/33**（封面版式与覆盖策略 4 项 + `--at` 按源算时 7 项）。
+- `test-inspect`：**55/55**（新增玻璃主题副标题、scope 级 patch 覆盖 params、空文本不注册命中区、零宽矩形检查）。
+- `test-reflow-pages`：**55/55**（D7 四条基线：无内容 + 带内容各两条；命中表审计带内容参数）。
+- `server/test-api`：**22/22**（真实 4 秒渲染 + 失败契约 + 陈旧 error.json 不报假红 + 安全用例）。
+- `test-renderer-recovery`：**21/21**（新增：陈旧端口文件、进程树回收、同 profile 重启、`restart()` 换目录、失败渲染限时退出）。
+- `test-summary-parse`：**13/13**（五种历史汇总格式 + 用例名含格式样本 + 自洽兜底）。
+- `test-compiler-contract`：**24/24**（新增汇总计数自洽断言）。
+
+### 已知边界
+- 13 个配方页的标题**字号**统一了，但**位置**仍由各页版式决定（竖排/横排/居中/靠左）。
+  这是设计差异，不是遗漏；安全区与字阶才是可比较的部分。
+- 封面默认用第一张 card 段，文案来自该段的 `first/keyword`。想用开场画面做封面用 `--cover style`。
+- `--burn-subtitles` 需要 ffmpeg 带 `subtitles`（libass）滤镜；没有时 exit 13 `E_BURN_SUBTITLES`。
+- 字体锁只记文件名/字节数/集合哈希，不记每个文件的 sha256（1187 行会拖大仓库）。
+- **浏览器重启后的首个页面在负载下可能很慢**：实测一个 5 段、含失败段 3 次尝试 + 一次重启的 job
+  独立跑约 75s，全套并发负载下会翻倍。渲染器会在 `--timeout`（默认 120s）后**安全失败**（不是挂死），
+  且超过 30s 会先打 `[wait] … still pending` 告警。`test-api` 的失败 job 预算因此设为 300s。
+  这条慢路径的根因（重启后新 Chrome 首个页面为何偶尔迟迟不 ready）**尚未定位**，只做到了「可观测 + 安全失败」。
+- **D7 基线在 v2.4 重定过一次**：这是有意变更（删占位文案 + 排版 token），不是回归。重定前验证了
+  HEAD 页面仍复现旧哈希、且本轮 D3 接线修复对基线零像素漂移。旧哈希保留在 `docs/DECISIONS.md` D7 作为历史。
+- **41 秒全片 e2e 仍未跑**：配方页逐帧约 0.4 fps，41s/1230 帧约 50 分钟。本轮用 3s 等价样本跑完整严格链路，
+  另用 `test-api` 的 4s 真实渲染、`test-recipes` 92 项与 golden 9 张静帧佐证管线。
+
+## [v2.3.5] - 2026-11-12 — 交付契约：让「绿灯」真的代表对
+
+内测集群（1 名 PM + 6 名异质内测者，76 条意见）汇总出三类「假绿」：
+**占位内容上屏 / QA 只验容器 / 缓存成功返回旧画面**。本版把它们变成红灯，并补齐失败契约。
+
+### 修复（内测 P0）
+- **默认成片不再印开发者占位符**：`meta.title/description`、`opening.title/sub`、`style.copy{title,subtitle,caption}` 由 plan 下发到段 URL；`segment.html` 不再回退 `风格段标题` / `替换 drawScene()`；`big-card` 的 brand 缺省不再写 `{{BRAND}}`。`meta.brand` 为占位符、标题为空都是 **error**（原 `W_BRAND` 仅警告）。
+- **`cvs build` 内置深度校验**：新增 `templates/spec-check.mjs`，`lint` 与 `build` 共用（页面/主题/APCA/占位品牌/标题）。以前主题拼错 `build` 静默出片。退出码分层：`10` spec · `11` render · `12` concat · `13` qa · `14` env，并写 `<outDir>/error.json`（含 `failedSegments`）。
+- **音频不再静默丢失**：`build` 在 `spec.audio` 存在时自动合成配乐并 mux；没有音轨必须显式 `--no-audio`（`E_AUDIO_REQUIRED`）。`qa-audio` 纳入 build。
+- **缓存感知页面内容**：`segmentHash` 新增 `pageHash`（页面 + 递归依赖的 sha256）；`ENGINE_VERSION` 1→2。改模板/配方页不再命中旧缓存。
+- **`--resume` 双校验**：必须同时满足「帧数一致」且「上次 manifest 的 hash 一致」才跳过；不再把旧画面以新 hash 写回缓存。
+- **QA 内容级断言**：`qa-video` 新增 `pages exist` / `placeholder pages` / `copy present`；`qa-audio` 的 cue 对齐分母改为**全部 cue**（不再排除未对齐项），拍网格改为声明式 `--subdiv`（不再自适应择优）。
+- **音频质检量的是「要交付的那条音轨」**：合成器母版峰值 `-0.6 dBFS` 高于 `qa-audio` 的 `-1.0 dBFS` 门限，且质检跑的是未归一化的合成 `wav` 而不是成片音轨——自动配乐必然把 `--strict` 打成失败。现在 `master` 峰值收到 `-1.5 dB`，`build` 先用 ffmpeg 从 `master.mp4` 抽出音轨再质检（量到的是过完 `loudnorm` 的真音轨）。
+- **质检三档语义，红门禁不再「永远红」**：原 `--strict` 把任何 `WARN` 变失败，于是「音乐好不好听」的提示（拍网格、HF 克制、BPM 识别、VMAF 没装、封面拼图）也会拦下交付——和假绿一样没用。现在分 `FAIL`（交付物是错的）/ `WARN`（交付物不合格，`--strict` 判失败）/ `ADVISORY`（诊断与听感提示，永不拦交付）三档。
+- **平台交付真的接线**：`render.preset` / `--platform` 产出 `<outDir>/<platform>.mp4`（master 始终保留）；`render.outDir` 越出项目根报 `E_OUTDIR`。
+- **变体不再互相覆盖**：每个变体有自己的 `render.outDir`；`specHash` 不含 outDir（内容寻址）；copy 轴同时改 `meta.title`。
+- **API 安全收紧**：写操作校验 `Origin`/`Host`（`E_ORIGIN`/`E_HOST`）、只接受 `application/json`（`E_CONTENT_TYPE`）；HTTP 客户端**不能**自带 `allowRemotePages`（SSRF 闸门）；`--host` 非回环必须 `--token`；job 日志脱敏。
+- **`--root` 默认改为 cwd**（原先与自身 help 矛盾），报错回显解析出的 root。
+
+### 新增
+- `cvs again [--set k=v]`：读上次 spec、改字段、只重编译 dirty 段。
+- `cvs deliver`：`delivery.json`（平台/文件/sha256/时长/封面/标题）+ `master.srt` / `master.vtt`。
+- `cvs errors`：`schema/errors.json` 注册表（112 码，100% 覆盖）+ 生成 `docs/ERRORS.md` + CI `--check`。
+- `scripts/doctor.mjs` 重写：renderer 能力探测（不再被「装了 playwright-core」误报）、bash 检查、每行 `code`/`fix`、`--json` 带 `cliVersion`/`resolved`、`--strict` 真正严格。
+- 离线分发：`scripts/vendor.mjs`、`scripts/bundle-fonts.mjs`、`docs/OFFLINE.md`、`docker/Dockerfile`、`.nvmrc`；`arm.sh --offline`；`build-fonts` 复制 OFL 文本 + `THIRD-PARTY-NOTICES.md`。
+- 多画幅 `3:4` / `6:7`（小红书 / 视频号真重排，不再补黑边）。
+- `scripts/test-compiler-contract.mjs`（16 项契约回归）；CI 增 `windows-static` job、`cache: npm`、移除 `|| npm install`。
+- SPEC 文档：`meta.title/description/tags`、`style.motion/copy/reflow`、`pageBlock.title/sub/capsule`、平台枚举补 `xiaohongshu|weixin`。
+
+### 变更
+- `engines.node` `>=20` → `>=22`（raw CDP 依赖全局 WebSocket）。
+- fixture `mini-41s` 迁移到真实配方页（原先 6 个风格段全指向占位页），并带上标题/品牌/每段文案。
+- `SKILL.md` 新增 §0.0 Agent 执行契约（完成定义 / 硬断言 / 报错→动作 / 退出码）；文件地图移入 `references/repo-map.md`；§13 标注为 timeline v1 旧项目专用。
+
+### 实测
+- `npm run test:all` EXIT=0（含新增 16 项契约回归）。
+- `node server/test-api.mjs` 20/20（真实 4 秒渲染 + 4 项新安全用例）。
+- **3 秒契约片全链路 `build --platform douyin --strict` EXIT=0**（`out/e2e-3s/`）：render 5/5 → `master.mp4` + `douyin.mp4` → `qa-video` **19 pass / 0 warn / 0 fail** → `qa-audio` **6 pass / 0 warn / 2 advisory / 0 fail** → `cvs deliver` 出 `delivery.json`（master + douyin 两条，sha256 一致）。
+- 失败记录可查：同一 `runs.jsonl` 里保留了两次 exit 13 的失败运行，与最终 `exit 0 / qaPass true` 并列（`out/e2e-3s/.cvs/runs.jsonl`）。
+- 41 秒 fixture 全链路未在本轮跑完（配方页约 0.4 fps，全片需约 50 分钟）；改用上面的 3 秒等价样本 + `test-api` 的 4 秒真实渲染佐证管线。
+
 ## [v2.3.4] - 2026-11-12 — 长城页三处排版修正（看画面看出来的）
 
 v2.3.3 出图后逐张放大检视，修掉三处只有看画面才会发现的问题：

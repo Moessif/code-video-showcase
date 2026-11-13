@@ -54,6 +54,35 @@ const CORS_HEADERS = {
 
 /** 允许的跨源白名单（空 = 不允许跨源）。 */
 let ALLOWED_ORIGINS = new Set();
+/** 可选 bearer token：--host 非回环时强制要求。 */
+let AUTH_TOKEN = '';
+
+/** Host 头是否指向本机（含端口）。 */
+export function isLoopbackHost(hostHeader) {
+  const h = String(hostHeader || '').trim().toLowerCase().replace(/^\[|\]$/g, '').replace(/:\d+$/, '');
+  return h === '' || h === '127.0.0.1' || h === 'localhost' || h === '::1';
+}
+
+/**
+ * CSRF 防线：写操作必须来自同源。
+ *
+ * 只靠「监听 127.0.0.1」不够——浏览器里的任意网页都能向 127.0.0.1:5190
+ * 发一个 text/plain POST（simple request，不触发预检），服务端照样解析 body。
+ * 所以：有 Origin 就必须是回环或 CORS 白名单；Host 必须是回环。
+ */
+function assertRequestOrigin(req) {
+  const origin = req.headers?.origin;
+  if (origin) {
+    let ok = false;
+    try { ok = isLoopbackHost(new URL(origin).host); } catch { ok = false; }
+    if (!ok && !ALLOWED_ORIGINS.has(String(origin))) {
+      throw new HttpError(403, `origin not allowed: ${origin}`, 'E_ORIGIN');
+    }
+  }
+  if (!isLoopbackHost(req.headers?.host)) {
+    throw new HttpError(403, `host not allowed: ${req.headers?.host}`, 'E_HOST');
+  }
+}
 
 /** 当前请求允许的 CORS 头：白名单命中才发。 */
 function corsHeaders(req) {
@@ -267,6 +296,7 @@ export function createJobServer(opts = {}) {
     const list = Array.isArray(opts.cors) ? opts.cors : String(opts.cors).split(',');
     ALLOWED_ORIGINS = new Set(list.map((s) => String(s).trim()).filter(Boolean));
   }
+  if (opts.token) AUTH_TOKEN = String(opts.token);
 
   /** @type {Map<string, any>} */
   const jobs = new Map();
@@ -306,7 +336,33 @@ export function createJobServer(opts = {}) {
     }
   }
 
+  /** 机器可读的失败对象（v2.4/P1-04）：compile 写的 <job>/error.json 原样投影。 */
+  function jobFailure(job) {
+    let e = null;
+    try { e = JSON.parse(fs.readFileSync(path.join(job.dir, 'error.json'), 'utf8')); } catch { /* 旧 job / 非 compile 失败 */ }
+    if (!e || typeof e !== 'object') {
+      if (!job.error) return null;
+      return { code: 'E_JOB', phase: null, message: scrubMessage(job.error), failedSegment: null, failedSegments: [], logPath: null, detailPath: null, errorPath: null };
+    }
+    const rel = (p) => (typeof p === 'string' && p ? path.relative(root, p).split(path.sep).join('/') : null);
+    return {
+      code: e.code || 'E_JOB',
+      phase: e.phase || null,
+      message: scrubMessage(e.message || job.error || ''),
+      failedSegment: e.failedSegment || (Array.isArray(e.failedSegments) ? e.failedSegments[0] : null) || null,
+      failedSegments: Array.isArray(e.failedSegments) ? e.failedSegments : (e.failedSegment ? [e.failedSegment] : []),
+      // logPath 恒指构建日志（评审页 logTail 读的就是它）；阶段诊断产物走 detailPath。
+      // 兼容 v2.4 早期 error.json：那时 compile 把 manifest 写在 logPath 名下。
+      logPath: fs.existsSync(path.join(job.dir, 'build.log')) ? rel(path.join(job.dir, 'build.log')) : null,
+      detailPath: rel(e.detailPath || e.logPath),
+      errorPath: rel(path.join(job.dir, 'error.json')),
+    };
+  }
+
   function jobView(job) {
+    // 成功的 job 不投影失败字段：outDir 里可能躺着上一次构建的 error.json，
+    // 不看状态就读它，等于让成功的 job 顶着旧错误码（假红）。
+    const failure = job.status === 'done' ? null : jobFailure(job);
     return {
       id: job.id,
       status: job.status,
@@ -315,8 +371,19 @@ export function createJobServer(opts = {}) {
       startedAt: job.startedAt || null,
       finishedAt: job.finishedAt || null,
       stats: readStats(job),
-      logTail: readLogTail(path.join(job.dir, 'build.log')),
+      logTail: scrubMessage(readLogTail(path.join(job.dir, 'build.log'))),
       error: job.error || null,
+      // 失败契约：CI 可以只看这几个字段分流，不必 grep 日志正文。
+      errorCode: failure ? failure.code : null,
+      phase: failure ? failure.phase : null,
+      failedSegment: failure ? failure.failedSegment : null,
+      failedSegments: failure ? failure.failedSegments : [],
+      logPath: failure ? failure.logPath : null,
+      detailPath: failure ? failure.detailPath : null,
+      errorPath: failure ? failure.errorPath : null,
+      artifactPath: job.status === 'done' && fs.existsSync(path.join(job.dir, 'master.mp4'))
+        ? path.relative(root, path.join(job.dir, 'master.mp4')).split(path.sep).join('/')
+        : null,
     };
   }
 
@@ -493,6 +560,12 @@ export function createJobServer(opts = {}) {
   // ── HTTP ──────────────────────────────────────────────────────────────────
 
   async function handleJobsCreate(req, res) {
+    // 只接受 application/json：跨源页面无法在不触发预检的情况下伪造这个类型，
+    // 再配合 Origin 校验，普通网页就灌不进 job 了。
+    const ct = String(req.headers['content-type'] || '').split(';')[0].trim().toLowerCase();
+    if (ct !== 'application/json') {
+      throw new HttpError(415, 'Content-Type must be application/json', 'E_CONTENT_TYPE');
+    }
     const raw = await readBody(req);
     let body;
     try {
@@ -503,6 +576,9 @@ export function createJobServer(opts = {}) {
     if (!body || typeof body !== 'object' || Array.isArray(body)) {
       throw new HttpError(400, 'spec must be a JSON object', 'E_SPEC');
     }
+    // 远程页面只能由服务启动者用 CLI 开关放行，不能由 HTTP 客户端自带。
+    // 否则任意网页可以提交 allowRemotePages + 169.254.169.254，让无头 Chrome 替它打内网。
+    if (body.render && typeof body.render === 'object') delete body.render.allowRemotePages;
 
     // 校验与真实编译走同一个编译点（root = 仓库根）
     let built;
@@ -635,6 +711,12 @@ export function createJobServer(opts = {}) {
     const parts = pathname.split('/').filter(Boolean);
     const method = req.method || 'GET';
 
+    if (AUTH_TOKEN && method !== 'OPTIONS') {
+      const auth = String(req.headers.authorization || '');
+      if (auth !== `Bearer ${AUTH_TOKEN}`) throw new HttpError(401, 'missing or invalid bearer token', 'E_AUTH');
+    }
+    if (!['GET', 'HEAD', 'OPTIONS'].includes(method)) assertRequestOrigin(req);
+
     if (method === 'OPTIONS') {
       const pre = corsHeaders(req);
       res.writeHead(204, pre['Access-Control-Allow-Origin']
@@ -754,8 +836,12 @@ export function createJobServer(opts = {}) {
 /**
  * 监听并返回 { server, port, url }。port=0 时由系统分配（测试用）。
  */
-export function startServer({ port = DEFAULT_PORT, host = '127.0.0.1', root, outDir, concurrency, cors } = {}) {
-  const server = createJobServer({ root, outDir, concurrency, cors });
+export function startServer({ port = DEFAULT_PORT, host = '127.0.0.1', root, outDir, concurrency, cors, token } = {}) {
+  // 非回环监听必须有鉴权：否则 `--host 0.0.0.0` 等于把源码、out/、spec 全公开。
+  if (!isLoopbackHost(host) && !token) {
+    return Promise.reject(new Error('refusing to listen on a non-loopback host without --token'));
+  }
+  const server = createJobServer({ root, outDir, concurrency, cors, token });
   return new Promise((resolve, reject) => {
     const onError = (e) => reject(e);
     server.once('error', onError);
@@ -779,6 +865,8 @@ function parseArgs(argv) {
     else if (a === '--root') out.root = argv[++i];
     else if (a === '--outdir') out.outDir = argv[++i];
     else if (a === '--cors') out.cors = argv[++i];
+    else if (a === '--host') out.host = argv[++i];
+    else if (a === '--token') out.token = argv[++i];
   }
   return out;
 }
@@ -794,7 +882,7 @@ if (isMain) {
   const args = parseArgs(process.argv.slice(2));
   if (args.help) {
     console.log(`Usage: node server/api.mjs [--port 5190] [--concurrency 1] [--root <dir>] [--outdir <dir>]
-                      [--cors <origin>]
+                      [--host 127.0.0.1] [--token <token>] [--cors <origin>]
 
   POST   /jobs                    validate spec + enqueue a compile job
   GET    /jobs/<id>               job status, stats, build log tail
@@ -802,12 +890,14 @@ if (isMain) {
   DELETE /jobs/<id>               cancel a queued/running job
   GET    /health                  { ok, queue, running, concurrency }
 
-  CORS 默认关闭（同源可用）。需要跨源访问时用 --cors <origin> 显式放行。`);
+  CORS 默认关闭（同源可用）。需要跨源访问时用 --cors <origin> 显式放行。
+  写操作校验 Origin/Host 且只接受 application/json（CSRF 防护）。
+  --host 非回环时必须同时给 --token，否则拒绝启动。`);
     process.exit(0);
   }
   const port = Number.isFinite(args.port) ? args.port : DEFAULT_PORT;
   const concurrency = Number.isFinite(args.concurrency) ? Math.max(1, Math.floor(args.concurrency)) : 1;
-  startServer({ port, root: args.root, outDir: args.outDir, concurrency, cors: args.cors })
+  startServer({ port, host: args.host, token: args.token, root: args.root, outDir: args.outDir, concurrency, cors: args.cors })
     .then(({ server, port: actual, url }) => {
       console.log(`[api] root: ${server.root}`);
       console.log(`[api] jobs: ${server.jobsDir}`);

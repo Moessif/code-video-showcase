@@ -31,6 +31,7 @@ import { drawPixelText, measurePixelText } from './styles/cyber-pixel.js';
 import {
   clamp, hash01, setupStage, safePad, drawHud,
 } from './recipes/util.js';
+import { typeSize, safe, probe } from './tokens.mjs';
 
 const canvas = document.getElementById('c');
 const ctx = canvas.getContext('2d', { alpha: false });
@@ -252,7 +253,8 @@ let TITLE_SIZE = 0;
 
 function titleSize() {
   if (TITLE_SIZE) return TITLE_SIZE;
-  let size = Math.max(10, Math.round(LH * 0.125));
+  // 低分辨率画布：token 是屏幕像素，先除以整数放大倍率再量宽。
+  let size = Math.max(10, Math.round(typeSize('title', W, H) / SCALE));
   const maxW = LW * 0.92;
   while (size > 8) {
     const m = measurePixelText(lc, TITLE, size, {
@@ -262,6 +264,7 @@ function titleSize() {
     size -= 1;
   }
   TITLE_SIZE = size;
+  probe('title', TITLE_SIZE * SCALE, safe(W, H));
   return size;
 }
 

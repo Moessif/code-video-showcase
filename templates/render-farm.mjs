@@ -176,10 +176,12 @@ function runOneLegacy(s) {
     }
 
     if (resume) {
+      // 同 render-batch：resume 必须同时校验上次记录的 hash，帧数相等不等于内容相等。
+      const prev = manifest.segments[s.id];
       const got = probeFrames(outAbs);
-      if (got === s.frames) {
+      if (got === s.frames && prev && (!s.hash || prev.hash === s.hash)) {
         manifest.segments[s.id] = { status: 'skipped', frames: got, expected: s.frames, out: s.out, ...(s.hash ? { hash: s.hash } : {}) };
-        if (cacheDir && s.hash) writeCache(s, outAbs, got, 0);
+        if (!quiet) console.log(`[${s.id}] resume hit (${got} frames, hash ${s.hash || '-'})`);
         resolve({ id: s.id, ok: true, skipped: true });
         return;
       }
@@ -218,6 +220,7 @@ function runOneLegacy(s) {
           manifest.segments[s.id] = {
             status: framesOk ? 'done' : 'frame-mismatch',
             frames: got, expected: s.frames, seconds: Number(sec), attempts: attempt, out: s.out,
+            ...(s.hash ? { hash: s.hash } : {}),
           };
           if (!framesOk) {
             console.error(`[${s.id}] frame mismatch: got ${got}, expected ${s.frames}`);

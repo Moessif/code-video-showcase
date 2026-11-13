@@ -35,6 +35,7 @@ import {
   TAU, clamp, ease, smooth, setupStage, safePad,
   drawTracked, drawHud, drawTopMeta, roundRectPath,
 } from './recipes/util.js';
+import { typeSize, safe, probe } from './tokens.mjs';
 
 const canvas = document.getElementById('c');
 const ctx = canvas.getContext('2d', { alpha: false });
@@ -49,6 +50,8 @@ const THEME = getTheme(themeFromURL(location.search));
 const TC = THEME.colors;
 const V = vars();
 const BRAND = String(V.brand || 'CVS').slice(0, 24);
+// v2.4/P1-06：录屏页也要有可比较的主标题，而不是只有编辑器窗口。
+const TITLE = String(params.get('title') || V.title || '把一件事讲清楚').slice(0, 16);
 
 const isLight = THEME.mode === 'light' || relativeLuminance(TC.bg) > 0.55;
 
@@ -79,6 +82,7 @@ const COLOR = {
 };
 
 const MONO = '"JetBrains Mono", ui-monospace, monospace';
+const SANS = '"Noto Sans SC", "PingFang SC", sans-serif';
 const FAMILIES = Array.from(new Set([
   ...(loadFontsFor(THEME) || []),
   'Noto Sans SC', 'JetBrains Mono', 'Inter',
@@ -192,7 +196,13 @@ function buildLayout() {
   const cardW = W - pad * 2;
   const topLimit = pad * 1.7;
   const bottomLimit = H - pad * 2.7;
-  const availCardH = Math.max(200, bottomLimit - topLimit);
+  // 主标题 + 说明也占竖直空间：先把它们从可用高度里扣掉，再算代码字号，
+  // 否则卡片会向下顶到底部 HUD（v2.4 加入主标题后第一次出图就撞了）。
+  const titleSize = typeSize('title', W, H);
+  const titleH2 = Math.round(titleSize * 1.35);
+  const gapTitle = Math.round(titleSize * 0.42);
+  const capSize = 0;  // 说明字号取决于 fs，先按 0 预留，算完再回填
+  const availCardH = Math.max(200, bottomLimit - topLimit - titleH2 - gapTitle);
 
   const fs = computeFontSize(cardW, availCardH);
   const lineH = fs * 1.72;
@@ -202,14 +212,14 @@ function buildLayout() {
   const gutterW = Math.round(fs * 3.4);
   const cardH = Math.round(titleH + padIn + SRC.length * lineH + padIn + statusH);
 
-  const capSize = Math.max(12, Math.round(fs * 0.52));
-  const capH = capSize * 2.4;
-  const groupH = cardH + capH;
+  const capSz = Math.max(12, Math.round(fs * 0.52));
+  const capH = capSz * 2.4;
+  const groupH = titleH2 + gapTitle + cardH + capH;
+  probe('title', titleSize, safe(W, H));
 
-  // 竖屏：卡片窄而高，整组（卡片 + 说明）垂直居中；横屏：整组略微上移。
-  const cardY = portrait
-    ? Math.round((H - groupH) / 2)
-    : Math.round(Math.max(topLimit, (H - groupH) / 2 - H * 0.02));
+  // 竖屏：整组垂直居中；横屏：居中并略微上移。
+  const groupTop = Math.max(topLimit, Math.round((H - groupH) / 2 - H * 0.03));
+  const cardY = groupTop + titleH2 + gapTitle;
   const cardX = Math.round((W - cardW) / 2);
 
   return {
@@ -219,8 +229,11 @@ function buildLayout() {
     codeX: cardX + gutterW,
     codeTop: cardY + titleH + padIn + fs * 0.98,
     codeW: cardW - gutterW - padIn,
-    capSize,
-    capY: cardY + cardH + capSize * 1.5,
+    titleSize,
+    titleX: cardX + cardW / 2,
+    titleY: groupTop + titleSize * 0.62,
+    capSize: capSz,
+    capY: cardY + cardH + capSz * 1.9,
     capX: cardX + cardW / 2,
   };
 }
@@ -434,6 +447,16 @@ window.renderFrame = (u) => {
     ctx.fillRect(LAYOUT.cardX, LAYOUT.cardY, LAYOUT.cardW, LAYOUT.cardH);
     ctx.restore();
   }
+
+  // 主标题（v2.4/P1-06）：token 字阶，fade-in 与整页节奏一致。
+  ctx.save();
+  ctx.globalAlpha = smooth((t - 0.05) / 0.35);
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.font = `800 ${LAYOUT.titleSize}px ${SANS}`;
+  ctx.fillStyle = isLight ? TC.ink : TC.paper;
+  ctx.fillText(TITLE, LAYOUT.titleX, LAYOUT.titleY);
+  ctx.restore();
 
   drawCaption();
 

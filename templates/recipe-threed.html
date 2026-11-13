@@ -34,6 +34,7 @@ import {
   TAU, clamp, ease, smooth, setupStage, safePad,
   fitTextSize, drawTracked, drawHud, drawTopMeta,
 } from './recipes/util.js';
+import { typeSize, safe, probe } from './tokens.mjs';
 
 const canvas = document.getElementById('c');
 const ctx = canvas.getContext('2d', { alpha: false });
@@ -80,7 +81,8 @@ function buildLayout() {
     const objCy = Math.round(H * 0.36);
     const objR = Math.round(Math.min(W * 0.30, H * 0.15));
     const titleMaxW = W - pad * 2;
-    const titleSize = fitTextSize(ctx, TITLE, { maxWidth: titleMaxW * 0.92, family: SANS, weight: 800, maxSize: Math.round(H * 0.08), minSize: 32, spacing: 0.02 });
+    const titleSize = fitTextSize(ctx, TITLE, { maxWidth: titleMaxW * 0.92, family: SANS, weight: 800, maxSize: typeSize('title', W, H), minSize: 32, spacing: 0.02 });
+    probe('title', titleSize, safe(W, H));
     return {
       objCx: W / 2, objCy, objR,
       titleSize, titleX: W / 2, titleY: Math.round(H * 0.64), titleAlign: 'center',
@@ -93,7 +95,8 @@ function buildLayout() {
   const objR = Math.round(Math.min(W * 0.16, H * 0.28));
   const textX = Math.round(W * 0.56);
   const titleMaxW = W - textX - pad;
-  const titleSize = fitTextSize(ctx, TITLE, { maxWidth: titleMaxW, family: SANS, weight: 800, maxSize: Math.round(H * 0.13), minSize: 38, spacing: 0.02 });
+  const titleSize = fitTextSize(ctx, TITLE, { maxWidth: titleMaxW, family: SANS, weight: 800, maxSize: typeSize('title', W, H), minSize: 38, spacing: 0.02 });
+  probe('title', titleSize, safe(W, H));
   return {
     objCx, objCy, objR,
     titleSize, titleX: textX, titleY: Math.round(H * 0.48), titleAlign: 'left',

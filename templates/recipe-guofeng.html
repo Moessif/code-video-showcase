@@ -33,6 +33,7 @@ import {
   TAU, clamp, ease, smooth, hash01, mulberry32, setupStage, safePad,
   fitTextSize, drawTracked, drawHud, drawTopMeta, roundRectPath,
 } from './recipes/util.js';
+import { typeSize, safe, probe } from './tokens.mjs';
 
 const canvas = document.getElementById('c');
 const ctx = canvas.getContext('2d', { alpha: false });
@@ -73,7 +74,8 @@ let L = null;
 
 function buildLayout() {
   const short = Math.min(W, H);
-  const titleSize = Math.round(clamp(short * (portrait ? 0.105 : 0.125), 44, 220));
+  const titleSize = typeSize('title', W, H);
+  probe('title', titleSize, safe(W, H));
   const lineH = Math.round(titleSize * 1.28);
   const colX = portrait ? Math.round(W * 0.62) : Math.round(W * 0.70);
   const colTop = Math.round(H * (portrait ? 0.14 : 0.16));

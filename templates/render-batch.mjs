@@ -217,11 +217,14 @@ async function main() {
       continue;
     }
     if (resume) {
+      // resume 只能证明「帧数对」，不能证明「内容对」。
+      // v2.3.5：必须同时满足「上一次 manifest 记录的 hash == 本次 hash」才跳过；
+      // 没有上次记录（旧 manifest / 中断后）时保守重渲，避免把旧画面当新画面。
+      const prev = manifest.segments[s.id];
       const got = probeFrames(outAbs);
-      if (got === s.frames) {
+      if (got === s.frames && prev && (!s.hash || prev.hash === s.hash)) {
         manifest.segments[s.id] = { status: 'skipped', frames: got, expected: s.frames, out: path.relative(root, outAbs).split(path.sep).join('/'), ...(s.hash ? { hash: s.hash } : {}) };
-        writeCache(s, outAbs, got, 0);
-        if (!quiet) console.log(`[${s.id}] resume hit (${got} frames)`);
+        if (!quiet) console.log(`[${s.id}] resume hit (${got} frames, hash ${s.hash || '-'})`);
         saveManifest();
         results.push({ id: s.id, ok: true, skipped: true });
         continue;

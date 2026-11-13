@@ -74,8 +74,6 @@ const STARS = Array.from({ length: 140 }, () => ({
   r: rnd.range(0.4, 2.0), a: rnd.range(0.15, 0.85), ph: rnd.range(0, TAU),
 }));
 
-const BRAND = '{{BRAND}}';
-
 // ---------- theme ----------
 // 不传 ?theme= → 走旧版画面（与改动前逐像素一致）；传了就由 themes.js 驱动背景/HUD/内容配色。
 const p = new URLSearchParams(location.search);
@@ -83,20 +81,57 @@ const HAS_THEME = p.has('theme');
 const THEME = themeFromURL(location.search);
 const HUD = HAS_THEME ? chrome(THEME) : null;
 
-const PLACEHOLDER_TITLE = '风格段标题';
-const PLACEHOLDER_SUB = '替换 drawScene() 开始做真正的画面';
+// ---------- content params（v2.3.5） ----------
+// 页面不再回退到开发者占位文案（旧版的 "风格段标题 / 替换 drawScene()"）。
+// plan 会把 title/sub/brand/capsule 下发到 URL；直接打开页面时用品牌兜底。
+const PARAM_TITLE = String(p.get('title') || '').trim();
+const PARAM_SUB = String(p.get('sub') || '').trim();
+const PARAM_BRAND = String(p.get('brand') || '').trim();
+const PARAM_CAPSULE = String(p.get('capsule') || '').trim();
+// ---------- brand visuals（v2.4 / P1-12） ----------
+// plan 从 meta.brandKit 展开：logo 路径（相对项目根）与品牌标题字族。
+const PARAM_LOGO = String(p.get('logo') || '').trim();
+const PARAM_BRAND_FONT = String(p.get('brandFont') || '').trim().replace(/["'<>&\\]/g, '').slice(0, 80);
+const HEAD_FONT = PARAM_BRAND_FONT
+  ? `"${PARAM_BRAND_FONT}", "Noto Sans SC", sans-serif`
+  : '"Noto Sans SC", sans-serif';
+let LOGO_IMG = null;
+async function loadBrandLogo() {
+  if (!PARAM_LOGO) return;
+  const url = new URL(`/${PARAM_LOGO.replace(/^\/+/, '')}`, location.origin).href;
+  LOGO_IMG = await new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => resolve(img);
+    img.onerror = () => reject(new Error(`brand logo failed to load: ${PARAM_LOGO}`));
+    img.src = url;
+  });
+}
+function drawBrandLogo() {
+  if (!LOGO_IMG) return;
+  const h = Math.max(22, Math.round(Math.min(W, H) * 0.052));
+  const w = LOGO_IMG.naturalWidth * (h / LOGO_IMG.naturalHeight);
+  const m = Math.max(20, Math.round(Math.min(W, H) * 0.036));
+  ctx.save();
+  ctx.globalAlpha = 0.92;
+  ctx.drawImage(LOGO_IMG, W - m - w, m, w, h);
+  ctx.restore();
+}
+const BRAND_LABEL = PARAM_BRAND || '';
+const TITLE = PARAM_TITLE || BRAND_LABEL;
+const SUB = PARAM_SUB || '';
+const CAPSULE = PARAM_CAPSULE || TITLE.slice(0, 12) || '预览';
 const IS_GLASS = HAS_THEME && !!(THEME.material && THEME.material.glass);
 const TC = HAS_THEME ? THEME.colors : null;
 
 // ---------- spec（D3 编辑契约的唯一真相） ----------
-// patches 为空 → 所有字段回退到本页默认值，渲染结果与改动前一致。
+// patches 为空 → 所有字段回退到本页默认值（来自 URL 参数，不是工程占位符）。
 const SPEC = {
   specVersion: 1,
   kind: 'segment',
-  meta: { name: 'segment', brand: BRAND },
+  meta: { name: 'segment', brand: BRAND_LABEL },
   params: {
-    hud: { capsule: '示例风格', category: '分类', countdown: null, stamp: BRAND },
-    title: { text: PLACEHOLDER_TITLE, sub: PLACEHOLDER_SUB },
+    hud: { capsule: CAPSULE, category: '分类', countdown: null, stamp: BRAND_LABEL },
+    title: { text: TITLE, sub: SUB },
   },
   patches: [],
 };
@@ -114,7 +149,8 @@ const DEF = {
   titleSize: scaled(IS_GLASS ? 116 : 160),
   subColor: HAS_THEME ? TC.accent : '#d97757',
   subSize: scaled(IS_GLASS ? 32 : 40),
-  subText: IS_GLASS ? '半透明白 · 1px 高光边 · 淡绿/淡粉柔光只从玻璃里透出来' : PLACEHOLDER_SUB,
+  // v2.3.5 漏网的占位文案：玻璃主题曾把材质描述当副标题烧进成片。副标题只能来自内容。
+  subText: SUB,
 };
 
 const SCHEMA = {
@@ -159,7 +195,12 @@ function colorOr(v, d) {
 /** SPEC + patches → 本帧实际生效的参数。 */
 function eff() {
   const P = SPEC.patches;
-  const hud = mergePatches(P, 'hud', null, {});
+  // 合并基座必须是 SPEC.params 本身。mergePatches 只叠加 patch，不读 spec；
+  // 以前传 {} 等于让 params 变成装饰品：hud.title / hud.sub 永远 undefined，
+  // 一路回退到模块常量。非玻璃主题碰巧对（常量==URL 参数），玻璃主题的
+  // DEF.subText 是材质描述占位文案，于是用户传的 ?sub= 被静默丢弃。
+  const hud = mergePatches(P, 'hud', null, { ...SPEC.params.hud });
+  const ttl = mergePatches(P, 'title', null, { ...SPEC.params.title });
   const cap = mergePatches(P, 'hud', 'hud.capsule', {});
   const cd = mergePatches(P, 'hud', 'hud.countdown', {});
   const st = mergePatches(P, 'hud', 'hud.stamp', {});
@@ -167,7 +208,7 @@ function eff() {
   const su = mergePatches(P, 'title', 'title.sub', {});
   return {
     capsule: {
-      text: textOr(cap.text ?? hud.capsule, '示例风格', 12),
+      text: textOr(cap.text ?? hud.capsule, CAPSULE, 12),
       category: textOr(cap.category ?? hud.category, '分类', 8),
       color: colorOr(cap.color ?? hud.capsuleColor, DEF.capsuleColor),
     },
@@ -177,17 +218,17 @@ function eff() {
       size: numberOr(cd.size ?? hud.countdownSize, 16, 80, DEF.countdownSize),
     },
     stamp: {
-      text: textOr(st.text ?? hud.stamp, BRAND, 24),
+      text: textOr(st.text ?? hud.stamp, BRAND_LABEL, 24),
       color: colorOr(st.color ?? hud.stampColor, DEF.stampColor),
       size: numberOr(st.size ?? hud.stampSize, 10, 48, DEF.stampSize),
     },
     title: {
-      text: textOr(ti.text ?? hud.title, PLACEHOLDER_TITLE, 24),
+      text: textOr(ti.text ?? ttl.text, TITLE, 24),
       color: colorOr(ti.color ?? hud.titleColor, DEF.titleColor),
       size: numberOr(ti.size ?? hud.titleSize, 40, 240, DEF.titleSize),
     },
     sub: {
-      text: textOr(su.text ?? hud.sub, DEF.subText, 60),
+      text: textOr(su.text ?? ttl.sub, DEF.subText, 60),
       color: colorOr(su.color ?? hud.subColor, DEF.subColor),
       size: numberOr(su.size ?? hud.subSize, 16, 96, DEF.subSize),
     },
@@ -211,6 +252,10 @@ function rectFromCtx(x, y, w, h) {
 
 /** fillText 之后调用：用同一 font/transform 量出文本矩形并登记。 */
 function addTextHit(id, role, text, x, y, opt) {
+  // 空文本不注册命中区：否则 __hit 会宣告一个宽度 0、没有像素的「可编辑目标」，
+  // 用户点上去改颜色也看不到任何变化。与 recipes/util.js drawTopMeta 的约定一致。
+  // v2.3.5 去掉占位文案后，直接打开本页（无 ?title/?brand）就会走到这条路径。
+  if (!text) return;
   const size = opt.size || fontSizeOf(ctx.font);
   const w = ctx.measureText(text).width;
   let x0 = x;
@@ -257,6 +302,7 @@ function addCountdownHit(text, opts) {
 }
 
 function addStampHit(text, opts) {
+  if (!text) return;   // 无品牌时不宣告零宽命中区（与 addTextHit 同一约定）
   const { x = 1824, y = 72, size = DEF.stampSize, align = 'right', font = 'JetBrains Mono, monospace' } = opts;
   ctx.save();
   ctx.font = `${size}px ${font}`;
@@ -399,13 +445,13 @@ function drawThemedScene(t, u) {
     ctx.fillText(`LIQUID GLASS · ${String(THEME.nameEn || THEME.id).toUpperCase()}`, cx, py + (SCALE === 1 ? 74 : ph * 0.16));
 
     ctx.fillStyle = E.title.color;
-    ctx.font = `900 ${E.title.size}px "Noto Sans SC", sans-serif`;
+    ctx.font = `900 ${E.title.size}px ${HEAD_FONT}`;
     const titleY = py + ph * 0.42;
     ctx.fillText(E.title.text, cx, titleY);
     addTextHit('title.main', 'title', E.title.text, cx, titleY, { color: E.title.color, size: E.title.size, schema: SCHEMA.title });
 
     ctx.fillStyle = E.sub.color;
-    ctx.font = `500 ${E.sub.size}px "Noto Sans SC", sans-serif`;
+    ctx.font = `500 ${E.sub.size}px ${HEAD_FONT}`;
     const subY = py + ph * 0.655;
     ctx.fillText(E.sub.text, cx, subY);
     addTextHit('title.sub', 'title', E.sub.text, cx, subY, { color: E.sub.color, size: E.sub.size, schema: SCHEMA.sub });
@@ -443,13 +489,13 @@ function drawThemedScene(t, u) {
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     ctx.fillStyle = E.title.color;
-    ctx.font = `900 ${E.title.size}px "Noto Sans SC", sans-serif`;
+    ctx.font = `900 ${E.title.size}px ${HEAD_FONT}`;
     const titleY = cy - 20 * SCALE;
     ctx.fillText(E.title.text, cx, titleY);
     addTextHit('title.main', 'title', E.title.text, cx, titleY, { color: E.title.color, size: E.title.size, schema: SCHEMA.title });
 
     ctx.fillStyle = E.sub.color;
-    ctx.font = `500 ${E.sub.size}px "Noto Sans SC", sans-serif`;
+    ctx.font = `500 ${E.sub.size}px ${HEAD_FONT}`;
     const subY = cy + 150 * SCALE;
     ctx.fillText(E.sub.text, cx, subY);
     addTextHit('title.sub', 'title', E.sub.text, cx, subY, { color: E.sub.color, size: E.sub.size, schema: SCHEMA.sub });
@@ -493,7 +539,7 @@ function drawLegacyScene(t, u) {
   ctx.beginPath(); ctx.arc(cx, cy, r, t * 0.9, t * 0.9 + Math.PI * 1.5); ctx.stroke();
 
   ctx.fillStyle = E.title.color;
-  ctx.font = `900 ${E.title.size}px "Noto Sans SC", sans-serif`;
+  ctx.font = `900 ${E.title.size}px ${HEAD_FONT}`;
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
   const titleY = cy - 20 * SCALE;
@@ -501,7 +547,7 @@ function drawLegacyScene(t, u) {
   addTextHit('title.main', 'title', E.title.text, cx, titleY, { color: E.title.color, size: E.title.size, schema: SCHEMA.title });
 
   ctx.fillStyle = E.sub.color;
-  ctx.font = `500 ${E.sub.size}px "Noto Sans SC", sans-serif`;
+  ctx.font = `500 ${E.sub.size}px ${HEAD_FONT}`;
   const subY = cy + 150 * SCALE;
   ctx.fillText(E.sub.text, cx, subY);
   addTextHit('title.sub', 'title', E.sub.text, cx, subY, { color: E.sub.color, size: E.sub.size, schema: SCHEMA.sub });
@@ -546,6 +592,7 @@ window.renderFrame = (u) => {
   ctx.restore();
   drawFlash(ctx, fx.flash, W, H);
   drawTexture(t);
+  drawBrandLogo();
 };
 
 // ---------- edit contract（D3） ----------
@@ -560,7 +607,8 @@ bridge.install();
 // ---------- readiness ----------
 window.__ready = false;
 (async () => {
-  await loadFonts(['Noto Sans SC', 'Inter', 'JetBrains Mono', 'ZCOOL KuaiLe']);
+  await loadBrandLogo();
+  await loadFonts(['Noto Sans SC', 'Inter', 'JetBrains Mono', 'ZCOOL KuaiLe', ...(PARAM_BRAND_FONT ? [PARAM_BRAND_FONT] : [])]);
   window.renderFrame(0);
   window.__ready = true;
 })().catch((err) => { window.__bootError = String(err && err.stack || err); });

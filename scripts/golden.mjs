@@ -55,6 +55,8 @@ if (args.help) {
   --root <dir>            repository root, default this repo
   --format <png|jpeg>     still format, default png
   --width/--height <n>    viewport, default 1920x1080
+  --json                  machine-readable report (one JSON line)
+  --strict-env            fail when Chrome/fonts differ from the committed manifest
   --timeout <ms>          page-ready timeout per still, default 180000`);
   process.exit(0);
 }
@@ -69,6 +71,8 @@ const MANIFEST = path.resolve(ROOT, String(args.manifest
 const FIXTURES = path.join(ROOT, 'fixtures', 'golden');
 const RENDERER = path.join(ROOT, 'templates', 'render-segment.mjs');
 const UPDATE = !!args.update;
+const STRICT_ENV = !!args['strict-env'];
+const JSON_OUT = !!args.json;
 const FILTER = args.filter ? String(args.filter) : null;
 const FORMAT = String(args.format || 'png').toLowerCase() === 'jpeg' ? 'jpeg' : 'png';
 const WIDTH = Number(args.width || 1920);
@@ -122,6 +126,34 @@ function toolVersion(cmd, argv, cwd) {
   }
 }
 
+/**
+ * 当前渲染环境指纹（v2.4 / P2-03）。
+ * committed golden 只有在「同一 Chrome + 同一字体字节」下才可比；
+ * 跨机直接比哈希会把字体替换当成视觉回归。
+ */
+function fontSetHash() {
+  try {
+    const lock = readJson(path.join(ROOT, 'shared', 'fonts.lock.json'));
+    return lock.setSha256 || null;
+  } catch {
+    return null;
+  }
+}
+
+function currentEnv() {
+  return {
+    chrome: process.env.CHROME_EXE ? toolVersion(process.env.CHROME_EXE, ['--version'], ROOT) : null,
+    node: process.version,
+    platform: process.platform,
+    arch: process.arch,
+    fonts: fontSetHash(),
+  };
+}
+
+function emitJson(payload) {
+  if (args.json) process.stdout.write(JSON.stringify(payload) + '\n');
+}
+
 function listFixtures() {
   if (!fs.existsSync(FIXTURES)) throw new Error(`no fixture directory: ${FIXTURES}`);
   return fs.readdirSync(FIXTURES, { withFileTypes: true })
@@ -171,18 +203,32 @@ function renderStill({ specName, index, globalT, segment }) {
     '--timeout', String(TIMEOUT),
   ];
 
-  process.stdout.write(`[render] ${specName} #${index + 1} t=${fixed3(globalT)} segment=${segment.id} local=${fixed3(local)}\n`);
-  const r = spawnSync(process.execPath, argv, {
-    cwd: ROOT,
-    encoding: 'utf8',
-    timeout: PARENT_TIMEOUT,
-    maxBuffer: 64 * 1024 * 1024,
-    windowsHide: true,
-  });
-  if (r.status !== 0) {
+  if (!JSON_OUT) process.stdout.write(`[render] ${specName} #${index + 1} t=${fixed3(globalT)} segment=${segment.id} local=${fixed3(local)}\n`);
+
+  // Chrome 冷启动偶发 CDP Page.navigate 超时（同一命令重跑就过）。黄金回归
+  // 不能把这种抖动当像素回归，所以失败先退避重试；三次都失败才是真失败。
+  let r = null;
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    r = spawnSync(process.execPath, argv, {
+      cwd: ROOT,
+      encoding: 'utf8',
+      timeout: PARENT_TIMEOUT,
+      maxBuffer: 64 * 1024 * 1024,
+      windowsHide: true,
+    });
+    if (r.status === 0) break;
+    if (attempt < 3) {
+      const why = `${r.stderr || r.stdout || ''}`.trim().split(/\r?\n/).pop() || `exit ${r.status}`;
+      if (!JSON_OUT) console.log(`[retry]  ${specName} #${index + 1} failed (${why}); retrying ${attempt}/2`);
+      spawnSync(process.execPath, ['-e', `setTimeout(()=>{}, ${900 * attempt})`], { windowsHide: true });
+      fs.rmSync(rawDir, { recursive: true, force: true });
+      fs.mkdirSync(rawDir, { recursive: true });
+    }
+  }
+  if (!r || r.status !== 0) {
     throw new Error(
-      `render failed for ${specName} t=${fixed3(globalT)} (exit=${r.status}, signal=${r.signal || '-'})\n` +
-      `  page: ${segment.page}\n--- stdout ---\n${r.stdout || ''}\n--- stderr ---\n${r.stderr || ''}`,
+      `render failed for ${specName} t=${fixed3(globalT)} (exit=${r && r.status}, signal=${(r && r.signal) || '-'})\n` +
+      `  page: ${segment.page}\n--- stdout ---\n${(r && r.stdout) || ''}\n--- stderr ---\n${(r && r.stderr) || ''}`,
     );
   }
 
@@ -270,12 +316,17 @@ function doUpdate() {
   }
   specs.sort((a, b) => a.name.localeCompare(b.name));
 
+  const env = currentEnv();
   const manifest = {
     manifestVersion: 1,
     generatedBy: 'scripts/golden.mjs',
     engineVersion: ENGINE_VERSION,
     git: toolVersion('git', ['rev-parse', '--short', 'HEAD'], ROOT),
-    chrome: process.env.CHROME_EXE ? toolVersion(process.env.CHROME_EXE, ['--version'], ROOT) : null,
+    chrome: env.chrome,
+    node: env.node,
+    platform: env.platform,
+    arch: env.arch,
+    fonts: env.fonts,
     format: FORMAT,
     viewport: { width: WIDTH, height: HEIGHT },
     times: PCTS,
@@ -284,10 +335,16 @@ function doUpdate() {
   writeJsonAtomic(MANIFEST, manifest);
 
   const stillCount = specs.reduce((n, s) => n + s.stills.length, 0);
-  for (const s of specs) {
-    for (const st of s.stills) console.log(`[hash]   ${s.name}/${st.file}  ${st.hash}  ${st.bytes} bytes`);
+  if (!JSON_OUT) {
+    for (const s of specs) {
+      for (const st of s.stills) console.log(`[hash]   ${s.name}/${st.file}  ${st.hash}  ${st.bytes} bytes`);
+    }
+    console.log(`[write]  ${toPosix(path.relative(ROOT, MANIFEST))} (${specs.length} specs, ${stillCount} stills)`);
   }
-  console.log(`[write]  ${toPosix(path.relative(ROOT, MANIFEST))} (${specs.length} specs, ${stillCount} stills)`);
+  emitJson({
+    ok: true, mode: SELFCHECK ? 'selfcheck' : 'update',
+    env, manifest: toPosix(path.relative(ROOT, MANIFEST)), specs: specs.length, stills: stillCount,
+  });
 }
 
 // ── check ───────────────────────────────────────────────────────────────────
@@ -297,6 +354,38 @@ function doCheck() {
     throw new Error(`manifest not found: ${MANIFEST}\n  run: node scripts/golden.mjs --update`);
   }
   const manifest = readJson(MANIFEST);
+  const env = currentEnv();
+  const envCompare = {
+    chrome: {
+      expected: manifest.chrome ?? null,
+      actual: env.chrome ?? null,
+      match: !manifest.chrome || !env.chrome || manifest.chrome === env.chrome,
+    },
+    fonts: {
+      expected: manifest.fonts ?? null,
+      actual: env.fonts ?? null,
+      match: !manifest.fonts || !env.fonts || manifest.fonts === env.fonts,
+    },
+    node: { expected: manifest.node ?? null, actual: env.node },
+    platform: { expected: manifest.platform ?? null, actual: env.platform },
+  };
+  const envMatch = envCompare.chrome.match && envCompare.fonts.match;
+  if (!envMatch) {
+    const detail = {
+      chrome: `${envCompare.chrome.expected} != ${envCompare.chrome.actual}`,
+      fonts: `${String(envCompare.fonts.expected).slice(0, 12)} != ${String(envCompare.fonts.actual).slice(0, 12)}`,
+    };
+    if (STRICT_ENV) {
+      console.error(`[fail] [E_ENV_MISMATCH] chrome ${detail.chrome} · fonts ${detail.fonts}`);
+      emitJson({ ok: false, mode: 'check', code: 'E_ENV_MISMATCH', env: envCompare, mismatches: [detail] });
+      process.exitCode = 1;
+      return;
+    }
+    console.warn(`[warn] [W_ENV_MISMATCH] chrome ${detail.chrome} · fonts ${detail.fonts}`);
+    console.warn('       committed golden hashes are machine-bound; hash comparison skipped (use --strict-env to fail, or --selfcheck on this machine)');
+    emitJson({ ok: true, mode: 'check', skipped: 'env-mismatch', env: envCompare, mismatches: [] });
+    return;
+  }
   const expected = new Map((manifest.specs || []).map((s) => [s.name, s]));
   const fresh = buildResults();
   const freshNames = new Set(fresh.map((s) => s.name));
@@ -341,18 +430,22 @@ function doCheck() {
   }
 
   if (mismatches.length) {
-    for (const m of mismatches) console.error(`[fail] ${m}`);
-    console.error(`\n✗ golden check failed: ${mismatches.length} mismatch(es) across ${fresh.length} project(s)`);
+    if (!JSON_OUT) {
+      for (const m of mismatches) console.error(`[fail] ${m}`);
+      console.error(`\n✗ golden check failed: ${mismatches.length} mismatch(es) across ${fresh.length} project(s)`);
+    }
+    emitJson({ ok: false, mode: 'check', env: envCompare, specs: fresh.length, checked, mismatches });
     process.exitCode = 1;
     return;
   }
-  console.log(`✓ golden manifest matches: ${fresh.length} specs, ${checked} stills`);
+  if (!JSON_OUT) console.log(`✓ golden manifest matches: ${fresh.length} specs, ${checked} stills`);
+  emitJson({ ok: true, mode: 'check', env: envCompare, specs: fresh.length, checked, mismatches: [] });
 }
 
 try {
   if (SELFCHECK) {
     doUpdate();
-    console.log('[selfcheck] re-rendering to verify this machine reproduces its own hashes…');
+    if (!JSON_OUT) console.log('[selfcheck] re-rendering to verify this machine reproduces its own hashes…');
     doCheck();
   } else if (UPDATE) doUpdate();
   else doCheck();

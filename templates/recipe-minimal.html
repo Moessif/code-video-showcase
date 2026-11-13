@@ -34,6 +34,7 @@ import {
   TAU, clamp, ease, smooth, setupStage, safePad,
   fitTextSize, drawTracked, drawHud, drawTopMeta,
 } from './recipes/util.js';
+import { typeSize, safe, probe } from './tokens.mjs';
 
 const canvas = document.getElementById('c');
 const ctx = canvas.getContext('2d', { alpha: false });
@@ -72,10 +73,11 @@ let L = null;
 
 function buildLayout() {
   const maxW = (W - pad * 2) * (portrait ? 0.96 : 0.78);
-  const sizeCap = portrait ? Math.round(H * 0.15) : Math.round(H * 0.2);
+  const sizeCap = typeSize('title', W, H);
   const size = fitTextSize(ctx, TITLE, {
     maxWidth: maxW, family: SANS, weight: 800, maxSize: sizeCap, minSize: 40, spacing: 0.03,
   });
+  probe('title', size, safe(W, H));
   const subSize = Math.max(13, Math.round(size * 0.2));
   const capSize = Math.max(12, Math.round(size * 0.16));
   const ruleLen = Math.round(Math.min(maxW, size * 4.6));

@@ -35,6 +35,7 @@
  */
 import fs from 'node:fs';
 import path from 'node:path';
+import { shiftSegments } from './transitions.mjs';
 
 const DEFAULT_STRUCTURE = {
   opening: 8,
@@ -176,13 +177,30 @@ export function buildPlan(spec, { root = process.cwd(), outDir } = {}) {
         ...(meta.accent.accentSoft ? { accentSoft: meta.accent.accentSoft } : {}),
       }
     : {};
+  // v2.3.5：spec 路径下把内容参数下发到页面。timeline v1 没有 specMode，
+  // 因此旧项目的段 URL 逐字符不变（golden 兼容）。
+  const specMode = !!meta.specMode;
+  const copyParams = specMode && meta.copyTitle ? { title: meta.copyTitle } : {};
+  // 品牌视觉（v2.4 / P1-12）：meta.logo / meta.brandFont 由 specToTimeline 展开，
+  // 页面只读 URL —— 与 theme/accent 同一条下发路径。
+  const brandParams = specMode && meta.brand
+    ? {
+        brand: meta.brand,
+        ...(meta.logo ? { logo: meta.logo } : {}),
+        ...(meta.brandFont ? { brandFont: meta.brandFont } : {}),
+      }
+    : {};
 
   // 1) nominal segments in order
   const nominal = [];
   const opening = spec.opening || {};
   nominal.push({
     id: '00-opening', kind: 'opening', index: 0, label: opening.name || 'opening',
-    page: query(opening.page || DEFAULT_PAGES.opening, { ...themeParams, ...motionParams, ...accentParams }),
+    page: query(opening.page || DEFAULT_PAGES.opening, {
+      ...themeParams, ...motionParams, ...accentParams, ...copyParams, ...brandParams,
+      ...(specMode && meta.copySub ? { sub: meta.copySub } : {}),
+      ...(opening.capsule ? { capsule: opening.capsule } : {}),
+    }),
     duration: Number(st.opening),
   });
 
@@ -213,12 +231,25 @@ export function buildPlan(spec, { root = process.cwd(), outDir } = {}) {
     });
 
     const style = r.style || {};
+    const styleCopy = style.copy || {};
+    const styleTitle = String(styleCopy.title || style.name || r.name || '').trim();
+    const styleSub = String(styleCopy.subtitle || '').trim();
+    const styleCaption = String(styleCopy.caption || '').trim();
     nominal.push({
       id: `${rid}-style`, kind: 'style', index: idx, label: style.name || r.name || rid,
-      page: query(style.page, { ...themeParams, ...motionParams, ...accentParams }),
+      page: query(style.page, {
+        ...themeParams, ...motionParams, ...accentParams, ...brandParams,
+        // 单段动效覆盖全局档位（style.motion），写错不再是静默无效。
+        ...(style.motion ? { mp: style.motion } : {}),
+        ...(specMode && styleTitle ? { title: styleTitle } : {}),
+        ...(specMode && styleSub ? { sub: styleSub } : {}),
+        ...(specMode && styleCaption ? { caption: styleCaption } : {}),
+      }),
       duration: Number(st.round) - Number(st.card),
       t0: Number(style.t0 ?? 0),
       speed: Number(style.speed ?? 1),
+      motion: style.motion || meta.motion || null,
+      copy: styleCopy,
     });
   });
 
@@ -266,19 +297,23 @@ export function buildPlan(spec, { root = process.cwd(), outDir } = {}) {
   const ending = spec.ending || {};
   nominal.push({
     id: '99-ending', kind: 'ending', index: nominal.length, label: ending.name || 'ending',
-    page: query(ending.page || DEFAULT_PAGES.ending, { ...themeParams, ...motionParams, ...accentParams }),
+    page: query(ending.page || DEFAULT_PAGES.ending, {
+      ...themeParams, ...motionParams, ...accentParams, ...copyParams, ...brandParams,
+      // CTA 进结尾页（以前 meta.cta 只写进 spec，画面里没有）。
+      ...(specMode && (meta.copyCta || meta.copySub) ? { sub: meta.copyCta || meta.copySub } : {}),
+      ...(ending.capsule ? { capsule: ending.capsule } : {}),
+    }),
     duration: Number(st.ending),
   });
 
   // 2) snap to integer frame boundaries
   const nominalTotal = nominal.reduce((s, x) => s + x.duration, 0);
-  const totalFrames = Math.round(nominalTotal * fps);
-  const actualDuration = totalFrames / fps;
+  const baseTotalFrames = Math.round(nominalTotal * fps);
   let cursor = 0;
-  const segments = nominal.map((s, i) => {
+  let segments = nominal.map((s, i) => {
     const startFrame = Math.round(cursor * fps);
     cursor += s.duration;
-    const endFrame = i === nominal.length - 1 ? totalFrames : Math.round(cursor * fps);
+    const endFrame = i === nominal.length - 1 ? baseTotalFrames : Math.round(cursor * fps);
     const frames = endFrame - startFrame;
     return {
       ...s,
@@ -291,6 +326,28 @@ export function buildPlan(spec, { root = process.cwd(), outDir } = {}) {
       out: path.join(meta.outDir, `${s.id}.mp4`).replace(/\\/g, '/'),
     };
   });
+
+  // 2.5) 转场（v2.5）：每段渲染时长不变，起点按 xfade 重叠平移。
+  // 关闭时 shiftSegments 原样返回 → totalFrames/actualDuration/cue 与旧版逐字节一致。
+  // 平移后的段起点同时是 concat 的 xfade offset（单一真值，见 transitions.mjs）。
+  const transition = meta.transition || null;
+  // xfade 要求每段都比转场长：否则该段被两侧重叠吃光，起点平移后非单调，
+  // offset 出现 0/负值，成片塌缩成最后一段。这里在 plan 阶段就挡住（exit 10）。
+  if (transition && segments.length >= 2) {
+    const tf = Math.round(transition.duration * fps);
+    const shortest = segments.reduce((m, s) => Math.min(m, s.frames), Infinity);
+    if (tf >= shortest) {
+      const e = new Error(
+        `[E_TRANSITION_DURATION] render.transition: transition ${transition.duration}s (${tf}f) must be shorter ` +
+        `than the shortest segment (${shortest}f = ${(shortest / fps).toFixed(3)}s); reduce transitionDuration or lengthen segments`,
+      );
+      e.code = 'E_TRANSITION_DURATION';
+      throw e;
+    }
+  }
+  segments = shiftSegments(segments, fps, transition);
+  const totalFrames = segments.length ? segments[segments.length - 1].endFrame : baseTotalFrames;
+  const actualDuration = totalFrames / fps;
 
   // 3) render CLI args (relative --page; renderer appends seg/t0/speed/dur)
   for (const s of segments) {
@@ -333,10 +390,28 @@ export function buildPlan(spec, { root = process.cwd(), outDir } = {}) {
   return plan;
 }
 
-/** concat-demuxer text; absolute paths survive cwd changes. */
-export function concatList(plan, { absolute = true } = {}) {
+/**
+ * concat-demuxer 文本。
+ *
+ * 默认写绝对路径（便于任意 cwd 手动调试）；`baseDir` 指定时改写为相对该目录的
+ * 安全路径，配合 `ffmpeg -f concat -safe 1` 使用：没有绝对路径、没有 `..`、
+ * 没有盘符/UNC，清单里的一行无法把 ffmpeg 引到项目外。
+ */
+export function concatList(plan, { absolute = true, baseDir = null } = {}) {
   const root = plan.meta.root;
   return plan.segments.map((s) => {
+    if (baseDir) {
+      const abs = path.resolve(root, s.out);
+      let rel = path.relative(path.resolve(baseDir), abs);
+      if (!rel || rel === '..' || rel.startsWith(`..${path.sep}`) || path.isAbsolute(rel)) {
+        throw new Error(`concatList: segment ${s.id} is outside baseDir (${abs})`);
+      }
+      rel = rel.split(path.sep).join('/');
+      if (rel.includes("'") || rel.includes('\n') || rel.includes('\r') || /^[A-Za-z]:/.test(rel)) {
+        throw new Error(`concatList: unsafe segment path for concat: ${rel}`);
+      }
+      return `file '${rel}'`;
+    }
     const f = absolute ? path.resolve(root, s.out).replace(/\\/g, '/') : s.out;
     return `file '${f.replace(/'/g, "'\\''")}'`;
   }).join('\n') + '\n';

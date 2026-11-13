@@ -26,6 +26,8 @@
  *   --theme <id>      --page 模式下追加 ?theme=
  *   --at <t|auto>     帧时间（秒，页面本地时间）。auto=段落时长的 0.78（画面已稳）
  *   --set <a,b,c>     尺寸预设，默认 cover,card,poster,story
+ *   --cover card|style 封面版式：card=大卡页（默认，无正片 HUD/编号）；style=正片风格帧
+ *   --force           先清空输出目录；默认只替换本次请求的尺寸，保留已有图
  *   --out <dir>       输出目录，默认 out/images
  *   --format png|jpeg 默认 png
  *   --quality <n>     jpeg 质量，默认 92
@@ -148,18 +150,68 @@ async function main() {
     throw new Error('need --spec <file> (recommended) or --page <html>; see --help');
   }
 
-  const at = args.at === undefined || args.at === 'auto' ? heroTime(source.duration) : Number(args.at);
-  if (!Number.isFinite(at) || at < 0) throw new Error(`--at must be a non-negative number or "auto", got ${args.at}`);
+  const explicitAt = args.at === undefined || args.at === 'auto' ? null : Number(args.at);
+  if (explicitAt !== null && (!Number.isFinite(explicitAt) || explicitAt < 0)) {
+    throw new Error(`--at must be a non-negative number or "auto", got ${args.at}`);
+  }
+  const at = explicitAt === null ? heroTime(source.duration) : explicitAt;
+
+  // 封面版式（P2-02）：默认用第一张 card 页（大卡：first/keyword/brand），
+  // 而不是带 HUD 编号/倒计时的正片截帧。--cover style 可回到正片风格帧。
+  let cardSource = null;
+  if (!args.from && source.plan) {
+    const seg = source.plan.segments.find((x) => x.kind === 'card');
+    if (seg) {
+      cardSource = {
+        page: seg.page,
+        segment: seg,
+        duration: Number(seg.duration) || Number(seg.frames) / Number(source.plan.stats?.fps || 30) || 4,
+        plan: source.plan,
+        spec: source.spec,
+        specPath: source.specPath,
+      };
+    }
+  }
+  const coverMode = args.cover === 'style' ? 'style' : 'card';
+  const sourceFor = (name) => (name === 'cover' && coverMode === 'card' && cardSource ? cardSource : source);
+
+  // 帧时间必须按**每张图自己的源**算。cover 走的是 0.4s 的卡片段，正片是几秒；
+  // 以前统一用正片时长算出一个 at 再套到所有图上，于是 auto 与 --at 1.0 在卡片段上
+  // 都被夹到同一帧 —— 「换 --at 哈希不变」不是确定性，是时间参数失效。
+  const atFor = (src) => {
+    const d = Number(src.duration);
+    if (explicitAt === null) return heroTime(d);
+    if (!Number.isFinite(d) || d <= 0) return explicitAt;
+    return Number(Math.min(explicitAt, Math.max(d - 0.05, 0)).toFixed(3));
+  };
 
   if (source.segment) {
     console.log(`[image] segment ${source.segment.id} (${source.segment.kind})  dur=${source.segment.duration}s  at=${at}s`);
   } else {
     console.log(`[image] at=${at}s`);
   }
+  if (cardSource) console.log(`[image] cover  ${coverMode === 'card' ? `card 版式 (${cardSource.segment.id})` : 'style 正片帧'}`);
   console.log(`[image] set    ${set.join(',')}  ->  ${toPosix(path.relative(root, outDir))}\n`);
 
-  fs.rmSync(outDir, { recursive: true, force: true });
+  // 覆盖策略（P2-02）：默认只替换本次请求的尺寸，保留已有第一批；
+  // --force 才清空目录。上一次清单另存 .prev.json 便于追溯。
+  const manifestPath = path.join(outDir, 'image-manifest.json');
+  let previousManifest = null;
+  try { previousManifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8')); } catch { /* 首次 */ }
+  if (previousManifest) {
+    try { fs.copyFileSync(manifestPath, path.join(outDir, 'image-manifest.prev.json')); } catch { /* best effort */ }
+  }
+  const force = !!args.force;
+  if (force) fs.rmSync(outDir, { recursive: true, force: true });
   fs.mkdirSync(outDir, { recursive: true });
+  if (previousManifest && !force) {
+    const prevSpec = previousManifest.spec || null;
+    const nowSpec = source.specPath ? toPosix(path.relative(root, source.specPath)) : null;
+    if (prevSpec && nowSpec && prevSpec !== nowSpec) {
+      console.warn(`[warn] [W_IMAGE_MIXED] ${toPosix(path.relative(root, outDir))} already holds images from ${prevSpec}; use --force to rebuild the whole set from ${nowSpec}`);
+    }
+    console.log(`[image] merge  保留已有 ${(previousManifest.images || []).length} 张，只替换本次尺寸（--force 可整目录重出）`);
+  }
 
   const results = [];
   const t0 = Date.now();
@@ -171,15 +223,20 @@ async function main() {
       for (const name of set) {
         const ps = PRESETS[name];
         const dir = path.join(outDir, name);
+        // 非 --force：只清这个尺寸自己的目录，别的尺寸原样保留。
+        if (!force) fs.rmSync(dir, { recursive: true, force: true });
+        fs.mkdirSync(dir, { recursive: true });
+        const src = sourceFor(name);
+        const shotAt = atFor(src);
         const shot = async () => ctx.stills({
-          page: source.page,
-          stills: [at],
+          page: src.page,
+          stills: [shotAt],
           outdir: dir,
           width: ps.width,
           height: ps.height,
-          duration: source.duration,
-          t0: source.segment?.t0 ?? 0,
-          speed: source.segment?.speed ?? 1,
+          duration: src.duration,
+          t0: src.segment?.t0 ?? 0,
+          speed: src.segment?.speed ?? 1,
           format,
           quality,
         });
@@ -191,6 +248,7 @@ async function main() {
           console.log(`  (${name} failed: ${String(e.message || e).split('\n')[0]}; restarting browser)`);
           await ctx.restart();
           fs.rmSync(dir, { recursive: true, force: true });
+          fs.mkdirSync(dir, { recursive: true });
           res = await shot();
         }
 
@@ -212,6 +270,12 @@ async function main() {
           file: toPosix(path.relative(root, finalPath)),
           bytes: buf.length,
           sha256: hash,
+          // 每张图自己的来源：合并多批尺寸时仍能追溯
+          page: src.page,
+          segment: src.segment ? src.segment.id : null,
+          at: shotAt,
+          atRequested: explicitAt,
+          sourceDuration: Number(src.duration) || null,
         });
         const warn = buf.length < MIN_BYTES ? '  ⚠ 疑似空帧' : '';
         console.log(`  ✓ ${name.padEnd(7)} ${String(ps.width).padStart(4)}×${String(ps.height).padEnd(5)} ${(buf.length / 1024).toFixed(1).padStart(7)} KB  ${hash.slice(0, 12)}${warn}`);
@@ -219,6 +283,15 @@ async function main() {
       }
     },
   );
+
+  // 合并清单：本次结果覆盖同 preset，其余保留（--force 时 previous 已被删）。
+  const merged = new Map();
+  for (const img of (previousManifest?.images || [])) {
+    if (img && img.preset && fs.existsSync(path.join(outDir, img.preset)) && fs.existsSync(path.resolve(root, img.file || ''))) merged.set(img.preset, img);
+  }
+  for (const r of results) merged.set(r.preset, r);
+  const order = Object.keys(PRESETS);
+  const images = [...merged.values()].sort((a, b) => order.indexOf(a.preset) - order.indexOf(b.preset));
 
   const manifest = {
     version: 1,
@@ -230,18 +303,18 @@ async function main() {
     segment: source.segment ? source.segment.id : null,
     segmentKind: source.segment ? source.segment.kind : null,
     segmentHash: source.segment ? source.segment.hash : null,
+    coverMode,
     theme: source.plan ? source.plan.meta.theme : (args.theme || null),
     motion: source.plan ? (source.plan.meta.motion || null) : (args.mp || null),
     accent: source.plan ? (source.plan.meta.accent || null) : null,
     spec: source.specPath ? toPosix(path.relative(root, source.specPath)) : null,
-    images: results,
+    images,
   };
-  const manifestPath = path.join(outDir, 'image-manifest.json');
   fs.writeFileSync(manifestPath, JSON.stringify(manifest, null, 2) + '\n');
 
   const small = results.filter((r) => r.bytes < MIN_BYTES);
   console.log(`\n[image] ${results.length} 张 -> ${toPosix(path.relative(root, outDir))}  (${((Date.now() - t0) / 1000).toFixed(1)}s)`);
-  console.log(`[image] 清单 ${toPosix(path.relative(root, manifestPath))}`);
+  console.log(`[image] 清单 ${toPosix(path.relative(root, manifestPath))} · ${images.length} 张在册`);
   if (small.length) {
     console.error(`[image] ${small.length} 张低于 ${MIN_BYTES / 1024} KB，可能是空帧: ${small.map((r) => r.preset).join(', ')}`);
     process.exit(1);

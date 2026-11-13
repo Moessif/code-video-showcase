@@ -1,6 +1,6 @@
 {
-  "version": 1,
-  "note": "8 组首屏推荐预设。只露这 8 组；其余枚举通过「我自己调」展开。每条都可直接生成合法 spec v1。",
+  "version": 2,
+  "note": "16 组首屏推荐预设（8 原有 + 8 个 v2.5 新增垂直领域）。其余枚举通过「我自己调」展开。每条都可直接生成合法 spec v1。",
   "presets": [
     {
       "id": "promo-cyber-pixel",
@@ -89,6 +89,94 @@
       "aspect": "16:9",
       "mood": "epic",
       "description": "黑金材质与 3D 质感，60 秒回顾全年节点，适合年会与年度总结。"
+    },
+    {
+      "id": "tutorial-screencast",
+      "name": "教程教学 · 录屏",
+      "kind": "tutorial",
+      "style": "screencast",
+      "theme": "blueprint-stone",
+      "duration": 41,
+      "aspect": "16:9",
+      "mood": "restrained",
+      "description": "录屏 + 蓝图标注，把手把手实操拆成清楚步骤，适合软件教学与操作指南。"
+    },
+    {
+      "id": "changelog-kinetic",
+      "name": "版本更新 · 动态字",
+      "kind": "changelog",
+      "style": "kinetic",
+      "theme": "coral-noir",
+      "duration": 20,
+      "aspect": "16:9",
+      "mood": "electronic",
+      "description": "20 秒动态字体快剪版本号与新特性，适合 release notes 与更新预告。"
+    },
+    {
+      "id": "event-brutalist",
+      "name": "活动邀请 · 粗野",
+      "kind": "event",
+      "style": "brutalist",
+      "theme": "pop-acid",
+      "duration": 20,
+      "aspect": "16:9",
+      "mood": "upbeat",
+      "description": "撞色硬投影的高能邀请函，时间地点一眼记住，适合峰会沙龙与报名造势。"
+    },
+    {
+      "id": "podcast-editorial",
+      "name": "播客音频 · 编辑",
+      "kind": "podcast",
+      "style": "editorial",
+      "theme": "paper-journal",
+      "duration": 30,
+      "aspect": "16:9",
+      "mood": "restrained",
+      "description": "报纸编辑风的金句卡 + 波形，把一期播客精华切成可分享的音频视频。"
+    },
+    {
+      "id": "travel-inkwash",
+      "name": "旅行目的地 · 水墨",
+      "kind": "travel",
+      "style": "ink-wash",
+      "theme": "celadon-paper",
+      "duration": 30,
+      "aspect": "16:9",
+      "mood": "guofeng",
+      "description": "青瓷水墨的山水留白，慢节奏铺陈目的地亮点与实用贴士，适合文旅种草。"
+    },
+    {
+      "id": "food-flat",
+      "name": "美食食谱 · 扁平",
+      "kind": "food",
+      "style": "flat",
+      "theme": "paper-journal",
+      "duration": 25,
+      "aspect": "16:9",
+      "mood": "upbeat",
+      "description": "扁平色块把食材与步骤画成可爱图解，25 秒讲清一道菜，适合美食教程。"
+    },
+    {
+      "id": "gaming-glitch",
+      "name": "游戏高光 · 故障",
+      "kind": "gaming",
+      "style": "cyber-glitch",
+      "theme": "cyber-neon",
+      "duration": 15,
+      "aspect": "9:16",
+      "mood": "electronic",
+      "description": "15 秒竖屏 RGB 分离 + 扫描线，神操作集锦的高能开场，适合电竞与主播切片。"
+    },
+    {
+      "id": "music-vaporwave",
+      "name": "音乐发行 · 蒸汽波",
+      "kind": "music",
+      "style": "vaporwave",
+      "theme": "cyber-neon",
+      "duration": 20,
+      "aspect": "9:16",
+      "mood": "electronic",
+      "description": "霓虹落日与透视网格的复古未来感，20 秒竖屏新歌预存片，适合单曲与专辑发行。"
     }
   ]
 }

@@ -141,7 +141,7 @@ const state = {
   duration: 30,
   aspect: '16:9',
   mood: 'electronic',
-  brand: '{{BRAND}}',
+  brand: '',
   accent: null,
   reference: null,
   cta: KIND_CTA.promo,
@@ -179,6 +179,8 @@ function compat(theme, style) {
 function sizeFor(aspect) {
   if (aspect === '9:16') return { width: 1080, height: 1920 };
   if (aspect === '1:1') return { width: 1080, height: 1080 };
+  if (aspect === '3:4') return { width: 1080, height: 1440 };
+  if (aspect === '6:7') return { width: 1080, height: 1260 };
   return { width: 1920, height: 1080 };
 }
 
@@ -265,7 +267,10 @@ function buildSpec(s) {
   const { width, height } = sizeFor(s.aspect);
   const kindLabel = optionLabel(KIND_OPTIONS, s.kind);
   const styleLabel = optionLabel(styleOptions, s.style);
-  const brand = String(s.brand || '').trim() || '{{BRAND}}';
+  const brandInput = String(s.brand || '').trim();
+  const name = brandInput ? `${brandInput} · ${kindLabel}` : `${kindLabel} · ${styleLabel}`;
+  // 未填品牌时用项目名兜底，不再写 {{BRAND}}（lint 现在把占位符当 error）。
+  const brand = brandInput || name;
   const cta = String(s.cta || '').trim() || KIND_CTA[s.kind] || '了解更多';
   // 用户显式选色优先；否则用 combos._meta.accentFix 的对比度安全值（spec-lint APCA >= 45）。
   const accentFix = combosDoc?._meta?.accentFix?.[s.theme];
@@ -275,13 +280,13 @@ function buildSpec(s) {
       : accentFix
         ? { accent: accentFix.accent, accentInk: accentFix.accentInk }
         : null;
-  const name = brand === '{{BRAND}}' ? `${kindLabel} · ${styleLabel}` : `${brand} · ${kindLabel}`;
   const preset = s.aspect === '9:16' ? 'douyin' : s.aspect === '1:1' ? 'square' : 'bilibili';
 
   return {
     specVersion: 1,
     meta: {
       name,
+      title: name,
       brand,
       cta,
       locale: 'zh-CN',
@@ -590,7 +595,7 @@ function renderCustom() {
 
   // 表单回填
   const brandInput = $('#brand-input');
-  brandInput.value = state.brand === '{{BRAND}}' ? '' : state.brand;
+  brandInput.value = state.brand;
 
   const ctaInput = $('#cta-input');
   ctaInput.value = state.cta || '';
@@ -874,7 +879,7 @@ function bindEvents() {
   });
 
   $('#brand-input').addEventListener('input', (e) => {
-    state.brand = e.target.value.trim() || '{{BRAND}}';
+    state.brand = e.target.value.trim();
     setModeCustom();
     renderPresets();
     scheduleGenerate();

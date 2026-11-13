@@ -113,6 +113,7 @@ export function optionsFromArgs(args) {
     capture: str('capture', 'auto'),
     headed: !!args.headed,
     timeout: num('timeout', 120000),
+    launchTimeout: num('launch-timeout', 30000),
     warmup: args['no-warmup'] ? false : bool(args.warmup, true),
     optimize: args['no-optimize'] ? false : bool(args.optimize, true),
     still: args.still === undefined ? null : String(args.still),
@@ -160,6 +161,9 @@ export function normalizeOptions(raw = {}) {
     capture: str(raw.capture, 'auto'),
     headed: !!raw.headed,
     timeout: num(raw.timeout, 120000),
+    // 浏览器**启动**超时与页面 ready 超时必须分开：页面可以慢（SwiftShader 首帧），
+    // 但一个起不来的浏览器不该继承 120s 的页面预算，把失败路径拖成两分钟空等。
+    launchTimeout: num(raw.launchTimeout, 30000),
     warmup: raw.warmup !== undefined ? bool(raw.warmup, true) : true,
     optimize: raw.optimize !== undefined ? bool(raw.optimize, true) : true,
     stills,
@@ -236,7 +240,14 @@ function launchFfmpeg(outFile, opts) {
     p.on('error', rej);
     p.on('close', (c) => (c === 0 ? res() : rej(new Error('ffmpeg exit ' + c + ': ' + err.slice(0, 800)))));
   });
-  return { stdin: p.stdin, done };
+  // 渲染中途抛错（页面 renderFrame 抛异常 / 抓帧失败）时必须能杀掉 ffmpeg：
+  // 它一直等 stdin，管道句柄让 Node 事件循环不退出。症状是「batch 打印了
+  // done 但进程挂住」，看起来像卡死，实际是一个没被清理的子进程。
+  const kill = () => {
+    try { p.stdin.destroy(); } catch { /* ignore */ }
+    try { p.kill('SIGKILL'); } catch { /* ignore */ }
+  };
+  return { stdin: p.stdin, done, kill };
 }
 
 function writeAsync(stream, buf) {
@@ -280,7 +291,11 @@ async function openPlaywright(opts) {
     '--run-all-compositor-stages-before-draw', '--disable-frame-rate-limit', '--force-color-profile=srgb',
     '--disable-lcd-text', '--font-render-hinting=none',
   ];
-  if (process.platform !== 'win32') launchArgs.push('--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage');
+  if (process.platform !== 'win32') {
+    launchArgs.push('--disable-dev-shm-usage');
+    // 沙箱默认开启；容器 / root 环境用 CVS_NO_SANDBOX=1 显式关闭（docker/Dockerfile 已设）。
+    if (process.env.CVS_NO_SANDBOX === '1') launchArgs.push('--no-sandbox', '--disable-setuid-sandbox');
+  }
 
   const browser = await chromium.launch({
     headless: !opts.headed,
@@ -332,7 +347,7 @@ async function openCdp(opts) {
     width: opts.width,
     height: opts.height,
     headed: opts.headed,
-    timeout: opts.timeout,
+    timeout: opts.launchTimeout,
     profileDir: opts.profileDir,
     removeProfile: opts.removeProfile,
   });
@@ -356,8 +371,8 @@ async function openCdp(opts) {
           await b.client.send('Page.addScriptToEvaluateOnNewDocument', { source: initScript }, p.sessionId);
         }
         await b.client.send('Page.navigate', { url }, p.sessionId);
-        await cdpWaitFor(b.client, p.sessionId, 'document.readyState === "complete" || document.readyState === "interactive"', { timeout: opts.timeout, label: 'document load' });
-        await cdpWaitFor(b.client, p.sessionId, 'window.__ready === true || !!window.__bootError', { timeout: opts.timeout, label: 'window.__ready' });
+        await cdpWaitFor(b.client, p.sessionId, 'document.readyState === "complete" || document.readyState === "interactive"', { timeout: opts.timeout, label: 'document load', warn: opts.warn });
+        await cdpWaitFor(b.client, p.sessionId, 'window.__ready === true || !!window.__bootError', { timeout: opts.timeout, label: 'window.__ready', warn: opts.warn });
         const bootError = await cdpEvaluate(b.client, p.sessionId, () => window.__bootError || null);
         if (bootError) throw new Error('page boot error: ' + bootError);
         await cdpEvaluate(b.client, p.sessionId, () => document.fonts.ready);
@@ -453,6 +468,8 @@ export async function withRenderer(rawOptions, fn) {
   const server = await startStaticServer(opts.root, opts.port);
   const port = server.address().port;
   let browser = null;
+  let restarts = 0;
+  const baseProfileDir = opts.profileDir;
 
   const pageOptions = (pageOpts = {}) => {
     const merged = normalizeOptions({ ...opts, ...pageOpts, root: opts.root, log: opts.log, warn: opts.warn });
@@ -496,8 +513,13 @@ export async function withRenderer(rawOptions, fn) {
       const old = browser;
       browser = null;
       if (old) await old.close().catch(() => {});
-      browser = await openBrowser(opts);
-      opts.log(`[browser] ${browser.kind}`);
+      // 恢复路径换一个全新的 profile 目录。被杀/崩溃的浏览器可能把 singleton 锁、
+      // 半写的 Local State 留在旧目录里；复用它等于把「能不能恢复」押在上一次死得
+      // 够干净上。profile 只是浏览器状态，帧缓存是 .cache，换目录不损失任何复用。
+      restarts += 1;
+      const next = baseProfileDir ? { ...opts, profileDir: `${baseProfileDir}-r${restarts}` } : opts;
+      browser = await openBrowser(next);
+      opts.log(`[browser] ${browser.kind}${restarts > 1 ? ` (restart ${restarts})` : ''}`);
       return browser.kind;
     },
   };
@@ -549,26 +571,34 @@ async function renderVideo(ctx, opts, rawPageOpts = {}) {
     const frames = Math.round(opts.duration * opts.fps);
     const ff = launchFfmpeg(opts.out, opts);
     const started = performance.now();
-    for (let i = 0; i < frames; i++) {
-      const t = i / opts.fps;
-      let buf;
-      try { buf = await grab(page, t, page.mode, opts); }
-      catch (e) {
-        if (page.mode === 'canvas') {
-          page.log(`[warn] canvas capture failed at frame ${i} (${e.message}); switching to cdp`);
-          page.mode = 'cdp';
-          buf = await grab(page, t, page.mode, opts);
-        } else throw e;
+    try {
+      for (let i = 0; i < frames; i++) {
+        const t = i / opts.fps;
+        let buf;
+        try { buf = await grab(page, t, page.mode, opts); }
+        catch (e) {
+          if (page.mode === 'canvas') {
+            page.log(`[warn] canvas capture failed at frame ${i} (${e.message}); switching to cdp`);
+            page.mode = 'cdp';
+            buf = await grab(page, t, page.mode, opts);
+          } else throw e;
+        }
+        await writeAsync(ff.stdin, buf);
+        if (i % 30 === 0 || i === frames - 1) {
+          const sec = (performance.now() - started) / 1000;
+          const fps = (i + 1) / Math.max(0.001, sec);
+          page.log(`[frame] ${i + 1}/${frames}  t=${t.toFixed(3)}s  elapsed=${sec.toFixed(1)}s  ~${fps.toFixed(1)}fps`);
+        }
       }
-      await writeAsync(ff.stdin, buf);
-      if (i % 30 === 0 || i === frames - 1) {
-        const sec = (performance.now() - started) / 1000;
-        const fps = (i + 1) / Math.max(0.001, sec);
-        page.log(`[frame] ${i + 1}/${frames}  t=${t.toFixed(3)}s  elapsed=${sec.toFixed(1)}s  ~${fps.toFixed(1)}fps`);
-      }
+      ff.stdin.end();
+      await ff.done;
+    } catch (e) {
+      // 抓帧失败：杀掉 ffmpeg，避免它的 stdin 管道把进程留住。
+      // kill 之后 done 必然 reject（exit null），必须消费掉，否则成为未处理拒绝。
+      ff.kill();
+      try { await ff.done; } catch { /* expected after kill */ }
+      throw e;
     }
-    ff.stdin.end();
-    await ff.done;
     const size = fs.statSync(opts.out).size;
     page.log(`[done] ${opts.out}  ${frames} frames @${opts.fps}fps  ${(size / 1024 / 1024).toFixed(2)} MB  capture=${page.mode}`);
     if (page.errors.length) opts.warn('[page errors] ' + page.errors.slice(0, 5).join(' | '));
@@ -643,6 +673,8 @@ const USAGE = `Usage: node render-segment.mjs --page <path-or-url> [options]
   --no-optimize           disable CDP optimizeForSpeed
   --headed                show the browser (debug)
   --timeout <ms>          ready timeout, default 120000
+  --launch-timeout <ms>   browser start timeout, default 30000 (kept separate from
+                          --timeout so a browser that cannot start fails fast)
   --browser <path>        explicit Chrome/Edge executable
   --profile-dir <dir>     persistent Chrome profile (default: temp, removed)
   --remove-profile        delete the persistent profile on exit

@@ -81,6 +81,34 @@ const duration = num('duration', plan?.stats?.duration ?? null);
 const expectedFrames = plan?.stats?.frames ?? (duration ? Math.round(duration * fps) : null);
 report.expect = { width, height, fps, duration, frames: expectedFrames };
 
+// ── 1a. 内容级检查（v2.3.5）────────────────────────────────────────────────
+// 容器指标全绿不代表画面是用户要的：旧版 fixture 用同一张占位页填了 78% 时长，
+// 仍然拿 10 pass / 0 fail。这里补三类「画面内容」断言。
+if (plan) {
+  const proot = path.resolve(String(plan.meta?.root || process.cwd()));
+  const pages = [...new Set((plan.segments || []).map((s) => String(s.page).split('?')[0]))];
+  const missing = pages.filter((p) => !fs.existsSync(path.resolve(proot, p)));
+  add('pages exist', missing.length ? 'FAIL' : 'PASS',
+    missing.length ? `missing: ${missing.join(', ')}` : `${pages.length} page file(s) resolved`);
+
+  const placeholders = [];
+  for (const p of pages) {
+    const abs = path.resolve(proot, p);
+    if (!fs.existsSync(abs)) continue;
+    let text = '';
+    try { text = fs.readFileSync(abs, 'utf8'); } catch { continue; }
+    if (/PLACEHOLDER_TITLE|PLACEHOLDER_SUB/.test(text)) placeholders.push(p);
+  }
+  add('placeholder pages', placeholders.length ? 'FAIL' : 'PASS',
+    placeholders.length ? `developer placeholder constants in: ${placeholders.join(', ')}` : 'no PLACEHOLDER_* in used pages');
+
+  if (plan.spec) {
+    const copy = plan.spec.copy || {};
+    add('copy present', copy.title ? 'PASS' : 'FAIL',
+      copy.title ? `title="${copy.title}"` : 'plan.spec.copy.title is empty — the film has no title');
+  }
+}
+
 // ── 1. container / streams ─────────────────────────────────────────────────
 const probe = ffprobeJson(VIDEO, ['-count_frames', '-show_streams', '-show_format']);
 const v = (probe.streams || []).find((s) => s.codec_type === 'video');
@@ -170,7 +198,7 @@ if (args.ref) {
   const refVideo = (refProbe.streams || []).find((s) => s.codec_type === 'video');
   const refFrames = Number(refVideo?.nb_read_frames || 0);
   if (!refVideo || Math.abs(refFrames - (report.metrics.frames || 0)) > 1) {
-    add('VMAF', 'WARN', `reference has ${refFrames || '?'} frames vs ${report.metrics.frames || '?'}; skipped (use a same-length master)`);
+    add('VMAF', 'ADVISORY', `reference has ${refFrames || '?'} frames vs ${report.metrics.frames || '?'}; skipped (use a same-length master)`);
   } else {
   const log = path.resolve('qa', 'vmaf.json');
   fs.mkdirSync(path.dirname(log), { recursive: true });
@@ -178,7 +206,7 @@ if (args.ref) {
     `[0:v]setpts=PTS-STARTPTS[d];[1:v]setpts=PTS-STARTPTS[r];[d][r]libvmaf=model=version=vmaf_v0.6.1:log_path=${log.replace(/\\/g, '/')}:log_fmt=json:feature=name=psnr|name=float_ssim`,
     '-f', 'null', '-'], { timeout: 15 * 60 * 1000 });
   if (vm.status !== 0) {
-    add('VMAF', 'WARN', `libvmaf unavailable or reference mismatch: ${String(vm.stderr).split('\n').slice(-2).join(' ')}`);
+    add('VMAF', 'ADVISORY', `libvmaf unavailable or reference mismatch: ${String(vm.stderr).split('\n').slice(-2).join(' ')}`);
   } else if (fs.existsSync(log)) {
     const j = JSON.parse(fs.readFileSync(log, 'utf8'));
     const pooled = j.pooled_metrics || j;
@@ -194,14 +222,22 @@ if (args.ref) {
 if (!args['no-contact']) {
   fs.mkdirSync(path.dirname(CONTACT), { recursive: true });
   const cs = run(FFMPEG, ['-y', '-hide_banner', '-loglevel', 'error', '-i', VIDEO, '-vf', 'fps=1,scale=320:-2,tile=8x8:padding=4:margin=8', '-frames:v', '1', CONTACT]);
-  add('contact sheet', cs.status === 0 ? 'PASS' : 'WARN', cs.status === 0 ? CONTACT : String(cs.stderr).slice(0, 200));
+  add('contact sheet', cs.status === 0 ? 'PASS' : 'ADVISORY', cs.status === 0 ? CONTACT : String(cs.stderr).slice(0, 200));
 }
 
 // ── summary ────────────────────────────────────────────────────────────────
+// 三档：FAIL 交付物是错的；WARN 交付物不合格（--strict 下判失败）；
+//       ADVISORY 诊断/装饰（VMAF 没装、封面拼图生成失败）——任何情况下都不拦交付。
 const failures = report.checks.filter((c) => c.status === 'FAIL');
 const warnings = report.checks.filter((c) => c.status === 'WARN');
-report.summary = { pass: report.checks.length - failures.length - warnings.length, warn: warnings.length, fail: failures.length };
+const advisories = report.checks.filter((c) => c.status === 'ADVISORY');
+report.summary = {
+  pass: report.checks.length - failures.length - warnings.length - advisories.length,
+  warn: warnings.length,
+  advisory: advisories.length,
+  fail: failures.length,
+};
 fs.mkdirSync(path.dirname(REPORT), { recursive: true });
 fs.writeFileSync(REPORT, JSON.stringify(report, null, 2));
-console.log(`\n${report.summary.pass} pass · ${report.summary.warn} warn · ${report.summary.fail} fail  ->  ${REPORT}`);
+console.log(`\n${report.summary.pass} pass · ${report.summary.warn} warn · ${report.summary.advisory} advisory · ${report.summary.fail} fail  ->  ${REPORT}`);
 if (failures.length || (STRICT && warnings.length)) process.exit(1);

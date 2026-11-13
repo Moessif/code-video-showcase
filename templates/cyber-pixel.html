@@ -29,6 +29,7 @@ import { themeFromURL, getTheme, loadFontsFor } from './themes.js';
 import {
   drawCyberPixel, drawPixelText, measurePixelText, cyberPixelPalette, hash01,
 } from './styles/cyber-pixel.js';
+import { typeSize, safe, probe } from './tokens.mjs';
 
 const W = 1920, H = 1080;
 const canvas = document.getElementById('c');
@@ -162,12 +163,15 @@ function drawGround(c, lw, lh, t) {
 }
 
 function drawTitle(c, lw, lh, t) {
-  let size = Math.round(lh * 0.245);
+  // 这一页的标题是「街机大标题」——属于 display 级，不是常规 title 级。
+  // token 是屏幕像素；这里画在低分辨率画布上，按 lh/H 换算后仍保持同一字阶。
+  let size = Math.round(lh * (typeSize('display', W, H) / H));
+  probe('display', Math.round((size / lh) * H), safe(W, H));
   let spacing = Math.round(size * 0.04);
   const maxW = lw * 0.88;
-  const probe = measurePixelText(c, TITLE, size, { weight: 900, letterSpacing: spacing });
-  if (probe.width > maxW && probe.width > 0) {
-    size = Math.max(Math.round(lh * 0.14), Math.floor((size * maxW) / probe.width));
+  const meas = measurePixelText(c, TITLE, size, { weight: 900, letterSpacing: spacing });
+  if (meas.width > maxW && meas.width > 0) {
+    size = Math.max(Math.round(lh * 0.14), Math.floor((size * maxW) / meas.width));
     spacing = Math.round(size * 0.04);
   }
   const cy = Math.round(lh * 0.345);

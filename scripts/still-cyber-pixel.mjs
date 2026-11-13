@@ -107,11 +107,11 @@ function startServer(root) {
 }
 
 async function chromeDataUrls(pageUrl) {
-  const { launch, evaluate, waitFor } = await import(
+  const { launchRetry, evaluate, waitFor } = await import(
     pathToFileURL(path.join(ROOT, 'templates', 'cdp.mjs')).href
   );
   const exe = fs.existsSync(CHROME) ? CHROME : undefined;
-  const b = await launch({ executablePath: exe, width: VW, height: VH, timeout: 30000 });
+  const b = await launchRetry({ executablePath: exe, width: VW, height: VH, timeout: 30000 });
   try {
     await b.client.send('Page.navigate', { url: pageUrl }, b.sessionId);
     await waitFor(b.client, b.sessionId, 'window.__ready === true || !!window.__bootError', {

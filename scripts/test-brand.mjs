@@ -118,7 +118,15 @@ test('applyBrand 不修改传入的 spec 与 brand（不可变）', () => {
 test('applyBrand 写入 meta.brand / meta.brandKit / look.accentOverride', () => {
   const applied = brandmod.applyBrand(FIXTURE, tech);
   assert.equal(applied.meta.brand, tech.name);
-  assert.deepEqual(applied.meta.brandKit, { id: tech.id, logo: tech.logo, fonts: tech.fonts });
+  // v2.4/P1-03：整包快照进 spec，build 不依赖 content/brands 也能做品牌门禁。
+  assert.deepEqual(applied.meta.brandKit, {
+    id: tech.id,
+    name: tech.name,
+    colors: tech.colors,
+    logo: tech.logo,
+    fonts: tech.fonts,
+    voice: tech.voice,
+  });
   assert.deepEqual(applied.look.accentOverride, accentOverride(THEMES['coral-noir'], tech.colors).override);
   assert.equal(applied.look.accentOverride.accent.toLowerCase(), '#00d4ff');
 });

@@ -4,55 +4,159 @@
   "title": "code-video-showcase project spec (IR) v1",
   "description": "视频编译器的唯一真相。所有入口只产出此结构；渲染器只消费由它生成的 plan。",
   "type": "object",
-  "required": ["specVersion", "meta", "format", "look", "structure", "rounds"],
+  "required": [
+    "specVersion",
+    "meta",
+    "format",
+    "look",
+    "structure",
+    "rounds"
+  ],
   "additionalProperties": true,
   "properties": {
-    "specVersion": { "const": 1 },
+    "specVersion": {
+      "const": 1
+    },
     "meta": {
       "type": "object",
-      "required": ["name", "brand"],
+      "required": [
+        "name",
+        "brand"
+      ],
       "properties": {
-        "name": { "type": "string", "minLength": 1 },
-        "brand": { "type": "string", "minLength": 1 },
-        "cta": { "type": "string" },
-        "locale": { "type": "string", "default": "zh-CN" }
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "title": {
+          "type": "string",
+          "maxLength": 24,
+          "description": "片名；opening/ending 页渲染它。缺省回退 meta.name。"
+        },
+        "description": {
+          "type": "string",
+          "description": "一句话简介；缺省作为 opening 副标题。"
+        },
+        "tags": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "brand": {
+          "type": "string",
+          "minLength": 1
+        },
+        "cta": {
+          "type": "string"
+        },
+        "locale": {
+          "type": "string",
+          "default": "zh-CN"
+        }
       }
     },
     "format": {
       "type": "object",
-      "required": ["width", "height", "fps", "aspect"],
+      "required": [
+        "width",
+        "height",
+        "fps",
+        "aspect"
+      ],
       "properties": {
-        "width": { "type": "integer", "minimum": 2, "multipleOf": 2 },
-        "height": { "type": "integer", "minimum": 2, "multipleOf": 2 },
-        "fps": { "type": "integer", "minimum": 1, "maximum": 120 },
-        "aspect": { "enum": ["16:9", "9:16", "1:1"] },
-        "duration": { "type": ["number", "null"], "exclusiveMinimum": 0 }
+        "width": {
+          "type": "integer",
+          "minimum": 2,
+          "multipleOf": 2
+        },
+        "height": {
+          "type": "integer",
+          "minimum": 2,
+          "multipleOf": 2
+        },
+        "fps": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 120
+        },
+        "aspect": {
+          "enum": [
+            "16:9",
+            "9:16",
+            "1:1",
+            "3:4",
+            "6:7"
+          ]
+        },
+        "duration": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "exclusiveMinimum": 0
+        }
       }
     },
     "look": {
       "type": "object",
-      "required": ["theme"],
+      "required": [
+        "theme"
+      ],
       "properties": {
-        "mode": { "enum": ["showcase", "single"] },
-        "style": { "type": ["string", "null"] },
-        "theme": { "type": "string" },
+        "mode": {
+          "enum": [
+            "showcase",
+            "single"
+          ]
+        },
+        "style": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "theme": {
+          "type": "string"
+        },
         "motion": {
           "oneOf": [
-            { "type": "null" },
-            { "type": "string", "enum": ["calm", "standard", "dynamic", "maximal"] }
+            {
+              "type": "null"
+            },
+            {
+              "type": "string",
+              "enum": [
+                "calm",
+                "standard",
+                "dynamic",
+                "maximal"
+              ]
+            }
           ],
           "description": "动效档位。null = 由 kind × style 自动推导（见 templates/motion-profile.mjs）。"
         },
         "accentOverride": {
           "oneOf": [
-            { "type": "null" },
-            { "type": "string", "pattern": "^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$" },
+            {
+              "type": "null"
+            },
+            {
+              "type": "string",
+              "pattern": "^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$"
+            },
             {
               "type": "object",
               "properties": {
-                "accent": { "type": "string" },
-                "accentInk": { "type": "string" },
-                "accentSoft": { "type": "string" }
+                "accent": {
+                  "type": "string"
+                },
+                "accentInk": {
+                  "type": "string"
+                },
+                "accentSoft": {
+                  "type": "string"
+                }
               },
               "additionalProperties": false
             }
@@ -63,85 +167,271 @@
     "audio": {
       "type": "object",
       "properties": {
-        "mood": { "enum": ["electronic", "restrained", "epic", "upbeat", "guofeng"] },
-        "bpm": { "type": "number", "exclusiveMinimum": 0 },
-        "vo": { "type": ["string", "null"] }
+        "mood": {
+          "enum": [
+            "electronic",
+            "restrained",
+            "epic",
+            "upbeat",
+            "guofeng"
+          ]
+        },
+        "bpm": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "vo": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
       }
     },
     "structure": {
       "type": "object",
-      "required": ["opening", "round", "card", "ending", "moreCard", "flash"],
+      "required": [
+        "opening",
+        "round",
+        "card",
+        "ending",
+        "moreCard",
+        "flash"
+      ],
       "properties": {
-        "opening": { "type": "number", "exclusiveMinimum": 0 },
-        "round": { "type": "number", "exclusiveMinimum": 0 },
-        "card": { "type": "number", "exclusiveMinimum": 0 },
-        "ending": { "type": "number", "exclusiveMinimum": 0 },
-        "moreCard": { "type": "number", "exclusiveMinimum": 0 },
+        "opening": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "round": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "card": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "ending": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "moreCard": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
         "flash": {
           "type": "object",
           "properties": {
-            "count": { "type": "integer", "minimum": 0, "maximum": 16 },
-            "each": { "type": "number", "exclusiveMinimum": 0 }
+            "count": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 16
+            },
+            "each": {
+              "type": "number",
+              "exclusiveMinimum": 0
+            }
           }
         }
       }
     },
-    "opening": { "$ref": "#/definitions/pageBlock" },
-    "moreCard": { "$ref": "#/definitions/pageBlock" },
-    "flash": { "$ref": "#/definitions/pageBlock" },
-    "ending": { "$ref": "#/definitions/pageBlock" },
+    "opening": {
+      "$ref": "#/definitions/pageBlock"
+    },
+    "moreCard": {
+      "$ref": "#/definitions/pageBlock"
+    },
+    "flash": {
+      "$ref": "#/definitions/pageBlock"
+    },
+    "ending": {
+      "$ref": "#/definitions/pageBlock"
+    },
     "rounds": {
       "type": "array",
       "minItems": 1,
       "maxItems": 24,
       "items": {
         "type": "object",
-        "required": ["id", "card", "style"],
+        "required": [
+          "id",
+          "card",
+          "style"
+        ],
         "properties": {
-          "id": { "type": "string", "pattern": "^[a-zA-Z0-9_-]+$" },
-          "name": { "type": "string" },
+          "id": {
+            "type": "string",
+            "pattern": "^[a-zA-Z0-9_-]+$"
+          },
+          "name": {
+            "type": "string"
+          },
           "card": {
             "type": "object",
             "properties": {
-              "page": { "type": "string" },
-              "layout": { "type": "integer", "minimum": 0, "maximum": 3 },
-              "index": { "type": "integer", "minimum": 1 },
-              "total": { "type": "integer", "minimum": 1 },
-              "first": { "type": "string", "maxLength": 8 },
-              "keyword": { "type": "string", "maxLength": 12 },
-              "color": { "type": "string", "pattern": "^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$" }
+              "page": {
+                "type": "string"
+              },
+              "layout": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 3
+              },
+              "index": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "total": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "first": {
+                "type": "string",
+                "maxLength": 8
+              },
+              "keyword": {
+                "type": "string",
+                "maxLength": 12
+              },
+              "color": {
+                "type": "string",
+                "pattern": "^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$"
+              }
             }
           },
           "style": {
             "type": "object",
+            "additionalProperties": false,
             "properties": {
-              "page": { "type": "string" },
-              "recipe": { "type": ["string", "null"] },
-              "t0": { "type": "number", "minimum": 0 },
-              "speed": { "type": "number", "exclusiveMinimum": 0 }
+              "page": {
+                "type": "string"
+              },
+              "recipe": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "t0": {
+                "type": "number",
+                "minimum": 0
+              },
+              "speed": {
+                "type": "number",
+                "exclusiveMinimum": 0
+              },
+              "motion": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "type": "string",
+                    "enum": [
+                      "calm",
+                      "standard",
+                      "dynamic",
+                      "maximal"
+                    ]
+                  }
+                ],
+                "description": "单段动效档位覆盖；不写则用 look.motion / 推导值。"
+              },
+              "copy": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "title": {
+                    "type": "string"
+                  },
+                  "subtitle": {
+                    "type": "string"
+                  },
+                  "caption": {
+                    "type": "string"
+                  }
+                }
+              },
+              "reflow": {
+                "type": "object"
+              }
             }
           }
         }
       }
     },
     "script": {
-      "type": ["array", "null"],
+      "type": [
+        "array",
+        "null"
+      ],
       "description": "可选：剧本作者模式。没有 rounds 时用它推导 rounds。",
       "items": {
         "type": "object",
-        "required": ["role", "t"],
+        "required": [
+          "role",
+          "t"
+        ],
         "properties": {
-          "id": { "type": "string" },
-          "role": { "enum": ["opening", "card", "scene", "more", "flash", "ending"] },
-          "t": { "type": "array", "items": { "type": "number" }, "minItems": 2, "maxItems": 2 },
-          "page": { "type": "string" },
-          "recipe": { "type": ["string", "null"] },
-          "name": { "type": "string" },
-          "layout": { "type": "integer", "minimum": 0, "maximum": 3 },
-          "color": { "type": "string" },
-          "copy": { "type": ["array", "string", "null"], "items": { "type": "string" } },
-          "t0": { "type": "number", "minimum": 0 },
-          "speed": { "type": "number", "exclusiveMinimum": 0 }
+          "id": {
+            "type": "string"
+          },
+          "role": {
+            "enum": [
+              "opening",
+              "card",
+              "scene",
+              "more",
+              "flash",
+              "ending"
+            ]
+          },
+          "t": {
+            "type": "array",
+            "items": {
+              "type": "number"
+            },
+            "minItems": 2,
+            "maxItems": 2
+          },
+          "page": {
+            "type": "string"
+          },
+          "recipe": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "name": {
+            "type": "string"
+          },
+          "layout": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 3
+          },
+          "color": {
+            "type": "string"
+          },
+          "copy": {
+            "type": [
+              "array",
+              "string",
+              "null"
+            ],
+            "items": {
+              "type": "string"
+            }
+          },
+          "t0": {
+            "type": "number",
+            "minimum": 0
+          },
+          "speed": {
+            "type": "number",
+            "exclusiveMinimum": 0
+          }
         }
       }
     },
@@ -149,14 +439,41 @@
       "type": "array",
       "items": {
         "type": "object",
-        "required": ["id", "path"],
+        "required": [
+          "id",
+          "path"
+        ],
         "properties": {
-          "id": { "type": "string" },
-          "kind": { "enum": ["image", "video", "audio", "logo", "font"] },
-          "path": { "type": "string" },
-          "hash": { "type": ["string", "null"] },
-          "crop": { "type": ["object", "null"] },
-          "loop": { "type": "boolean" }
+          "id": {
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "image",
+              "video",
+              "audio",
+              "logo",
+              "font"
+            ]
+          },
+          "path": {
+            "type": "string"
+          },
+          "hash": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "crop": {
+            "type": [
+              "object",
+              "null"
+            ]
+          },
+          "loop": {
+            "type": "boolean"
+          }
         }
       }
     },
@@ -165,22 +482,67 @@
       "description": "画布编辑产生的参数补丁；scope 为空表示全片，否则为段 id。",
       "items": {
         "type": "object",
-        "required": ["target", "props"],
+        "required": [
+          "target",
+          "props"
+        ],
         "properties": {
-          "scope": { "type": ["string", "null"] },
-          "target": { "type": "string" },
-          "props": { "type": "object" },
-          "note": { "type": "string" }
+          "scope": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "target": {
+            "type": "string"
+          },
+          "props": {
+            "type": "object"
+          },
+          "note": {
+            "type": "string"
+          }
         }
       }
     },
     "render": {
       "type": "object",
       "properties": {
-        "quality": { "enum": ["master", "delivery", "draft"] },
-        "preset": { "enum": ["bilibili", "douyin", "youtube", "wechat", "master", "square"] },
-        "concurrency": { "type": "integer", "minimum": 1, "maximum": 16 },
-        "outDir": { "type": "string" }
+        "quality": {
+          "enum": [
+            "master",
+            "delivery",
+            "draft"
+          ]
+        },
+        "preset": {
+          "enum": [
+            "bilibili",
+            "douyin",
+            "youtube",
+            "wechat",
+            "weixin",
+            "xiaohongshu",
+            "master",
+            "square"
+          ]
+        },
+        "concurrency": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 16
+        },
+        "outDir": {
+          "type": "string"
+        },
+        "burnSubtitles": {
+          "type": "boolean",
+          "description": "把 master.srt 烧进投放版；master 本身始终保持干净（软字幕）。"
+        },
+        "cover": {
+          "type": "boolean",
+          "description": "同时出一张 card 版式封面（写入 <outDir>/images，deliver 会引用它）"
+        }
       }
     }
   },
@@ -188,12 +550,38 @@
     "pageBlock": {
       "type": "object",
       "properties": {
-        "page": { "type": "string" },
-        "name": { "type": "string" },
-        "layout": { "type": "integer", "minimum": 0, "maximum": 3 },
-        "first": { "type": "string" },
-        "keyword": { "type": "string" },
-        "color": { "type": "string" }
+        "page": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string",
+          "description": "该页主标题；优先于 meta.title。"
+        },
+        "sub": {
+          "type": "string",
+          "description": "该页副标题；缺省回退 meta.description。"
+        },
+        "capsule": {
+          "type": "string",
+          "description": "左上角胶囊文案。"
+        },
+        "layout": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 3
+        },
+        "first": {
+          "type": "string"
+        },
+        "keyword": {
+          "type": "string"
+        },
+        "color": {
+          "type": "string"
+        }
       }
     }
   }

@@ -47,6 +47,7 @@ WIDTH_OVERRIDE=""; HEIGHT_OVERRIDE=""
 DURATION_OVERRIDE=""; FPS_OVERRIDE=""
 LOUDNORM="auto"; LUFS="-14"; TP="-1.0"
 TWO_PASS=0; BITRATE="8M"; TUNE=""; SPRITE=0; STRICT=0
+TRANSITION=""; TD=""; OFFSETS=""
 POS=()
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -67,6 +68,9 @@ while [ $# -gt 0 ]; do
     --tune) TUNE="$2"; shift 2 ;;
     --sprite) SPRITE=1; shift ;;
     --strict) STRICT=1; shift ;;
+    --transition) TRANSITION="$2"; shift 2 ;;
+    --td) TD="$2"; shift 2 ;;
+    --offsets) OFFSETS="$2"; shift 2 ;;
     -h|--help) usage; exit 0 ;;
     --*) echo "unknown option: $1" >&2; usage; exit 2 ;;
     *) POS+=("$1"); shift ;;
@@ -106,17 +110,101 @@ esac
 [ "$LOUDNORM" = "auto" ] && LOUDNORM=1
 
 TMP="$(mktemp -d)"
-trap 'rm -rf "$TMP"' EXIT
+SAFE_LIST=""
+trap 'rm -rf "$TMP" ${SAFE_LIST:+"$SAFE_LIST"}' EXIT
 CONCAT="$TMP/concat.mp4"
 
-echo "[1/5] concat segments (stream copy)"
-if ! "$FFMPEG" -y -hide_banner -loglevel error -f concat -safe 0 -i "$SEGLIST" -c copy "$CONCAT" 2>"$TMP/concat.err"; then
+# ── v2.4 / P1-10: concat list sanitisation ──────────────────────────────────
+# Never fall back to unsafe mode. Every list is rewritten next to the segments
+# as relative names: no absolute paths, drive letters, UNC, '..', quotes or
+# newlines. A list line cannot point ffmpeg outside its own directory.
+to_msys() { printf '%s' "$1" | sed 's|\\|/|g'; }
+abspath_file() {
+  local p="$1" d b
+  d=$(dirname "$p"); b=$(basename "$p")
+  if [ -d "$d" ]; then printf '%s/%s\n' "$(cd "$d" && pwd)" "$b"; else printf '%s\n' "$p"; fi
+}
+SEGLIST="$(to_msys "$SEGLIST")"
+AUDIO="$(to_msys "$AUDIO")"
+OUT="$(to_msys "$OUT")"
+SEGLIST="$(abspath_file "$SEGLIST")"
+AUDIO="$(abspath_file "$AUDIO")"
+OUT="$(abspath_file "$OUT")"
+LIST_DIR="$(dirname "$SEGLIST")"
+SAFE_LIST="$LIST_DIR/.cvs-concat-$$.txt"
+: > "$SAFE_LIST"
+SEGS=()
+while IFS= read -r line || [ -n "$line" ]; do
+  [ -z "$line" ] && continue
+  case "$line" in
+    file\ *) ;;
+    *) echo "[concat] invalid list line: $line" >&2; exit 12 ;;
+  esac
+  f="${line#file }"
+  f="${f#\'}"; f="${f%\'}"
+  f="${f//\'\\\'\'/\'}"
+  case "$f" in
+    /*|[A-Za-z]:[\\/]*|\\\\*) abs="$f" ;;
+    *) abs="$LIST_DIR/$f" ;;
+  esac
+  abs="$(abspath_file "$abs")"
+  case "$abs" in
+    "$LIST_DIR"/*) rel="${abs#"$LIST_DIR"/}" ;;
+    *) echo "[concat] unsafe entry outside list dir: $abs" >&2; exit 12 ;;
+  esac
+  case "$rel" in
+    *\'*|*$'\n'*|*$'\r'*|*:*) echo "[concat] unsafe entry: $rel" >&2; exit 12 ;;
+  esac
+  [ -f "$abs" ] || { echo "[concat] missing segment: $abs" >&2; exit 12; }
+  SEGS+=("$abs")
+  printf "file '%s'\n" "$rel" >> "$SAFE_LIST"
+done < "$SEGLIST"
+SAFE_BASE="$(basename "$SAFE_LIST")"
+
+# ── v2.5: xfade transitions ─────────────────────────────────────────────────
+# Offsets come from the plan (templates/transitions.mjs is the single source of
+# truth); the shell only applies them. Each input is normalised to the target
+# size/fps/pixfmt first so xfade never sees mismatched formats.
+if [ -n "$TRANSITION" ] && [ "${#SEGS[@]}" -ge 2 ] && [ -n "$OFFSETS" ]; then
+  echo "[1/5] concat segments (xfade=${TRANSITION}, td=${TD}s)"
+  INPUTS=()
+  NORM=""
+  for i in "${!SEGS[@]}"; do
+    INPUTS+=(-i "${SEGS[$i]}")
+    NORM+="[${i}:v]fps=${FPS},scale=${W}:${H}:force_original_aspect_ratio=decrease:flags=lanczos,pad=${W}:${H}:(ow-iw)/2:(oh-ih)/2:color=black,setsar=1,format=yuv420p[v${i}];"
+  done
+  IFS=',' read -r -a OFF <<< "$OFFSETS"
+  GRAPH="$NORM"
+  PREV="[v0]"
+  for k in "${!OFF[@]}"; do
+    nxt=$((k + 1))
+    if [ "$k" -eq $(( ${#OFF[@]} - 1 )) ]; then OUTLBL="[vout]"; else OUTLBL="[vx${k}]"; fi
+    GRAPH+="${PREV}[v${nxt}]xfade=transition=${TRANSITION}:duration=${TD}:offset=${OFF[$k]}${OUTLBL};"
+    PREV="$OUTLBL"
+  done
+  GRAPH="${GRAPH%;}"
+  # Memory bound (v2.5): an N-input xfade graph decodes all N segments at once.
+  # With default threads + x264 lookahead this exhausts commit on Windows and
+  # surfaces as "x264 malloc failed" / bogus "decode_slice_header error". Cap
+  # decoder threads, run the (sequential) filter graph single-threaded, and
+  # shrink x264's lookahead so peak RSS stays flat regardless of segment count.
+  if ! "$FFMPEG" -y -hide_banner -loglevel error -threads 2 -filter_complex_threads 1 "${INPUTS[@]}" \
+      -filter_complex "$GRAPH" -map "[vout]" \
+      -c:v libx264 -preset veryfast -crf 12 -pix_fmt yuv420p \
+      -x264-params "rc-lookahead=8:sync-lookahead=0:threads=2" \
+      -colorspace bt709 -color_primaries bt709 -color_trc bt709 -color_range tv "$CONCAT" 2>"$TMP/concat.err"; then
+    echo "[concat] xfade failed:" >&2; sed -n '1,5p' "$TMP/concat.err" >&2 || true; exit 12
+  fi
+else
+echo "[1/5] concat segments (stream copy, -safe 1)"
+if ! ( cd "$LIST_DIR" && "$FFMPEG" -y -hide_banner -loglevel error -f concat -safe 1 -i "$SAFE_BASE" -c copy "$CONCAT" ) 2>"$TMP/concat.err"; then
   echo "      stream-copy concat failed; normalising re-encode"
   sed -n '1,3p' "$TMP/concat.err" >&2 || true
-  "$FFMPEG" -y -hide_banner -loglevel error -f concat -safe 0 -i "$SEGLIST" \
+  ( cd "$LIST_DIR" && "$FFMPEG" -y -hide_banner -loglevel error -f concat -safe 1 -i "$SAFE_BASE" \
     -vf "fps=${FPS},setsar=1,scale=${W}:${H}:force_original_aspect_ratio=decrease:flags=lanczos,pad=${W}:${H}:(ow-iw)/2:(oh-ih)/2:color=black" \
     -c:v libx264 -preset veryfast -crf 12 -pix_fmt yuv420p \
-    -colorspace bt709 -color_primaries bt709 -color_trc bt709 -color_range tv "$CONCAT"
+    -colorspace bt709 -color_primaries bt709 -color_trc bt709 -color_range tv "$CONCAT" )
+fi
 fi
 
 FRAMES=$("$FFPROBE" -v error -count_frames -select_streams v:0 \

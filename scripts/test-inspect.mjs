@@ -17,7 +17,7 @@
  */
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { launch, evaluate, browserCandidates } from '../templates/cdp.mjs';
+import { launch, evaluate, browserCandidates, launchRetry } from '../templates/cdp.mjs';
 import { createStaticServer } from '../app/canvas/serve.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -52,7 +52,11 @@ async function waitFor(client, sessionId, fn, timeoutMs = 30000, label = 'condit
 }
 
 const PAGE_URL = '/templates/big-card.html?theme=coral-noir&seg=1&t0=0&speed=1&dur=3';
-const SEGMENT_URL = '/templates/segment.html?theme=aqua-morandi&seg=1&t0=0&speed=1&dur=3';
+// 带内容参数：v2.3.5 起页面不再回退到开发者占位文案，无 ?title/?sub 时标题就是空的，
+// 而「颜色 patch 改变像素」这条断言必须作用在真的有字的帧上。
+const SEGMENT_URL = '/templates/segment.html?theme=aqua-morandi&seg=1&t0=0&speed=1&dur=3&title=ContractProbe&sub=subtitle&brand=CVS';
+// 同一页的空内容形态：用来断言「空文本不注册命中区」。
+const SEGMENT_EMPTY_URL = '/templates/segment.html?theme=aqua-morandi&seg=1&t0=0&speed=1&dur=3';
 
 async function main() {
   const candidates = browserCandidates();
@@ -74,7 +78,7 @@ async function main() {
 
   let browser = null;
   try {
-    browser = await launch({
+    browser = await launchRetry({
       executablePath: process.env.CHROME_EXE || candidates[0],
       width: 1920,
       height: 1080,
@@ -346,7 +350,11 @@ async function main() {
       for (const e of hit) for (const v of Object.values(e.schema || {})) if (v && v.type) types.push(v.type);
       const title = hit.find((e) => e.id === 'title.main');
       const got = title ? window.__inspect(title.rect[0] + title.rect[2] / 2, title.rect[1] + title.rect[3] / 2) : null;
-      return { ids: hit.map((e) => e.id), types: [...new Set(types)], titleHit: got && got.id, duration: window.DURATION };
+      const subEntry = hit.find((e) => e.id === 'title.sub');
+      return {
+        ids: hit.map((e) => e.id), types: [...new Set(types)], titleHit: got && got.id, duration: window.DURATION,
+        subText: subEntry ? subEntry.props.text : null,
+      };
     });
     check('segment 注册 HUD 胶囊/倒计时/水印 + 主标题/副标题',
       ['hud.capsule', 'hud.countdown', 'hud.stamp', 'title.main', 'title.sub'].every((id) => seg.ids.includes(id)),
@@ -354,6 +362,33 @@ async function main() {
     check('segment schema 覆盖 text/color/size', ['text', 'color', 'size'].every((t) => seg.types.includes(t)), seg.types.join(','));
     check('segment 主标题中心命中 title.main', seg.titleHit === 'title.main', String(seg.titleHit));
     check('segment DURATION = 3.0', Number(seg.duration) === 3, String(seg.duration));
+    // aqua-morandi 是玻璃主题。回归：eff() 曾从 params.hud.sub 取副标题（该字段不存在），
+    // 一路回退到 DEF.subText —— 玻璃主题的 DEF.subText 是材质描述占位文案，
+    // 于是 ?sub= 被静默丢弃，成片上出现「半透明白 · 1px 高光边 …」。
+    check('segment 玻璃主题下 ?sub= 真的进画面（不被占位文案顶掉）', seg.subText === 'subtitle', String(seg.subText));
+
+    // D3：__spec() 是深拷贝快照（改它不该影响画面），编辑入口是 __patch。
+    // 真正的契约是「params 是 patch 的合并基座」：scope 级 patch 必须能覆盖 params。
+    // 回归：eff() 曾用 mergePatches(P,'title',null,{}) 之外的 hud.sub 取值，
+    // 于是 __patch('title',{sub}) 这种 scope 级补丁被完全忽略。
+    const segTruth = await evaluate(client, sessionId, () => {
+      const subText = () => {
+        const e = (window.__hit || []).find((x) => x.id === 'title.sub');
+        return e ? e.props.text : null;
+      };
+      window.renderFrame(1.2);
+      const paramsSub = window.__spec().params.title.sub;
+      const renderedSub = subText();
+      window.__patch('title', { sub: '改过的副标题' });
+      window.renderFrame(1.2);
+      const viaScope = subText();
+      window.__editBridge.clearPatches();
+      window.renderFrame(1.2);
+      return { paramsSub, renderedSub, viaScope, restored: subText() };
+    });
+    check('segment params.title.sub 与画面一致', segTruth.paramsSub === segTruth.renderedSub, `${segTruth.paramsSub} / ${segTruth.renderedSub}`);
+    check('segment scope 级 __patch(title,{sub}) 覆盖 params', segTruth.viaScope === '改过的副标题', String(segTruth.viaScope));
+    check('segment clearPatches 后回到 params 值', segTruth.restored === 'subtitle', String(segTruth.restored));
 
     const segPatch = await evaluate(client, sessionId, () => {
       const hash = (s) => {
@@ -386,6 +421,21 @@ async function main() {
     check('segment patch 后同 t 重绘确定', segPatch.deterministic === true);
     check('segment HUD 胶囊文案 patch 生效', segPatch.capsuleChanged === true, JSON.stringify(segPatch.ret2 && segPatch.ret2.props));
     check('segment patches 计数 +2', segPatch.n1 === segPatch.n0 + 2, `${segPatch.n0} -> ${segPatch.n1}`);
+
+    // 空内容形态：D3 契约不能宣告没有像素的编辑目标。
+    await client.send('Page.navigate', { url: `${origin}${SEGMENT_EMPTY_URL}` }, sessionId);
+    await sleep(600);
+    await waitFor(client, sessionId, () => window.__ready === true || !!window.__bootError, 30000, 'segment(empty) ready');
+    const segEmpty = await evaluate(client, sessionId, () => {
+      window.renderFrame(1.2);
+      const hit = window.__hit || [];
+      const zero = hit.filter((e) => !e.rect || e.rect[2] <= 0 || e.rect[3] <= 0).map((e) => e.id);
+      return { ids: hit.map((e) => e.id), zero };
+    });
+    check('segment 无内容时不注册 title.main / title.sub',
+      !segEmpty.ids.includes('title.main') && !segEmpty.ids.includes('title.sub'), segEmpty.ids.join(' '));
+    check('segment 命中区里没有零宽/零高矩形', segEmpty.zero.length === 0, segEmpty.zero.join(' '));
+    check('segment 无内容时 HUD 命中区仍在', segEmpty.ids.includes('hud.capsule'), segEmpty.ids.join(' '));
 
     console.log(`\n${passed} passed, ${failed} failed`);
     if (failed) {

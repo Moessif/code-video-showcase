@@ -157,6 +157,29 @@ function persistComments() {
   }
 }
 
+/**
+ * 导出 review.json（v2.4 / P1-13）：评论不能只活在这台浏览器的 localStorage 里，
+ * 否则「审片意见」无法进入版本快照。这里只下载文件，不写服务器。
+ * 把它放到 <outDir>/review.json，`cvs snapshot` 会一起收进 vNNN/。
+ */
+function exportReview() {
+  const payload = {
+    schema: 'cvs.review/v1',
+    job: job || null,
+    exportedAt: new Date().toISOString(),
+    comments: comments.map((c) => ({ t: c.t, text: c.text, createdAt: c.createdAt })),
+  };
+  const blob = new Blob([JSON.stringify(payload, null, 2) + '\n'], { type: 'application/json' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'review.json';
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+  if (el.formHint) el.formHint.textContent = `已导出 ${comments.length} 条评论到 review.json；放进 <outDir>/ 后 cvs snapshot 会收进版本。`;
+}
+
 function renderComments() {
   el.list.textContent = '';
   for (const c of comments) {
@@ -375,6 +398,9 @@ el.time.addEventListener('keydown', (ev) => {
     el.text.focus();
   }
 });
+
+const exportBtn = $('exportReview');
+if (exportBtn) exportBtn.addEventListener('click', exportReview);
 
 // ── boot ────────────────────────────────────────────────────────────────────
 

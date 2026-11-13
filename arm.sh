@@ -2,9 +2,10 @@
 # arm.sh — bootstrap code-video-showcase on this machine. Idempotent.
 #
 #   bash arm.sh              # verify + install deps + build fonts + smoke render
+#   bash arm.sh --offline    # install from vendor/ with no network
 #   SKIP_SMOKE=1 bash arm.sh # verify + install only, no render
 #
-# Verified target: Windows 10/11 + Git Bash, Node 20+, FFmpeg (libx264/AAC),
+# Verified target: Windows 10/11 + Git Bash, Node 22+, FFmpeg (libx264/AAC),
 # Python 3.10+ with numpy+scipy, Chrome or Edge installed.
 set -u
 
@@ -19,7 +20,7 @@ echo "== 1. toolchain =="
 have() { command -v "$1" >/dev/null 2>&1; }
 
 if have node; then
-  nv="$(node --version)"; case "$nv" in v2[0-9]*|v[3-9][0-9]*) ok "node $nv";; *) bad "node $nv (need >= 20)";; esac
+  nv="$(node --version)"; case "$nv" in v2[2-9]*|v[3-9][0-9]*) ok "node $nv";; *) bad "node $nv (need >= 22)";; esac
 else bad "node not found"; fi
 
 if have ffmpeg; then
@@ -61,19 +62,24 @@ else
 fi
 
 echo "== 3. node deps =="
-if [ -d node_modules/playwright-core ] || [ -d node_modules/playwright ]; then ok "playwright(-core) installed"
+if [ -d node_modules/playwright-core ] || [ -d node_modules/playwright ]; then
+  ok "node deps installed"
 else
-  echo "  ... npm i playwright-core"
-  npm i playwright-core --no-audit --no-fund >/dev/null 2>&1 \
-    && ok "playwright-core installed" || bad "npm i playwright-core failed"
-fi
-if [ -d node_modules/@fontsource/noto-sans-sc ]; then ok "@fontsource fonts installed"
-else
-  echo "  ... npm i @fontsource/* (7 OFL families, ~2-5 min)"
-  npm i --no-audit --no-fund @fontsource/noto-sans-sc @fontsource/noto-serif-sc \
-    @fontsource/zcool-kuaile @fontsource/jetbrains-mono @fontsource/inter \
-    @fontsource/playfair-display @fontsource/orbitron >/dev/null 2>&1 \
-    && ok "fontsource installed" || bad "npm i @fontsource/* failed"
+  if [ "${CVS_OFFLINE:-0}" = "1" ] || [ "${1:-}" = "--offline" ]; then
+    if [ -f vendor/manifest.json ]; then
+      echo "  ... offline: fill npm cache from vendor/*.tgz"
+      npm cache add vendor/*.tgz --cache "$ROOT/vendor/npm-cache" >/dev/null 2>&1 \
+        || bad "npm cache add failed"
+      npm ci --offline --no-audit --no-fund --cache "$ROOT/vendor/npm-cache" >/dev/null 2>&1 \
+        && ok "offline npm ci" || bad "offline npm ci failed (vendor/ incomplete?)"
+    else
+      bad "offline requested but vendor/ is missing (run: node scripts/vendor.mjs on a networked machine)"
+    fi
+  else
+    echo "  ... npm ci (lockfile-pinned)"
+    npm ci --no-audit --no-fund >/dev/null 2>&1 \
+      && ok "npm ci" || bad "npm ci failed (check package-lock.json; do not fall back to npm install)"
+  fi
 fi
 
 echo "== 4. local fonts (kills the /shared/fonts.css 404) =="

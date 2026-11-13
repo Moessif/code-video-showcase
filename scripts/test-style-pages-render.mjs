@@ -38,6 +38,14 @@ const PAGES = [
   { id: 'screencast', page: 'templates/recipe-screencast.html', theme: 'coral-noir' },
   { id: 'flat', page: 'templates/recipe-flat.html', theme: 'coral-noir' },
   { id: 'minimal', page: 'templates/recipe-minimal.html', theme: 'coral-noir' },
+  // v2.5 新增画风 + 收编 kinetic
+  { id: 'kinetic', page: 'templates/recipe-kinetic.html', theme: 'coral-noir' },
+  { id: 'swiss', page: 'templates/recipe-swiss.html', theme: 'ice-minimal' },
+  { id: 'editorial', page: 'templates/recipe-editorial.html', theme: 'paper-journal' },
+  { id: 'brutalist', page: 'templates/recipe-brutalist.html', theme: 'pop-acid' },
+  { id: 'vaporwave', page: 'templates/recipe-vaporwave.html', theme: 'cyber-neon' },
+  { id: 'blueprint', page: 'templates/recipe-blueprint.html', theme: 'blueprint-stone' },
+  { id: 'risograph', page: 'templates/recipe-risograph.html', theme: 'paper-journal' },
 ];
 
 let passed = 0;
