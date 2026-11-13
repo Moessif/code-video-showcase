@@ -3,8 +3,8 @@
 > 对照 [BACKLOG.json](BACKLOG.json) 的 26 项，逐项说明落地情况。
 > 判定口径：**已落地** = 代码 + 回归测试 + 文档齐；**部分** = 主路径可用但仍有明确缺口；**未做** = 未开始。
 > 统计：**已落地 26 · 部分 0 · 未做 0**（v2.3.5 时为 15 / 7 / 4）。
-> 终验：`test-all --browser --json` **28 套 / 670 passed / 0 failed**；3s strict 全链路 **BUILD=0**、
-> `qa-video` 19/0/0；`golden --check` **9/9 相符**；快照/校验/回滚闭环全过。
+> 终验：`test-all --browser --json` **28 套 / 670 passed / 0 failed**；**41s 全片 strict 全链路 BUILD=0**（v2.5.0 收官实测，
+> qa-video 19/0/0、qa-audio 6/0/2、cue 对齐 97.1%、deliver 出 master+douyin）；`golden --check` **9/9 相符**；快照/校验/回滚闭环全过。
 
 ## 一、v2.4.0 补齐的 11 项
 
@@ -57,7 +57,7 @@ P2-04 doctor · P2-05 版本漂移。证据见 v2.3.5 版 CHANGELOG 与 `test-co
 
 ## 四、诚实边界
 
-1. **41 秒全片 e2e 仍未跑**：配方页逐帧约 0.4 fps，41 s / 1230 帧约 50 分钟。本轮仍用 3 s 等价样本跑完整严格链路（BUILD=0），另用 `test-api` 的 4 s 真实渲染与 golden 9 张静帧佐证管线。
+1. **41 秒全片 e2e 已真跑通过（2026-11-14）**：`build fixtures/mini-41s/spec.json --platform douyin --strict --concurrency 4` **EXIT=0**（425.4s，23 段 17 新渲 + 6 缓存命中）。qa-video **19/0/0**（1230 帧、41.000s、bt709、黑帧/冻结/静音全零）；qa-audio **6 pass / 0 warn / 2 advisory / 0 fail**（cue 对齐 **97.1%** 34/35 ±30ms、BPM 120.01、−14.01 LUFS）；`cvs deliver` 出 master(34.1MB)+douyin(5.7MB 1080×1920)+14 条字幕 cue，`runs.jsonl` 记录 `exit:0, qaPass:true`。之前的边界「长片耗时未验证」**已消除**。
 2. **跨机确定性是「可检测」，不是「已保证」**：manifest 记录 Chrome/字体指纹，环境不一致时跳过哈希比对并告警。真正跨机逐字节一致仍需固定镜像（`docker/Dockerfile` 已就位，未在第二台机器实测）。
 3. **字体锁只记集合哈希**：`shared/fonts.lock.json` 记 1187 个文件名与字节数、整套 set sha256；不逐文件记 sha256（体积考虑）。
 4. **字幕烧录依赖 libass**：ffmpeg 未编译 `subtitles` 滤镜时 exit 13 `E_BURN_SUBTITLES`，不会静默跳过。

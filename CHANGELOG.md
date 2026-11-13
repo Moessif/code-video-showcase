@@ -186,6 +186,9 @@ guizang / theme-factory / subtitled 等 skill，把编译器在四个维度上�
   → `delivery.json.cover` 指向封面、`subtitles.burnedInto` 只有 douyin（4 条 cue）
   → 成功构建后**无残留 `error.json`** → `cvs snapshot --label 终验` 收 **10 个文件**
   → `cvs history --spec` / `cvs verify v001 --spec` 全过（10 文件 sha256 相符）
+- **41 秒全片 strict 全链路**（fixtures/mini-41s，v2.5.0 收官，2026-11-14）：`build --platform douyin --strict --concurrency 4` **EXIT=0**（425.4s；23 段 17 新渲 + 6 缓存命中）。
+  `qa-video` **19 pass / 0 warn / 0 fail**（1230 帧 / 41.000s / bt709 / 黑帧·冻结·静音全零）；`qa-audio` **6 pass / 0 warn / 2 advisory / 0 fail**（cue 对齐 **97.1%** 34/35 ±30ms、BPM 120.01、−14.01 LUFS、峰值 −3.19 dBFS）。
+  `cvs deliver` 出 master(34.1MB 1920×1080) + douyin(5.7MB 1080×1920) + master.srt/.vtt（14 cue）；`runs.jsonl` 记 `exit:0, qaPass:true, durationMs:425397`。
   → `cvs rollback v001 --spec` **EXIT=0**，恢复 6 文件、master sha `472aeca9e039` 与记录一致、写 `rollback.json` 回执。
 - `golden --check --json`：chrome/fonts/node/platform 四项 match，3 specs / 9 stills 全等。
 - `test-type-tokens`（真机 13 页 × 2 次）：46/46，titlePx 145..148，安全区左右逐页相等。
