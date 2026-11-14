@@ -412,7 +412,15 @@ def main():
     #    的自由度从细分挪到了相位）。锚不住 plan 网格时如实走低分。
     subdiv = args.subdiv
     grid_off = None
-    if bpm and len(cues) >= 3 and args.subdiv == 1:
+    # R2-25 配套：synth 在 plan.audio.subdiv **声明**自己的拍细分（半拍 hat → 2）。
+    # 优先用声明值——这是音乐自己的网格，比从画面 cue 间距推断更准（card 固定秒长
+    # 在非 120 BPM 下非拍倍数，cue 推断会漏掉半拍 hat）。锚定到拍起点，不自由搜索。
+    declared = (plan or {}).get("audio", {}).get("subdiv")
+    if bpm and declared and args.subdiv == 1:
+        subdiv = int(declared)
+        beat = 60.0 / bpm
+        grid_off = (float(cues[0]["t"]) % (beat / subdiv)) if cues else 0.0
+    elif bpm and len(cues) >= 3 and args.subdiv == 1:
         beat = 60.0 / bpm
         for k in (1, 2, 4):
             step_try = beat / k

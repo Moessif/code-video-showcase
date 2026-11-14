@@ -413,7 +413,9 @@ export function buildPlan(spec, { root = process.cwd(), outDir } = {}) {
       beats: actualDuration / beat,
       bars: actualDuration / (4 * beat),
     },
-    audio: { bpm, beat, bar: 4 * beat, cues },
+    // R2-25：subdiv 声明合成床的拍细分——synth 每半拍铺 hat，音乐网格是 1/2 拍。
+    // qa-audio 优先用此声明值锚定拍网格（比从画面 cue 间距推断更准，任意 BPM 一致）。
+    audio: { bpm, beat, bar: 4 * beat, subdiv: 2, cues },
     segments,
   };
 
