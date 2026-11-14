@@ -1338,10 +1338,23 @@ export function drawVignette(ctx, W, H, alpha = 0.5, inner = 0.42, outer = 0.86)
  */
 const _staticMatCache = new Map();
 const BAKED_KINDS = new Set(['linen', 'dusk', 'scanline']);
+// ?noBake=1 只查一次：这个函数逐帧调用，不缓存就等于每帧 new URLSearchParams。
+let _noBakeFlag = null;
+function bakeDisabled() {
+  if (_noBakeFlag === null) {
+    _noBakeFlag = false;
+    try {
+      if (typeof location !== 'undefined' && typeof URLSearchParams !== 'undefined') {
+        _noBakeFlag = new URLSearchParams(location.search).get('noBake') === '1';
+      }
+    } catch { /* location 不可读时按未禁用处理 */ }
+  }
+  return _noBakeFlag;
+}
 function staticMaterialTile(theme, W, H, c, m) {
   if (typeof document === 'undefined' || !BAKED_KINDS.has(m.kind)) return null;
   // ?noBake=1：强制走原来的逐层绘制，用于像素级等价回归与问题定位。
-  if (typeof location !== 'undefined' && new URLSearchParams(location.search).get('noBake') === '1') return null;
+  if (bakeDisabled()) return null;
   const key = `${theme.id}:${W}x${H}`;
   if (_staticMatCache.has(key)) return _staticMatCache.get(key);
   let cv;
