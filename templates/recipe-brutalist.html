@@ -1,0 +1,197 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<link rel="stylesheet" href="/shared/fonts.css">
+<title>recipe 26 · brutalist</title>
+<style>
+  html, body { margin: 0; padding: 0; overflow: hidden; background: #ffd400; }
+  #c { display: block; }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+
+<script type="module">
+// recipe-brutalist.html — 风格段 26「新粗野主义 / 粗边框 / 硬投影 / 撞色 /  grotesque」。
+//
+// 渲染契约：window.DURATION / window.renderFrame(t)（纯函数）/ __ready / __bootError。
+// 画幅（D7）：setupStage() 取视口；竖屏把卡片堆叠、字号按短边重算。
+//
+// 视觉：亮黄底、黑色粗边框、实心硬投影（无模糊）、撞色块（蓝/红）、
+// 极粗 grotesque 大字、贴纸徽章、暴露的网格十字。反精致、反渐变。
+// 入场：主卡片「砸」进来（outBack 过冲 + 硬投影），徽章弹入，标题切片揭示。
+// 确定性：全部 t 的纯函数，无 Math.random / Date.now / rAF。
+import { createSegment, applyImpact2D, drawFlash, loadFonts, vars } from './common.js';
+import { themeFromURL, getTheme, loadFontsFor, hexToRgba } from './themes.js';
+import { clamp, ease, setupStage, safePad, fitTextSize, drawHud, drawTopMeta, roundRectPath } from './recipes/util.js';
+import { typeSize, safe, probe } from './tokens.mjs';
+import { drawGrain } from './motion.js';
+
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d', { alpha: false });
+const { W, H, portrait } = setupStage(canvas);
+const pad = safePad(W, H);
+
+const params = new URLSearchParams(location.search);
+const seg = createSegment({ duration: 3.0 });
+window.DURATION = seg.duration;
+const THEME = getTheme(themeFromURL(location.search));
+const V = vars();
+const BRAND = String(V.brand || 'CVS').slice(0, 24);
+const TITLE = String(params.get('title') || V.title || '拒绝圆滑').slice(0, 12);
+const SUB = String(V.subtitle || 'RAW · LOUD · UNAPOLOGETIC').slice(0, 40);
+
+const BG = '#ffd400';
+const INK = '#0a0a0a';
+const BLUE = '#2b4bd6';
+const RED = '#ff3b30';
+const PAPER = '#fffdf5';
+
+const SANS = '"Noto Sans SC", "Arial Black", sans-serif';
+const MONO = '"JetBrains Mono", ui-monospace, monospace';
+const FAMILIES = Array.from(new Set([...(loadFontsFor(THEME) || []), 'Noto Sans SC', 'JetBrains Mono', 'Inter']));
+
+let L = null;
+function buildLayout() {
+  const cardW = Math.round(W * (portrait ? 0.86 : 0.62));
+  const cardH = Math.round(H * (portrait ? 0.40 : 0.52));
+  const cardX = Math.round((W - cardW) / 2);
+  const cardY = Math.round(H * (portrait ? 0.30 : 0.26));
+  const border = Math.max(4, Math.round(Math.min(W, H) * 0.008));
+  const shadow = Math.round(border * 2.6);
+  const titleSize = fitTextSize(ctx, TITLE, { maxWidth: cardW - border * 6, family: SANS, weight: 900, maxSize: typeSize('title', W, H), minSize: 44, spacing: 0.02 });
+  probe('title', titleSize, safe(W, H));
+  return {
+    cardW, cardH, cardX, cardY, border, shadow, titleSize,
+    titleX: cardX + border * 3,
+    titleY: cardY + cardH * 0.5,
+    subSize: Math.max(13, Math.round(titleSize * 0.2)),
+    badgeR: Math.round(Math.min(W, H) * 0.075),
+  };
+}
+
+function cross(x, y, s) {
+  ctx.beginPath();
+  ctx.moveTo(x - s, y); ctx.lineTo(x + s, y);
+  ctx.moveTo(x, y - s); ctx.lineTo(x, y + s);
+  ctx.stroke();
+}
+
+function drawScene(t) {
+  // 暴露的网格十字
+  ctx.save();
+  ctx.strokeStyle = hexToRgba(INK, 0.25);
+  ctx.lineWidth = 2;
+  const gs = Math.round(Math.min(W, H) * 0.02);
+  for (let i = 1; i < 4; i++) {
+    cross(Math.round(W * i / 4), pad * 1.2, gs);
+    cross(Math.round(W * i / 4), H - pad * 1.2, gs);
+  }
+  ctx.restore();
+
+  // 主卡片：砸进来（outBack），硬投影
+  const ck = ease.outBack(clamp((t - 0.05) / 0.55));
+  if (ck > 0.001) {
+    const scale = 0.86 + 0.14 * ck;
+    const cx = L.cardX + L.cardW / 2, cy = L.cardY + L.cardH / 2;
+    ctx.save();
+    ctx.globalAlpha = clamp(ck * 1.3);
+    ctx.translate(cx, cy);
+    ctx.scale(scale, scale);
+    ctx.translate(-cx, -cy);
+    // 硬投影（实心黑，偏移）
+    ctx.fillStyle = INK;
+    ctx.fillRect(L.cardX + L.shadow, L.cardY + L.shadow, L.cardW, L.cardH);
+    // 卡面
+    ctx.fillStyle = PAPER;
+    ctx.fillRect(L.cardX, L.cardY, L.cardW, L.cardH);
+    ctx.lineWidth = L.border;
+    ctx.strokeStyle = INK;
+    ctx.strokeRect(L.cardX, L.cardY, L.cardW, L.cardH);
+    // 顶部撞色条
+    ctx.fillStyle = BLUE;
+    ctx.fillRect(L.cardX, L.cardY, L.cardW, Math.round(L.cardH * 0.16));
+    ctx.fillStyle = PAPER;
+    ctx.font = `700 ${Math.round(L.titleSize * 0.22)}px ${MONO}`;
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('NO.26 / BRUTAL', L.cardX + L.border * 3, L.cardY + L.cardH * 0.08);
+    // 标题（切片揭示）
+    const tk = ease.outCubic(clamp((t - 0.3) / 0.5));
+    if (tk > 0.001) {
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(L.cardX, L.titleY - L.titleSize, L.cardW * tk, L.titleSize * 1.6);
+      ctx.clip();
+      ctx.fillStyle = INK;
+      ctx.font = `900 ${L.titleSize}px ${SANS}`;
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(TITLE, L.titleX, L.titleY);
+      ctx.restore();
+    }
+    // 副题
+    const sk = ease.outCubic(clamp((t - 0.6) / 0.45));
+    if (sk > 0.001) {
+      ctx.globalAlpha = sk;
+      ctx.fillStyle = RED;
+      ctx.font = `700 ${L.subSize}px ${MONO}`;
+      ctx.fillText(SUB, L.titleX, L.cardY + L.cardH * 0.82);
+    }
+    ctx.restore();
+  }
+
+  // 贴纸徽章（弹入，旋转）
+  const bk = ease.outBack(clamp((t - 0.5) / 0.5));
+  if (bk > 0.001) {
+    const bx = L.cardX + L.cardW - L.badgeR * 0.4;
+    const by = L.cardY + L.badgeR * 0.4;
+    ctx.save();
+    ctx.globalAlpha = clamp(bk * 1.3);
+    ctx.translate(bx, by);
+    ctx.rotate(-0.22 + (1 - bk) * 0.6);
+    ctx.scale(bk, bk);
+    ctx.fillStyle = RED;
+    ctx.beginPath(); ctx.arc(0, 0, L.badgeR, 0, Math.PI * 2); ctx.fill();
+    ctx.lineWidth = L.border * 0.7;
+    ctx.strokeStyle = INK;
+    ctx.stroke();
+    ctx.fillStyle = PAPER;
+    ctx.font = `900 ${Math.round(L.badgeR * 0.5)}px ${SANS}`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('RAW', 0, 0);
+    ctx.restore();
+  }
+}
+
+window.renderFrame = (u) => {
+  const { t, fx } = seg.sample(u);
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.globalAlpha = 1;
+  ctx.globalCompositeOperation = 'source-over';
+  ctx.save();
+  applyImpact2D(ctx, fx, W, H);
+  ctx.fillStyle = BG;
+  ctx.fillRect(-W, -H, W * 3, H * 3);
+  drawScene(t);
+  drawGrain(ctx, { W, H, t, alpha: 0.04, seed: 3 });
+  drawTopMeta(ctx, { W, H, pad, text: `${BRAND} · BRUTALIST`, sub: 'RECIPE 26 · NEO', color: hexToRgba(INK, 0.7), accent: RED });
+  drawHud(ctx, { W, H, u, duration: seg.duration, theme: THEME, label: 'STYLE 26', name: 'BRUTALIST', brand: BRAND, pad, accent: RED, ink: hexToRgba(INK, 0.7), frameColor: INK });
+  ctx.restore();
+  drawFlash(ctx, fx.flash, W, H, '#ffffff');
+};
+
+window.__ready = false;
+window.__bootError = null;
+(async () => {
+  await loadFonts(FAMILIES);
+  L = buildLayout();
+  window.renderFrame(0);
+  window.__ready = true;
+})().catch((err) => { window.__bootError = String((err && err.stack) || err); });
+window.__seg = seg;
+</script>
+</body>
+</html>

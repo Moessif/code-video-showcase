@@ -1,0 +1,96 @@
+{
+  "specVersion": 1,
+  "meta": {
+    "name": "golden-cyber",
+    "brand": "Golden Labs",
+    "cta": "现在就试试",
+    "locale": "zh-CN"
+  },
+  "format": {
+    "width": 1920,
+    "height": 1080,
+    "fps": 30,
+    "aspect": "16:9",
+    "duration": 3
+  },
+  "look": {
+    "mode": "showcase",
+    "style": null,
+    "theme": "cyber-neon",
+    "accentOverride": null
+  },
+  "audio": {
+    "mood": "electronic",
+    "bpm": 120
+  },
+  "structure": {
+    "opening": 0.5,
+    "round": 1.2,
+    "card": 0.3,
+    "ending": 0.05,
+    "moreCard": 0.05,
+    "flash": {
+      "count": 0,
+      "each": 0.25
+    }
+  },
+  "opening": {
+    "page": "templates/cyber-pixel.html",
+    "name": "opening"
+  },
+  "rounds": [
+    {
+      "id": "r01",
+      "name": "赛博像素 · 星尘",
+      "card": {
+        "layout": 0,
+        "first": "想做",
+        "keyword": "赛博预告？",
+        "page": "templates/big-card.html"
+      },
+      "style": {
+        "page": "templates/cyber-pixel.html",
+        "recipe": "cyber-pixel",
+        "t0": 0.1,
+        "speed": 1
+      }
+    },
+    {
+      "id": "r02",
+      "name": "赛博像素 · 霓虹",
+      "card": {
+        "layout": 2,
+        "first": "想拍",
+        "keyword": "像素大片？",
+        "page": "templates/big-card.html"
+      },
+      "style": {
+        "page": "templates/cyber-pixel.html",
+        "recipe": "cyber-pixel",
+        "t0": 0.4,
+        "speed": 1.3
+      }
+    }
+  ],
+  "moreCard": {
+    "page": "templates/big-card.html",
+    "layout": 3,
+    "first": "还有",
+    "keyword": "更多？"
+  },
+  "flash": {
+    "page": "templates/big-card.html"
+  },
+  "ending": {
+    "page": "templates/cyber-pixel.html",
+    "name": "ending"
+  },
+  "assets": [],
+  "patches": [],
+  "render": {
+    "quality": "master",
+    "preset": "bilibili",
+    "concurrency": 1,
+    "outDir": "out/golden-cyber"
+  }
+}

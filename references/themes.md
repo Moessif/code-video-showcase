@@ -1,4 +1,4 @@
-# 主题系统（8 套配色 × 8 种材质）
+# 主题系统（17 套配色 × 12 种材质）
 
 > 一句话：主题不是「换三个颜色」，而是**角色色板 + 材质 + HUD 规格 + 点缀色**四层一起换。
 > 数据唯一来源：`templates/themes.js`；对比度审计：`node scripts/theme-audit.mjs`。
@@ -13,7 +13,7 @@
 | 层 | 解决什么 | 对应字段 |
 |---|---|---|
 | 角色色板 | 底色/主字/强调色/纸面/暗卡必须各有明确定义，浅色主题下尤其不能混用 | `colors.*`（14 个角色 token） |
-| 材质 | 颗粒、柔光、玻璃、烫金、网格、水墨、聚光，决定「质感」而不是「色相」 | `material.*` |
+| 材质 | 颗粒、柔光、玻璃、烫金、网格、水墨、聚光、扫描线、暮光带、焦散、织纹，决定「质感」而不是「色相」 | `material.*` |
 | HUD 规格 | 胶囊/倒计时/水印在暗底上是浅色半透明，在浅底上必须换成深色实体，否则读不出来 | `hud.*` + `chrome(theme)` |
 | 点缀色 | 11 个风格段各自有主色，需要一组和主题相容的替换色，避免风格段把整片气质带跑 | `accents[]`（4 个） |
 
@@ -21,7 +21,7 @@
 
 ---
 
-## 2. 8 套主题速查
+## 2. 17 套主题速查
 
 | # | id | 名称 | 明暗 | 主材质 | 底色 | 强调 | 适合 |
 |---|---|---|---|---|---|---|---|
@@ -33,8 +33,52 @@
 | 06 | `graphite-signal` | 石墨信号 | dark | 哑光工业 | `#18191b` | `#ff4a1f` | 开发者 / 硬件 / 工业 / 硬核科技 |
 | 07 | `celadon-paper` | 青瓷白 | light | 水墨晕染 | `#f7f9f8` | `#06525c` | 东方 / 文化 / 极简 / 品牌故事 |
 | 08 | `crimson-theater` | 绯墨剧场 | dark | 舞台聚光 | `#0a0a0a` | `#b11226` | 时尚 / 艺术 / 预告 / 情绪片 |
+| 09 | `cyber-neon` | 赛博霓虹 | dark | 霓虹辉光 + 网格 | `#070d1a` | `#00dadd` | 科技 / 游戏 / 预告 / 直播 |
+| 10 | `paper-journal` | 纸质手账 | light | 纸面 + 细网格 | `#f5f1e9` | `#c13e2e` | 知识 / 教程 / 生活 / 访谈 |
+| 11 | `dark-gold-cinema` | 暗金电影 | dark | 烫金 + 颗粒 | `#090503` | `#e7b643` | 高端 / 电影感 / 年度片 |
+| 12 | `ice-minimal` | 冰蓝极简 | light | 冷白哑光 | `#f5f9fc` | `#2171cc` | SaaS / 数据 / 医疗 / 极简 |
+| 13 | `pop-acid` | 波普酸色 | dark | 光斑 + 颗粒 | `#0b0614` | `#dcdb00` | 潮流 / 音乐 / 社交 / 青年文化 |
+| 14 | `terminal-phosphor` | 终端磷光 | dark | CRT 扫描线 | `#07140d` | `#57f28f` | 开发者 / CLI / 开源发布 / 终端录屏 |
+| 15 | `solar-dusk` | 落日暖丘 | light | 落日暮光带 | `#fff3e6` | `#c23c14` | 旅行 / 美食 / 生活方式 / 户外 |
+| 16 | `abyss-teal` | 深海青 | dark | 水下焦散 | `#0a1226` | `#7fb8ef` | 海洋 / 医疗 / 深科技 / 纪录 |
+| 17 | `sand-linen` | 亚麻宣纸 | light | 亚麻织纹 | `#f3ede1` | `#3f5a8a` | 出版 / 教育 / 人文 / 播客 |
 
-4 深 4 浅，默认 `coral-noir` 与旧版视觉**逐值一致**，不传 `theme` 时老项目行为不变。
+9 深 8 浅，默认 `coral-noir` 与旧版视觉**逐值一致**，不传 `theme` 时老项目行为不变。
+
+### 2.1 v3 新增 4 套（新材质 × 垂直场景）
+
+v3 的 4 套不只是换色：每套配一种**新材质 kind**（`scanline` / `dusk` / `caustics` / `linen`），
+由 `drawThemeBackground()` 里对应的分支渲染，全部是 `t` 的纯函数、逐帧确定性。
+
+| id | 主色 | 材质要点 | 禁忌 |
+|---|---|---|---|
+| `terminal-phosphor` | 磷光绿 `#57f28f` | 4px 横向扫描线 + 极慢下移亮带 + 屏幕四角压暗；编号/参数用等宽 | 禁止整屏绿色渐变；不画像素字；亮带 alpha ≤ 0.06 |
+| `solar-dusk` | 落日橘 `#c23c14` | 底部 1/3 的水平暖橙→暮紫色带 + 顶部极淡暖晕 + 地平线细线收口 | 色带不能铺满全屏；不要玻璃/金属/手写体 |
+| `abyss-teal` | 天蓝 `#7fb8ef` | 三条天蓝正弦光脊从上方缓慢漂移 + 底部深水渐暗 | 不要气泡/鱼群具象；不要整屏青紫渐变 |
+| `sand-linen` | 靛蓝 `#3f5a8a` | 经纬双向 12/10px 极淡细线 + 纸边压色；静态、不随 t 变化 | 不要玻璃/金属/光晕；线宽固定 1px |
+
+4 套的 14 角色全部手写定稿后过 `theme-audit --strict`（WCAG 全 PASS、APCA 零 WARN、HUD 胶囊达标）。
+`content/combos.json` 的行与 `scripts/nl2spec.mjs` 的 `THEME_IDS` 由 `test-core.mjs` 交叉校验，任一处漂移即测试失败。
+
+### 2.2 v2 新增 5 套（OKLCH 派生）
+
+这 5 套的 14 个角色由 `templates/color.js` 的 `derivePalette()` 从 `[L,C,H]` 生成，再用 `apcaLc()` 校验：
+
+| id | 主色 | 第二重音 | 材质要点 | 禁忌 |
+|---|---|---|---|---|
+| `cyber-neon` | 电光青 `#00dadd` | 品红 `#ff2bd6` | 青色辉光只从边角溢出 + 96px 网格；颗粒 0.045 | 禁止整屏青紫渐变；品红不超过画面 5% |
+| `paper-journal` | 赭红 `#c13e2e` | 墨蓝 `#2f5d8a` | 暖纸 + 细纤维 + 64px 装订网格；无光晕 | 不要玻璃/金属；手写体只做标题 |
+| `dark-gold-cinema` | 旧金 `#e7b643` | 牛血红 `#8f2f2f` | 24° 斜向烫金 sheen + 颗粒 0.05 | 金色不做大面积底；暗部不要提亮 |
+| `ice-minimal` | 钴蓝 `#2171cc` | 薄荷 `#7fbfa8` | 冷白哑光 + 120px 冷灰网格；grain 0.012 | 不要柔光球；除钴蓝外只允许中性灰 |
+| `pop-acid` | 酸性黄绿 `#dcdb00` | 热粉 `#ff3d8b` | 单点光斑 + 72px 网格 + 颗粒 0.06 | 黑底必须压住饱和度；同屏不超过 2 个高饱和色 |
+
+新增主题的流程：
+
+```js
+import { derivePalette, gamut, toHex, apcaLc } from '../templates/color.js';
+const colors = derivePalette({ mode: 'dark', accent: '#00dadd' }); // 14 角色
+// 再按材质微调 2–3 个值，写进 themes.js，跑 theme-audit --strict
+```
 
 ---
 
@@ -116,6 +160,46 @@
 - **风格段**：推荐 05 赛博 / 06 水墨 / 11 竖屏；主色换绯红/暗酒红/骨白；其他段降到近黑。
 - **禁忌**：不要正红堆满屏；不要金色；闪白只做 1–2 帧。
 
+### 14 终端磷光 `terminal-phosphor`（v3）
+
+- **调性**：墨绿阴极射线 + 磷光绿，像一台刚开机的终端；开发者发布片、CLI 录屏。
+- **色板**：底 `#07140d` / 主字 `#d6ffe2` / 强调 `#57f28f` / 纸面 `#e9f7ec` / 暗卡 `#04140b`。
+- **材质**：`scanline` —— 4px 横向扫描线（alpha 0.1）+ 一条极慢下移的亮带 + 四角压暗 0.34；磷光绿只做局部辉光。
+- **排印**：大字卡仍固定 Noto Sans SC 900；编号、命令、参数一律 JetBrains Mono，不换成像素字。
+- **HUD**：深绿半透明胶囊 + 磷光绿编号 + 浅绿字。
+- **风格段**：推荐 09 代码 / 07 数据 / 08 8-bit；点缀色是琥珀字符/青蓝/洋红错误，像终端配色表。
+- **禁忌**：不要整屏绿色渐变；亮带不要亮到盖住标题；不要气泡/玻璃。
+
+### 15 落日暖丘 `solar-dusk`（v3）
+
+- **调性**：奶油暮色 + 陶土落日，暖而不腻；旅行公路、美食、户外。
+- **色板**：底 `#fff3e6` / 主字 `#3a2115` / 强调 `#c23c14` / 纸面 `#fffaf2` / 暗卡 `#331a0e`。
+- **材质**：`dusk` —— 底部约 1/3 的水平暖橙→暮紫色带（alpha 0.22）+ 顶部极淡暖晕 + 地平线 1px 细线收口。
+- **排印**：片头/片尾可用 Playfair Display 斜体，正文保持无衬线；禁用手写体。
+- **HUD**：深棕实体胶囊 + 浅橙编号 + 米白字（浅色主题铁律）。
+- **风格段**：推荐 01 扁平 / 04 白板 / 12 竖屏；点缀色落日橘/陶土/橄榄/暮紫，全部压在中低饱和。
+- **禁忌**：色带不铺满全屏；不要玻璃/金属/光球；不要正红堆满。
+
+### 16 深海青 `abyss-teal`（v3）
+
+- **调性**：深水藏青 + 天蓝焦散，安静的高级感；医疗、海洋、深科技、纪录。
+- **色板**：底 `#0a1226` / 主字 `#f0f2ff` / 强调 `#7fb8ef` / 纸面 `#eef1fb` / 暗卡 `#050d1e`。
+- **材质**：`caustics` —— 三条天蓝正弦光脊从上方缓慢漂移 + 底部深水渐暗 0.2；不画气泡等具象。
+- **排印**：标题字重略轻、字距略松；可用 Noto Serif SC；编号用等宽做仪器读数感。
+- **HUD**：深蓝黑胶囊 + 天蓝编号 + 浅蓝字。
+- **风格段**：推荐 07 数据 / 09 代码 / 01 扁平；点缀色天蓝/水母蓝/珊瑚/浮游绿都保持低饱和。
+- **禁忌**：不要整屏青紫渐变；不要霓虹网格；焦散线不要亮过正文。
+
+### 17 亚麻宣纸 `sand-linen`（v3）
+
+- **调性**：本色亚麻 + 靛蓝，编辑部与讲义；出版、教育、人文、播客。
+- **色板**：底 `#f3ede1` / 主字 `#2d2a22` / 强调 `#3f5a8a` / 纸面 `#fbf8ef` / 暗卡 `#26241e`。
+- **材质**：`linen` —— 经纬双向 12/10px 极淡细线（alpha 0.045）+ 纸边压色；静态、不随 t 变化。
+- **排印**：标题可用 Noto Serif SC；章节号用等宽；正文禁用手写体。
+- **HUD**：深墨实体胶囊 + 雾蓝编号 + 米白字。
+- **风格段**：推荐 04 白板 / 01 扁平 / 15 报纸编辑；点缀色靛蓝/赭石/苔绿/绛红，像印刷四色。
+- **禁忌**：不要玻璃/金属/光晕；织纹线宽固定 1px，不要加粗成网格纸。
+
 ---
 
 ## 4. 角色 token 与使用规则
@@ -137,7 +221,7 @@
 | `cardDarkInk` | 暗卡字 | 深色卡上的字 | 对比 cardDark ≥ 7:1 |
 | `flash` | 闪白 | 转场闪白 | 深色主题用纯白，浅色主题用更亮的暖白 |
 
-所有值由 `scripts/theme-audit.mjs` 自动校验，`--strict` 可进 CI。当前 8 套全部通过。
+所有值由 `scripts/theme-audit.mjs` 自动校验（WCAG + APCA），`--strict` 可进 CI。当前 17 套 WCAG 全部通过、APCA 零 WARN。
 
 ```bash
 node scripts/theme-audit.mjs            # 全部
@@ -158,6 +242,10 @@ node scripts/theme-audit.mjs aqua-morandi --strict
 | `matte` | 哑光工业 | 平灰面 + 极淡网格 + 安全橙 | 禁止柔光和投影 |
 | `ink` | 水墨晕染 | 同一支青在边角晕开 | 不出现第二个彩色 |
 | `glow` | 舞台聚光 | 顶部聚光 + 四周压暗 | 装饰极少，靠大字 |
+| `scanline` | CRT 扫描线 | 等距横线 + 慢移亮带 + 压角 | v3；磷光只做辉光，亮带 alpha ≤ 0.06 |
+| `dusk` | 落日暮光带 | 底部 1/3 暖→冷色带 + 地平线细线 | v3；带高固定，不铺满全屏 |
+| `caustics` | 水下焦散 | 三条天蓝正弦光脊 + 底部深水渐暗 | v3；不画气泡等具象 |
+| `linen` | 亚麻织纹 | 经纬双向细线 + 纸边压色 | v3；静态、不随 t 变化 |
 
 材质统一由 `drawThemeBackground(ctx, theme, W, H, t)` 画出（确定性，只依赖 `t`）：
 
@@ -165,6 +253,13 @@ node scripts/theme-audit.mjs aqua-morandi --strict
 import { drawThemeBackground } from './themes.js';
 drawThemeBackground(ctx, theme, W, H, t);   // 底色渐变 → 材质 → 颗粒
 ```
+
+**静态材质烘焙（v2.6.1）**：`linen` / `dusk` / `scanline` 的静态层与 `t` 无关，逐帧重画在 1080p 下要 300–1100 次 canvas 调用。`staticMaterialTile()` 把它们烘成一张**透明**离屏画布，逐帧只做一次 `drawImage`；实测 `sand-linen` 1099→8、`terminal-phosphor` 299→21。
+
+- 贴图必须**透明**：原顺序是「不透明底色 → glow 呼吸 → 静态层 → 动态层 → 颗粒」，source-over 满足结合律，透明贴图插在 glow 之后、动态层之前才逐值等价。把底色也烘进去会让 glow 被盖到静态层之后，顺序就错了。
+- 动态层（scanline 亮带、caustics 光脊、grain）不烘焙。`caustics` 因光脊随 `t` 变化、且 depth 渐变在光脊之后绘制，整体保持逐帧。
+- 像素级验证：真实 Chrome 双路径截图逐像素比对，最大差 2/255（8-bit 半透明舍入），无结构性差异。`?noBake=1` 强制回落逐层路径，便于排查。
+- Node 无 `document` 时自动回落逐层绘制（单元测试走的正是这条路径）；缓存上限 32 个 `主题×画幅` 组合。
 
 玻璃主题额外用 `drawGlassPanel`：
 
@@ -233,6 +328,10 @@ const c = cardColors(theme, layout);
 | 工程 / 建筑 / 数据 / 技术 | 蓝图纸 | 石墨信号 | 网格/等宽自带「图纸」语义 |
 | 东方 / 文化 / 极简 | 青瓷白 | 珊瑚暗夜 | 单色青 + 宋体，克制 |
 | 时尚 / 艺术 / 预告 / 情绪片 | 绯墨剧场 | 琥珀黑金 | 聚光 + 大字，戏剧张力 |
+| 开发者 / CLI / 开源发布 | 终端磷光 | 石墨信号 | CRT 扫描线 + 等宽，工具感自带 |
+| 旅行 / 美食 / 户外 | 落日暖丘 | 纸质手账 | 暖色暮光带，生活气息不抢主体 |
+| 医疗 / 海洋 / 深科技 | 深海青 | 冰蓝极简 | 天蓝焦散，克制的高级感 |
+| 出版 / 教育 / 人文 | 亚麻宣纸 | 纸质手账 | 织纹 + 靛蓝，讲义与编辑部气质 |
 | 用户没主意 | 珊瑚暗夜（默认） | 橙光白 / 水蓝白 | 原版最安全；暖/冷各给一个 |
 
 展示时先给三张主推对比图（`theme-three-up.jpg`：原版 / 橙光白 / 水蓝白），再给全集联系表（`theme-contact-sheet.jpg`），最后按需给单主题大图。选择用 `references/intake.md` 的流程锁定。
@@ -241,7 +340,7 @@ const c = cardColors(theme, layout);
 
 ## 9. 覆盖主色（用户有品牌色时）
 
-允许用户只换「强调色」，不要鼓励自创第 9 套主题。`themes.js` 提供 `accentOverride(themeRef, input)`，返回新主题对象（不污染 `THEMES`），自动处理 accentInk 对比度、accentSoft 与材质光晕：
+允许用户只换「强调色」，不要鼓励自创第 18 套主题。`themes.js` 提供 `accentOverride(themeRef, input)`，返回新主题对象（不污染 `THEMES`），自动处理 accentInk 对比度、accentSoft 与材质光晕：
 
 ```js
 import { accentOverride, auditTheme } from './themes.js';
@@ -299,13 +398,14 @@ const rows = auditTheme(theme);                          // 覆盖后仍需审�
 
 ---
 
-## 12. 新增第 9 套主题
+## 12. 新增一套主题
 
-1. 在 `templates/themes.js` 的 `THEMES` 里加一个条目：14 个角色 token、`hud`、`material`（选一种主材质）、4 个 `accents`、`type`、`tagline/useFor/aliases`。
+1. 在 `templates/themes.js` 的 `THEMES` 里加一个条目：14 个角色 token、`hud`、`material`（选一种主材质；新材质要同步在 `drawThemeBackground()` 加分支并登记进 `test-core.mjs` 的 kinds 集合）、4 个 `accents`、`type`、`tagline/useFor/aliases`。
 2. `node scripts/theme-audit.mjs <id>` 调到全绿（必要时加深 muted / 换 accentInk）。
-3. `node scripts/theme-preview.mjs --root <project> --themes <id>` 出图，用 `read_image` 检查，不合格就改。
+3. `npm run theme:preview:offline -- --themes <id>` 出图，用 `read_image` 检查，不合格就改。
 4. 更新本文 §2 速查表、§3 详述、§8 推荐矩阵，以及 `assets/theme-previews/` 里的预览资产。
-5. 更新 `SKILL.md` 的主题数量与预览图引用。
+5. 同步 `scripts/nl2spec.mjs` 的 `THEME_IDS` /`THEME_RULES`，跑 `node scripts/build-combos.mjs` 重生成 `content/combos.json`，按需在 `content/presets.json` 加首屏预设；`test-core.mjs` 会交叉校验。
+6. 更新 `SKILL.md` / `README.md` / 本文的主题数量与预览图引用，跑全套测试。
 
 > 不要为「临时一个片子」新增主题；先看能不能用现有主题 + `accentOverride` 解决。
 
@@ -317,9 +417,10 @@ const rows = auditTheme(theme);                          // 覆盖后仍需审�
 |---|---|
 | `templates/themes.js` | 主题数据 + 全部 API（唯一数据源） |
 | `templates/theme-board.html` | 单主题预览板（?theme=<id>，1920×1080） |
-| `scripts/theme-preview.mjs` | 批量渲染 8 套预览 + 联系表 + 三拼对比图 |
+| `scripts/theme-preview.mjs` | CDP/Playwright 路径：批量渲染全部主题预览 + 联系表 + 三拼 |
+| `scripts/theme-preview-offline.mjs` | **推荐**：Chrome `--headless --screenshot` 直出，无 CDP/Playwright；`--only-sheets` 只重建拼版，`--force` 才覆盖单图 |
 | `scripts/theme-audit.mjs` | 对比度审计（`--strict` 可进 CI） |
-| `assets/theme-previews/` | 交付给用户的预览图（01–08、联系表、三拼） |
+| `assets/theme-previews/` | 交付给用户的预览图（01–17、联系表、三拼；`theme-preview.mjs` 可重建） |
 | `references/intake.md` | 调用前先收信息、锁定主题的流程 |
 | `references/big-card-and-typography.md` | 大字卡排印（含主题化说明） |
-| `references/style-recipes.md` | 11 种风格配方（含主题换色规则） |
+| `references/style-recipes.md` | 20 种风格配方（含主题换色规则） |

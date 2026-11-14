@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>评审 · Code Video Showcase</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header class="topbar">
+  <div class="brand">
+    <span class="brandMark" aria-hidden="true"></span>
+    <span>CVS Review</span>
+  </div>
+  <div class="topbarMeta">
+    <span id="jobLabel" class="jobLabel">无 job</span>
+    <span id="conn" class="conn" data-state="idle">未连接</span>
+  </div>
+</header>
+
+<main class="page">
+  <section id="empty" class="empty" hidden>
+    <h1>还没有评审任务</h1>
+    <p>在地址后加 <code>?job=&lt;id&gt;&amp;api=http://127.0.0.1:5190</code>，或在 API 上先 <code>POST /jobs</code> 创建一个编译任务。</p>
+    <p class="hint">示例：<code>/app/review/?job=j-20261111120000-a1b2c3</code>（api 省略时默认 <code>http://127.0.0.1:5190</code>）</p>
+    <p id="emptyReason" class="hint" role="status"></p>
+  </section>
+
+  <div class="layout">
+    <div class="primary">
+      <section class="card videoCard" aria-labelledby="videoTitle">
+        <h2 id="videoTitle" class="cardTitle">成片</h2>
+        <div class="videoStage">
+          <video id="video" controls playsinline preload="metadata"></video>
+          <div id="videoPlaceholder" class="videoPlaceholder">
+            <p id="videoPlaceholderText">成片尚未生成。</p>
+          </div>
+        </div>
+      </section>
+
+      <section class="card" aria-labelledby="stateTitle">
+        <h2 id="stateTitle" class="cardTitle">状态</h2>
+        <dl class="metaGrid">
+          <div class="meta"><dt>状态</dt><dd id="status" class="status" data-status="none">—</dd></div>
+          <div class="meta"><dt>退出码</dt><dd id="exitCode">—</dd></div>
+          <div class="meta"><dt>创建</dt><dd id="createdAt">—</dd></div>
+          <div class="meta"><dt>开始</dt><dd id="startedAt">—</dd></div>
+          <div class="meta"><dt>结束</dt><dd id="finishedAt">—</dd></div>
+          <div class="meta"><dt>时长</dt><dd id="statDuration">—</dd></div>
+          <div class="meta"><dt>帧数</dt><dd id="statFrames">—</dd></div>
+          <div class="meta"><dt>段数</dt><dd id="statSegments">—</dd></div>
+        </dl>
+        <p id="jobError" class="errorText" hidden></p>
+        <p id="jobErrorLinks" class="errorLinks" style="margin:4px 0 0;font-size:12px"></p>
+      </section>
+
+      <section class="card" aria-labelledby="logTitle">
+        <details>
+          <summary id="logTitle" class="cardTitle summary">构建日志 <span class="hint">（尾部 16KB）</span></summary>
+          <pre id="log" class="log" tabindex="0">—</pre>
+        </details>
+      </section>
+    </div>
+
+    <aside class="side">
+      <section class="card" aria-labelledby="commentTitle">
+        <h2 id="commentTitle" class="cardTitle">帧级评论</h2>
+        <form id="commentForm" class="form" novalidate>
+          <label class="field">
+            <span>时间码（秒）</span>
+            <div class="timeRow">
+              <input id="commentTime" name="time" type="number" min="0" step="0.001" inputmode="decimal" placeholder="例如 12.480" autocomplete="off">
+              <button id="useCurrent" type="button" class="ghost" title="读取当前视频播放位置">当前时间</button>
+            </div>
+          </label>
+          <label class="field">
+            <span>评论</span>
+            <textarea id="commentText" name="text" rows="3" placeholder="这一帧的问题是…" required></textarea>
+          </label>
+          <div class="formActions">
+            <button type="submit" class="primaryBtn">保存评论</button>
+            <button id="exportReview" type="button" class="ghost" title="下载 review.json；放进 outDir 后 cvs snapshot 会收进版本">导出 review.json</button>
+          </div>
+          <p id="formHint" class="hint" role="status"></p>
+        </form>
+        <ol id="commentList" class="comments" aria-label="评论列表"></ol>
+        <p id="commentsEmpty" class="hint">还没有评论。</p>
+      </section>
+
+      <section class="card" aria-labelledby="specTitle">
+        <h2 id="specTitle" class="cardTitle">Spec</h2>
+        <p id="specState" class="hint">等待 job…</p>
+        <pre id="spec" class="spec" tabindex="0">—</pre>
+      </section>
+    </aside>
+  </div>
+</main>
+
+<script type="module" src="app.js"></script>
+</body>
+</html>

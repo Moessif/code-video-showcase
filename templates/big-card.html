@@ -14,13 +14,46 @@
 <div id="stage"><canvas id="c" width="1920" height="1080"></canvas></div>
 
 <script type="module">
-import { loadFonts, clamp, ease, rng, mulberry32 } from './common.js';
+import { loadFonts, clamp, ease, rng, mulberry32, motionProfile } from './common.js';
 import { themeFromURL, cardColors, mix } from './themes.js';
+import { createEditBridge, mergePatches } from './edit-bridge.mjs';
+import { transitionParams, rateFunc, springs, drawGrain, drawScanlines, drawPaperTexture } from './motion.js';
 
-const W = 1920, H = 1080;
+// ---------- 画布 = 视口（D7） ----------
+// 不再硬编码 1920×1080：取 window.innerWidth / innerHeight，取整、偶数、最小 320；
+// 视口数据缺失时回退 1920×1080。位图与 CSS 尺寸同步，缩放恒为 1。
+function viewportCanvasSize() {
+  const iw = Number(window.innerWidth);
+  const ih = Number(window.innerHeight);
+  const rawW = Number.isFinite(iw) && iw > 0 ? iw : 1920;
+  const rawH = Number.isFinite(ih) && ih > 0 ? ih : 1080;
+  const evenAtLeast = (v, min) => {
+    let n = Math.floor(Number(v));
+    if (!Number.isFinite(n) || n < min) n = min;
+    return n - (n % 2);
+  };
+  return { W: evenAtLeast(rawW, 320), H: evenAtLeast(rawH, 320) };
+}
+
+const SIZE = viewportCanvasSize();
+const W = SIZE.W, H = SIZE.H;
+const ASPECT = W / H;
+// >1.05 横屏 / <0.95 竖屏 / 其余按方图处理（D7）
+const ORIENT = ASPECT > 1.05 ? 'landscape' : (ASPECT < 0.95 ? 'portrait' : 'square');
+
 const canvas = document.getElementById('c');
+canvas.width = W;
+canvas.height = H;
+canvas.style.width = `${W}px`;
+canvas.style.height = `${H}px`;
+const stageEl = document.getElementById('stage');
+if (stageEl) {
+  stageEl.style.width = `${W}px`;
+  stageEl.style.height = `${H}px`;
+}
 const ctx = canvas.getContext('2d');
 window.DURATION = 1.0;
+window.__viewport = { width: W, height: H, aspect: ASPECT, orient: ORIENT };
 
 // ---------- per-card config (pass via the --page URL, e.g. --page "/big-card.html?layout=1&index=2") ----------
 const p = new URLSearchParams(location.search);
@@ -31,18 +64,65 @@ const CARD = {
   color: p.get('color') ?? '#ffcf5c',
   first: p.get('first') ?? '想做',
   keyword: p.get('keyword') ?? '科普视频？',
-  brand: p.get('brand') ?? '{{BRAND}}',
+  brand: p.get('brand') ?? '',
 };
 
-const FONT = '"Noto Sans SC", "Inter", sans-serif';
-const rnd = rng(1200 + CARD.index * 37);
+const BRAND_FONT = String(p.get('brandFont') || '').trim().replace(/["'<>&\\]/g, '').slice(0, 80);
+const BRAND_LOGO = String(p.get('logo') || '').trim();
+const FONT = BRAND_FONT
+  ? `"${BRAND_FONT}", "Noto Sans SC", "Inter", sans-serif`
+  : '"Noto Sans SC", "Inter", sans-serif';
+let LOGO_IMG = null;
+let rnd = rng(1200 + CARD.index * 37);
+
+async function loadBrandLogo() {
+  if (!BRAND_LOGO) return;
+  const url = new URL(`/${BRAND_LOGO.replace(/^\/+/, '')}`, location.origin).href;
+  LOGO_IMG = await new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => resolve(img);
+    img.onerror = () => reject(new Error(`brand logo failed to load: ${BRAND_LOGO}`));
+    img.src = url;
+  });
+}
+
+function drawBrandLogo() {
+  if (!LOGO_IMG) return;
+  const h = Math.max(22, Math.round(Math.min(W, H) * 0.052));
+  const w = LOGO_IMG.naturalWidth * (h / LOGO_IMG.naturalHeight);
+  const m = Math.max(20, Math.round(Math.min(W, H) * 0.036));
+  ctx.save();
+  ctx.globalAlpha = 0.92;
+  ctx.drawImage(LOGO_IMG, W - m - w, m, w, h);
+  ctx.restore();
+}
 
 // ---------- theme ----------
 // 不传 ?theme= 时保留旧模板的默认路径（旧硬编码配色 + ?color= 强调色），保证逐像素不变。
 // 传 ?theme= 时颜色全部由 themes.js 的 cardColors(theme, layout) 驱动；角落 HUD 用卡片 ink 派生。
 const HAS_THEME = p.has('theme');
+const HAS_COLOR_PARAM = p.has('color');
 const THEME = themeFromURL(location.search);
-const CC = HAS_THEME ? cardColors(THEME, CARD.layout) : null;
+
+// ---------- spec（D3 编辑契约的唯一真相） ----------
+// 默认渲染不读 patches（空数组 → 全部回退到 URL 参数），所以补丁机制不改变现有画面。
+const SPEC = {
+  specVersion: 1,
+  kind: 'big-card',
+  meta: { name: 'big-card', brand: CARD.brand },
+  params: {
+    card: {
+      layout: CARD.layout,
+      index: CARD.index,
+      total: CARD.total,
+      color: CARD.color,
+      first: CARD.first,
+      keyword: CARD.keyword,
+      brand: CARD.brand,
+    },
+  },
+  patches: [],
+};
 
 // ---------- color helpers ----------
 function hexToRgb(hex) {
@@ -87,8 +167,10 @@ function contrast(a, b) {
 }
 
 // ---------- palette: legacy path = 旧模板的逐值常量；theme path = cardColors 派生 ----------
-const PAL = (() => {
-  const [AC_R, AC_G, AC_B] = hexToRgb(CARD.color);
+// 由 (layout, 强调色) 参数化：默认传 CARD.layout / CARD.color，结果与改动前逐值一致；
+// 编辑契约改颜色/版式时按新参数重算，重绘即可复现。
+function computePal(layout, colorHex, explicitColor = false) {
+  const [AC_R, AC_G, AC_B] = hexToRgb(colorHex);
   const AC = (a = 1) => `rgba(${AC_R},${AC_G},${AC_B},${a})`;
   const legacy = (extra) => Object.assign({
     bgTop: '#0e0e0d', bgBottom: null, grid: null,
@@ -97,9 +179,9 @@ const PAL = (() => {
   }, extra);
 
   if (!HAS_THEME) {
-    if (CARD.layout === 0) {
+    if (layout === 0) {
       return legacy({
-        bgTop: CARD.color,
+        bgTop: colorHex,
         bgBottom: `rgba(${AC_R * 0.82 | 0},${AC_G * 0.82 | 0},${AC_B * 0.82 | 0},1)`,
         grid: 'rgba(0,0,0,0.06)',
         firstColor: '#0e0e0d',
@@ -108,7 +190,7 @@ const PAL = (() => {
         underline: 'rgba(14,14,13,0.9)',
       });
     }
-    if (CARD.layout === 1) {
+    if (layout === 1) {
       return legacy({
         bgTop: '#f4efe6',
         grid: 'rgba(20,20,20,0.045)',
@@ -128,10 +210,11 @@ const PAL = (() => {
   }
 
   // theme path
-  const dark = CARD.layout >= 2;
-  // ?color= 仍可作为强调色覆盖（保持旧模板「逐卡换色」的用法），其余一律取自主题。
-  const accent = p.has('color')
-    ? CARD.color
+  const CC = cardColors(THEME, layout);
+  // ?color= 或编辑契约的 card.color patch 都可作为强调色覆盖（保持旧模板「逐卡换色」的用法），
+  // 其余一律取自主题。
+  const accent = (HAS_COLOR_PARAM || explicitColor)
+    ? colorHex
     : (CC.field === 'accent' ? CC.bg : CC.keyword);
   const accentRgb = parseColor(accent).slice(0, 3);
   // 角落 HUD 跟着卡片 ink 走（对比度兜底），不套主题的亮/暗 HUD 规格：
@@ -142,22 +225,38 @@ const PAL = (() => {
   };
   const flash = THEME.colors.flash;
 
-  if (CARD.layout === 0) {
+  // R2-05（N08-F2）：layout0 字色必须按**实际底色**择极性，不能盲取 CC.ink。
+  // CC.ink=主题 accentInk 是为「主题自己的 accent 底」设计的；一旦 ?color=
+  // 覆盖成浅色（如默认黄 #ffcf5c）或主题 accent 本身偏浅（celadon 月白），
+  // 近白 ink 压浅底 = 1.38:1 白字白底。这里在候选里挑对比最高者（≥3:1 大字）。
+  const inkFor = (bg) => {
+    const cands = [CC.ink, THEME.colors.cardDarkInk, THEME.colors.paperInk, '#0e0e0d', '#f7f4ea'];
+    let best = cands[0], bestC = -1;
+    for (const hex of cands) {
+      if (!hex) continue;
+      const cr = contrast(hex, bg);
+      if (cr > bestC) { bestC = cr; best = hex; }
+    }
+    return best;
+  };
+
+  if (layout === 0) {
+    const ink0 = inkFor(accent);
     return {
       bgTop: accent,
       bgBottom: mixHex(accent, '#000000', 0.18),
       grid: CC.grid,
-      firstColor: CC.ink,
-      keyColor: CC.ink,
+      firstColor: ink0,
+      keyColor: ink0,
       echo: CC.echo,
-      underline: withAlpha(CC.ink, 0.9),
+      underline: withAlpha(ink0, 0.9),
       streakRgb: accentRgb,
-      speedLine: withAlpha(CC.ink, 0.35),
+      speedLine: withAlpha(ink0, 0.35),
       glowRgb: parseColor(mixHex(accent, '#ffffff', 0.45)).slice(0, 3),
       ...footerFor(accent), flash,
     };
   }
-  if (CARD.layout === 1) {
+  if (layout === 1) {
     // 纸底上强调色对比不足时（例如沿用旧 ?color= 的金色）退到 ink，保证大字可读。
     const paperKey = contrast(accent, CC.bg) >= 2.2 ? accent : CC.ink;
     return {
@@ -190,7 +289,93 @@ const PAL = (() => {
     glowRgb: parseColor(keyColor).slice(0, 3),
     ...footerFor(CC.bg), flash,
   };
-})();
+}
+
+// ---------- 布局（D7：横 / 竖 / 方） ----------
+// 所有 rect 与字号都由这里算出。横屏分支复刻旧模板的逐值常量，
+// 所以 1920×1080 的输出（D7 基线哈希）不受重排代码影响。
+function layoutFor(S) {
+  if (ORIENT === 'landscape') {
+    return {
+      mode: 'landscape',
+      firstY: H / 2 - 116,
+      keyY: H / 2 + 60,
+      firstSize: S.first.size,
+      keySize: S.keyword.size,
+      maxTextW: W - 2 * 96,
+      echo: { font: 600, y: H / 2 + 40, drift: 70 },
+      underline: {
+        x: W / 2 - 450, y: H / 2 + 182, w: 900, h: 14,
+        hit: [W / 2 - 450, H / 2 + 166, 900, 30],
+      },
+      footerY: 1016,
+      footerLeft: 96,
+      footerRight: 1824,
+      footIndexFont: '500 22px "JetBrains Mono", monospace',
+      footBrandFont: '500 20px "JetBrains Mono", monospace',
+      footIndexSize: 22,
+      footBrandSize: 20,
+      layoutRect: [96, 56, 220, 48],
+      speed: { x: W / 2, y: H / 2 + 30, scale: 1 },
+      glow: { cx: W / 2, cy: H / 2, r: 900 },
+    };
+  }
+
+  const portrait = ORIENT === 'portrait';
+  const short = Math.min(W, H);
+  const base = short / 1080;
+  // 安全区：竖屏左右 8%、上下 10%；方图 6% / 8%。
+  const safeX = Math.round(W * (portrait ? 0.08 : 0.06));
+  const safeTop = Math.round(H * (portrait ? 0.10 : 0.08));
+  const safeBottom = Math.round(H * (portrait ? 0.10 : 0.08));
+  // 字号按短边换算，再乘 0.66 / 0.72（竖屏）或 0.78 / 0.84（方图）。
+  const firstSize = Math.round(clamp(S.first.size * base * (portrait ? 0.66 : 0.78), 24, 160));
+  const keySize = Math.round(clamp(S.keyword.size * base * (portrait ? 0.72 : 0.84), 40, 300));
+  const maxTextW = W - 2 * safeX;
+  // 上下堆叠：整块在竖直方向居中，首行在上、关键词在下。
+  const gap = Math.round(keySize * (portrait ? 0.36 : 0.40));
+  const blockH = firstSize + gap + keySize;
+  const blockTop = Math.round(H * 0.5 - blockH / 2);
+  const firstY = blockTop + firstSize / 2;
+  const keyY = blockTop + firstSize + gap + keySize / 2;
+
+  const underlineW = Math.round(Math.min(900, W * (portrait ? 0.58 : 0.56)));
+  const underlineY = Math.round(keyY + keySize * 0.62);
+  const underlineH = Math.max(8, Math.round(14 * base));
+  const footIndexSize = portrait ? 26 : 24;
+  const footBrandSize = portrait ? 24 : 22;
+  const footerY = Math.round(H - safeBottom - 12);
+
+  // echo 大字按宽度 fit：先在 600px 下量宽，再等比缩到 92% 画宽。
+  const echoMaxW = Math.round(W * 0.92);
+  let echoSize = 600;
+  ctx.save();
+  ctx.font = `900 600px ${FONT}`;
+  const echoW = ctx.measureText(S.keyword.text).width;
+  ctx.restore();
+  if (echoW > echoMaxW) echoSize = Math.round(600 * (echoMaxW / echoW));
+  echoSize = Math.round(clamp(echoSize, 40, Math.round(H * 0.4)));
+
+  return {
+    mode: ORIENT,
+    firstY, keyY, firstSize, keySize, maxTextW,
+    echo: { font: echoSize, y: Math.round(keyY), drift: Math.round(W * 0.03) },
+    underline: {
+      x: W / 2 - underlineW / 2, y: underlineY, w: underlineW, h: underlineH,
+      hit: [W / 2 - underlineW / 2, underlineY - 8, underlineW, underlineH + 16],
+    },
+    footerY,
+    footerLeft: safeX,
+    footerRight: W - safeX,
+    footIndexFont: `500 ${footIndexSize}px "JetBrains Mono", monospace`,
+    footBrandFont: `500 ${footBrandSize}px "JetBrains Mono", monospace`,
+    footIndexSize,
+    footBrandSize,
+    layoutRect: [safeX, safeTop, Math.min(220, W - 2 * safeX), 48],
+    speed: { x: W / 2, y: Math.round(keyY), scale: base },
+    glow: { cx: W / 2, cy: Math.round(blockTop + blockH / 2), r: Math.round(short * 0.85) },
+  };
+}
 
 // ---------- pre-rendered text layers (blur 16px once, never per frame) ----------
 function textLayer(text, { size, weight, color, blur = 0, y = H / 2, align = 'center', x = W / 2, maxW = W - 2 * 96 }) {
@@ -208,35 +393,105 @@ function textLayer(text, { size, weight, color, blur = 0, y = H / 2, align = 'ce
   g.textAlign = align;
   g.textBaseline = 'middle';
   g.fillText(text, x, y);
-  c.__fontSize = s;
+  c.__fontSize = s;                  // 实际字号（auto fit 后）
+  c.__textW = g.measureText(text).width;
+  c.__text = text;
+  c.__color = color;
   return c;
 }
 
-function makeLayers() {
-  const firstColor = PAL.firstColor;
-  const keyColor = PAL.keyColor;
-  const firstY = H / 2 - 116;
-  const keyY = H / 2 + 60;
+function makeLayers(S) {
+  const L = layoutFor(S);
+  const firstColor = S.first.color || PAL.firstColor;
+  const keyColor = S.keyword.color || PAL.keyColor;
   const layers = [];
   for (const [text, size, weight, color, y, align] of [
-    [CARD.first, 76, 700, firstColor, firstY, 'center'],
-    [CARD.keyword, 190, 900, keyColor, keyY, 'center'],
+    [S.first.text, L.firstSize, 700, firstColor, L.firstY, 'center'],
+    [S.keyword.text, L.keySize, 900, keyColor, L.keyY, 'center'],
   ]) {
+    const sharp = textLayer(text, { size, weight, color, y, align, maxW: L.maxTextW });
     layers.push({
-      sharp: textLayer(text, { size, weight, color, y, align }),
-      blur: textLayer(text, { size, weight, color, blur: 16, y, align }),
+      sharp,
+      blur: textLayer(text, { size, weight, color, blur: 16, y, align, maxW: L.maxTextW }),
       align,
+      y,
+      size: sharp.__fontSize,
+      text,
+      color,
     });
   }
-  return { layers, firstColor, keyColor, keyY };
+  return { layers, firstColor, keyColor, keyY: L.keyY, L };
 }
+// ---------- effective params（SPEC + patches） ----------
+// 默认 patches 为空 → 每个字段都回退到 CARD，与旧模板完全相同。
+function effectiveState() {
+  const P = SPEC.patches;
+  // 基座取 SPEC.params.card（与 segment.html 同一修复）：mergePatches 只叠加 patch，
+  // 传 {} 会让 params 变成装饰品。这里的值与 CARD.* 逐项相同，所以像素不变，
+  // 但「改 spec.params 就能改画面」这条 D3 契约从此真的成立。
+  const scope = mergePatches(P, 'card', null, { ...SPEC.params.card });
+  const fp = mergePatches(P, 'card', 'card.first', {});
+  const kp = mergePatches(P, 'card', 'card.keyword', {});
+  const cp = mergePatches(P, 'card', 'card.color', {});
+  const lp = mergePatches(P, 'card', 'card.layout', {});
+  const ip = mergePatches(P, 'card', 'card.index', {});
+  const bp = mergePatches(P, 'card', 'card.brand', {});
+
+  const num = (v, lo, hi, d) => {
+    const n = Number(v);
+    return Number.isFinite(n) ? Math.min(hi, Math.max(lo, n)) : d;
+  };
+  const int = (v, lo, hi, d) => Math.round(num(v, lo, hi, d));
+  const str = (v, d, max) => (v == null ? d : String(v).slice(0, max));
+  const pick = (v, d) => (typeof v === 'string' && v ? v : d);
+  const patchedColor = cp.color ?? scope.color;
+
+  return {
+    layout: int(lp.layout ?? scope.layout, 0, 3, CARD.layout),
+    index: int(ip.index ?? scope.index, 1, 99, CARD.index),
+    total: int(scope.total, 1, 99, CARD.total),
+    brand: str(bp.text ?? scope.brand, CARD.brand, 24),
+    color: pick(patchedColor, CARD.color),
+    // theme 路径下只有「显式指定」的颜色才覆盖主题强调色（与 ?color= 同义）
+    colorExplicit: typeof patchedColor === 'string' && patchedColor.length > 0,
+    first: {
+      text: str(fp.text ?? scope.first, CARD.first, 8),
+      size: num(fp.size, 24, 160, 76),
+      color: typeof fp.color === 'string' && fp.color ? fp.color : null,
+    },
+    keyword: {
+      text: str(kp.text ?? scope.keyword, CARD.keyword, 12),
+      size: num(kp.size, 40, 300, 190),
+      color: typeof kp.color === 'string' && kp.color ? kp.color : null,
+    },
+  };
+}
+
+let STATE = effectiveState();
+let STATE_KEY = JSON.stringify(STATE);
+let PAL = computePal(STATE.layout, STATE.color, STATE.colorExplicit);
+// 版式 2/3 的背景条纹用 rnd 的连续状态（旧模板行为）；只有 index 变了才重播种。
+let RND_INDEX = STATE.index;
+
 // Pre-rendered layers must be rebuilt AFTER fonts load, otherwise CJK canvas text
 // is rasterized with a fallback font (or nothing) and stays blank forever.
-let ASSETS = makeLayers();
+let ASSETS = makeLayers(STATE);
+
+function ensureState() {
+  const s = effectiveState();
+  const key = JSON.stringify(s);
+  if (key === STATE_KEY) return STATE;
+  STATE = s;
+  STATE_KEY = key;
+  if (s.index !== RND_INDEX) { rnd = rng(1200 + s.index * 37); RND_INDEX = s.index; }
+  PAL = computePal(s.layout, s.color, s.colorExplicit);
+  ASSETS = makeLayers(s);
+  return STATE;
+}
 
 // ---------- backgrounds ----------
 function drawBackground() {
-  if (CARD.layout === 0) {
+  if (STATE.layout === 0) {
     const g = ctx.createLinearGradient(0, 0, W, H);
     g.addColorStop(0, PAL.bgTop);
     g.addColorStop(1, PAL.bgBottom);
@@ -247,7 +502,7 @@ function drawBackground() {
       for (let x = 0; x < W; x += 72) { ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, H); ctx.stroke(); }
       for (let y = 0; y < H; y += 72) { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke(); }
     }
-  } else if (CARD.layout === 1) {
+  } else if (STATE.layout === 1) {
     ctx.fillStyle = PAL.bgTop; ctx.fillRect(0, 0, W, H);
     // 细网格 + 纸纹
     if (PAL.grid) {
@@ -257,15 +512,18 @@ function drawBackground() {
     }
   } else {
     ctx.fillStyle = PAL.bgTop; ctx.fillRect(0, 0, W, H);
-    // streak lines
+    // streak lines —— 每帧用「局部」种子 RNG，保证 renderFrame 是 t 的纯函数。
+    // 旧版消耗模块级 rnd 的连续状态：同 t 重渲/stills vs video/--no-warmup/D3 重渲
+    // 都会得到不同条纹（确定性契约破坏）。条纹本就不随 t 动，按 index 固定即可。
+    const lrnd = rng(1200 + STATE.index * 37);
     const [sr, sg, sb] = PAL.streakRgb;
     ctx.save();
     ctx.translate(W / 2, H / 2);
     for (let i = 0; i < 34; i++) {
       const a = (i / 34) * Math.PI * 2 + 0.3;
-      const len = 460 + rnd.range(0, 520);
-      ctx.strokeStyle = `rgba(${sr},${sg},${sb},${0.06 + rnd.next() * 0.10})`;
-      ctx.lineWidth = rnd.range(1, 3);
+      const len = 460 + lrnd.range(0, 520);
+      ctx.strokeStyle = `rgba(${sr},${sg},${sb},${0.06 + lrnd.next() * 0.10})`;
+      ctx.lineWidth = lrnd.range(1, 3);
       ctx.beginPath();
       ctx.moveTo(Math.cos(a) * 120, Math.sin(a) * 120);
       ctx.lineTo(Math.cos(a) * len, Math.sin(a) * len);
@@ -275,60 +533,84 @@ function drawBackground() {
   }
 }
 
-// ---------- echo outline text (600px, drifts horizontally) ----------
+// ---------- echo outline text（横屏 600px；竖屏/方图按画宽 fit，横向漂移同步收窄） ----------
 function drawEcho(t) {
+  const E = ASSETS.L.echo;
   ctx.save();
-  ctx.font = `900 600px ${FONT}`;
+  ctx.font = `900 ${E.font}px ${FONT}`;
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
   ctx.lineWidth = 3;
   ctx.strokeStyle = PAL.echo;
-  ctx.strokeText(CARD.keyword, W / 2 + Math.sin(t * 1.1) * 70, H / 2 + 40);
+  ctx.strokeText(STATE.keyword.text, W / 2 + Math.sin(t * 1.1) * E.drift, E.y);
   ctx.restore();
 }
 
 // ---------- slam motion ----------
 // returns {scale, blurT (0=blur 16, 1=sharp), alpha, dx, dy}
+//
+// v2.3：由动效档位驱动。standard 档的每一个数字都与 v2.2 原实现逐位相同
+// （scale 1.7→1、blurT=e、alpha=clamp(t/0.06)、dy=(1-e)*-18），所以
+// 不传 ?mp= 时像素不变；换档位则改变冲击幅度、缓动与过冲。
+const PROFILE = motionProfile();
+
 function slam(localT) {
   const d = 0.11;
-  if (localT < 0) return { scale: 1.7, blurT: 0, alpha: 0, dx: 0, dy: 0 };
+  const startScale = 1 + 0.7 * PROFILE.impact;   // standard: 1.7
+  if (localT < 0) return { scale: startScale, blurT: 0, alpha: 0, dx: 0, dy: 0 };
   const k = clamp(localT / d);
-  const e = ease.outExpo(k);
+  const e = rateFunc(PROFILE.ease)(k);
   return {
-    scale: 1.7 - 0.7 * e,
+    scale: startScale - (startScale - 1) * e,
     blurT: e,
     alpha: clamp(localT / 0.06),
     dx: 0,
-    dy: (1 - e) * -18,
+    dy: (1 - e) * -18 * PROFILE.impact,
   };
 }
 
+// ---------- 质感层（v2.3） ----------
+// 颗粒 / 扫描线 / 纸纹，来自 templates/motion.js 的质感函数。
+// standard 档三者强度都是 0 → 一行都不画 → 与 v2.2 像素相同。
+function drawTexture(t) {
+  if (PROFILE.texture === 'paper') {
+    drawPaperTexture(ctx, { W, H, alpha: PROFILE.grain, seed: 7, t });
+  }
+  if (PROFILE.grain > 0) {
+    drawGrain(ctx, { alpha: PROFILE.grain, seed: 3, t, W, H, blend: 'overlay' });
+  }
+  if (PROFILE.scanlines > 0) {
+    drawScanlines(ctx, { W, H, step: 4, alpha: PROFILE.scanlines, color: '#000000' });
+  }
+}
+
 // ---------- speed lines burst ----------
-function drawSpeedLines(progress, amount = 26, color = PAL.speedLine) {
+function drawSpeedLines(progress, amount = 26, color = PAL.speedLine, at = { x: W / 2, y: H / 2 + 30, scale: 1 }) {
   if (progress <= 0 || progress >= 1) return;
   const t = ease.outCubic(progress);
   ctx.save();
-  ctx.translate(W / 2, H / 2 + 30);
+  ctx.translate(at.x, at.y);
   const n = amount;
-  const rr = mulberry32(900 + CARD.index);
+  const rr = mulberry32(900 + STATE.index);
   for (let i = 0; i < n; i++) {
     const a = (i / n) * Math.PI * 2 + rr() * 0.12;
-    const len = (120 + rr() * 480) * (0.4 + t * 1.6);
+    const inner = 90 * at.scale;
+    const len = (120 + rr() * 480) * (0.4 + t * 1.6) * at.scale;
     ctx.strokeStyle = color;
     ctx.globalAlpha = (1 - t) * (0.25 + rr() * 0.55);
     ctx.lineWidth = 1 + rr() * 2.5;
     ctx.beginPath();
-    ctx.moveTo(Math.cos(a) * 90, Math.sin(a) * 90);
-    ctx.lineTo(Math.cos(a) * (90 + len), Math.sin(a) * (90 + len));
+    ctx.moveTo(Math.cos(a) * inner, Math.sin(a) * inner);
+    ctx.lineTo(Math.cos(a) * (inner + len), Math.sin(a) * (inner + len));
     ctx.stroke();
   }
   ctx.restore();
 }
 
-function drawGlow(alpha) {
+function drawGlow(alpha, at = { cx: W / 2, cy: H / 2, r: 900 }) {
   if (alpha <= 0.001) return;
   const [gr, gg, gb] = PAL.glowRgb;
-  const g = ctx.createRadialGradient(W / 2, H / 2, 40, W / 2, H / 2, 900);
+  const g = ctx.createRadialGradient(at.cx, at.cy, 40, at.cx, at.cy, at.r);
   g.addColorStop(0, `rgba(${gr},${gg},${gb},${0.26 * alpha})`);
   g.addColorStop(1, `rgba(${gr},${gg},${gb},0)`);
   ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
@@ -340,9 +622,9 @@ function drawUnderline(t) {
   // keyword underline: width from 0 -> 72% of keyword width, starting at second beat
   const local = clamp((t - 0.5) / 0.22);
   if (local <= 0) return;
-  const w = 900 * ease.outCubic(local);
-  const y = H / 2 + 182;
-  ctx.fillRect(W / 2 - w / 2, y, w, 14);
+  const U = ASSETS.L.underline;
+  const w = U.w * ease.outCubic(local);
+  ctx.fillRect(W / 2 - w / 2, U.y, w, U.h);
 }
 
 // ---------- frame ----------
@@ -361,15 +643,130 @@ function drawLayer(layer, slamInfo, dx = 0, dy = 0) {
   ctx.restore();
 }
 
+// ---------- hit map（D3 编辑契约：只登记矩形，不额外绘制像素） ----------
+// rect 一律是画布位图坐标；slam 缩放/位移与全局 shake 都折算进去，和实际绘制位置一致。
+const SCHEMA = {
+  first: {
+    text: { type: 'text', label: '首行文案', maxLength: 8 },
+    size: { type: 'size', label: '字号', min: 24, max: 160, step: 2 },
+    color: { type: 'color', label: '文字颜色' },
+  },
+  keyword: {
+    text: { type: 'text', label: '关键词', maxLength: 12 },
+    size: { type: 'size', label: '字号', min: 40, max: 300, step: 2 },
+    color: { type: 'color', label: '关键词颜色' },
+  },
+  accent: { color: { type: 'color', label: '强调色' } },
+  index: { index: { type: 'number', label: '编号', min: 1, max: 99, step: 1 } },
+  brand: { text: { type: 'text', label: '品牌', maxLength: 24 } },
+  layout: {
+    layout: {
+      type: 'enum', label: '版式',
+      options: [
+        { value: 0, label: '强调底' },
+        { value: 1, label: '纸底' },
+        { value: 2, label: '暗卡居中' },
+        { value: 3, label: '暗卡左' },
+      ],
+    },
+  },
+};
+
+function textWidth(text, font) {
+  ctx.save();
+  ctx.font = font;
+  const w = ctx.measureText(text).width;
+  ctx.restore();
+  return w;
+}
+
+function layerRect(layer) {
+  const w = layer.sharp.__textW || 0;
+  const h = layer.sharp.__fontSize || layer.size || 0;
+  return [W / 2 - w / 2, layer.y - h / 2, w, h];
+}
+
+// drawLayer 的变换：translate(W/2+dx, H/2+dy) · scale(s) · translate(-W/2,-H/2)
+function slamRect(rect, info, sx, sy) {
+  const s = info.scale;
+  return [
+    sx + W / 2 + info.dx + s * (rect[0] - W / 2),
+    sy + H / 2 + info.dy + s * (rect[1] - H / 2),
+    rect[2] * s,
+    rect[3] * s,
+  ];
+}
+
+function shiftRect(rect, sx, sy) {
+  return [rect[0] + sx, rect[1] + sy, rect[2], rect[3]];
+}
+
+function registerHits(S, view) {
+  const L = ASSETS.L;
+  const first = ASSETS.layers[0];
+  const key = ASSETS.layers[1];
+
+  // 强调色（关键词下划线带；暗卡没有下划线时仍是同一片可点区域）
+  bridge.add({
+    id: 'card.color', role: 'accent',
+    rect: shiftRect(L.underline.hit, view.sx, view.sy),
+    props: { color: S.color },
+    schema: SCHEMA.accent,
+  });
+
+  bridge.add({
+    id: 'card.first', role: 'headline',
+    rect: slamRect(layerRect(first), view.s1, view.sx, view.sy),
+    props: { text: S.first.text, size: first.size, color: first.color },
+    schema: SCHEMA.first,
+  });
+
+  bridge.add({
+    id: 'card.keyword', role: 'keyword',
+    rect: slamRect(layerRect(key), view.s2, view.sx, view.sy),
+    props: { text: S.keyword.text, size: key.size, color: key.color },
+    schema: SCHEMA.keyword,
+  });
+
+  const idxW = textWidth(view.footIndex, L.footIndexFont);
+  bridge.add({
+    id: 'card.index', role: 'meta',
+    rect: [L.footerRight - idxW + view.sx, L.footerY - L.footIndexSize + view.sy, idxW, L.footIndexSize],
+    props: { index: S.index },
+    schema: SCHEMA.index,
+  });
+
+  const brandW = textWidth(S.brand, L.footBrandFont);
+  bridge.add({
+    id: 'card.brand', role: 'meta',
+    rect: [L.footerLeft + view.sx, L.footerY - L.footBrandSize + view.sy, brandW, L.footBrandSize],
+    props: { text: S.brand },
+    schema: SCHEMA.brand,
+  });
+
+  // 版式没有独立可见控件：登记在顶部安全区空白处（顶层，方便点选）
+  bridge.add({
+    id: 'card.layout', role: 'layout',
+    rect: [L.layoutRect[0] + view.sx, L.layoutRect[1] + view.sy, L.layoutRect[2], L.layoutRect[3]],
+    props: { layout: S.layout },
+    schema: SCHEMA.layout,
+  });
+}
+
 window.renderFrame = (u) => {
   const t = clamp(u, 0, 1);
+  bridge.setTime(t);
+  bridge.begin();
+  const S = ensureState();
+
   ctx.setTransform(1, 0, 0, 1, 0, 0);
   ctx.clearRect(0, 0, W, H);
 
   // shake: slam 1 at t=0 (6px), slam 2 at t=0.5 (12px)
+  // v2.3：乘 PROFILE.shake（standard = 1 → 与 v2.2 逐位相同）。
   let shake = 0;
-  if (t < 0.16) shake = 6 * (1 - t / 0.16);
-  if (t >= 0.5 && t < 0.66) shake = 12 * (1 - (t - 0.5) / 0.16);
+  if (t < 0.16) shake = 6 * PROFILE.shake * (1 - t / 0.16);
+  if (t >= 0.5 && t < 0.66) shake = 12 * PROFILE.shake * (1 - (t - 0.5) / 0.16);
   const sx = shake * Math.sin(t * 240 + 1.3);
   const sy = shake * Math.cos(t * 190 + 0.2);
 
@@ -377,41 +774,61 @@ window.renderFrame = (u) => {
   ctx.translate(sx, sy);
   drawBackground();
   drawEcho(t);
-  drawGlow(t < 0.12 ? 1 - t / 0.12 : 0);
+  drawGlow(t < 0.12 ? 1 - t / 0.12 : 0, ASSETS.L.glow);
 
   const s1 = slam(t);
   drawLayer(ASSETS.layers[0], s1);
-  drawSpeedLines(t < 0.14 ? t / 0.14 : 0, 22, PAL.speedLine);
+  drawSpeedLines(t < 0.14 ? t / 0.14 : 0, 22, PAL.speedLine, ASSETS.L.speed);
 
   const s2 = slam(t - 0.5);
   drawLayer(ASSETS.layers[1], s2);
-  drawSpeedLines(t >= 0.5 && t < 0.64 ? (t - 0.5) / 0.14 : 0, 30, PAL.speedLine);
+  drawSpeedLines(t >= 0.5 && t < 0.64 ? (t - 0.5) / 0.14 : 0, 30, PAL.speedLine, ASSETS.L.speed);
   drawUnderline(t);
 
-  // footer chrome
+  // footer chrome（竖屏/方图跟随安全区）
+  const L = ASSETS.L;
+  const footIndex = `STYLE ${String(S.index).padStart(2, '0')} / ${S.total}`;
   ctx.fillStyle = PAL.footerStyle;
-  ctx.font = '500 22px "JetBrains Mono", monospace';
+  ctx.font = L.footIndexFont;
   ctx.textAlign = 'right';
-  ctx.fillText(`STYLE ${String(CARD.index).padStart(2, '0')} / ${CARD.total}`, 1824, 1016);
+  ctx.fillText(footIndex, L.footerRight, L.footerY);
   ctx.textAlign = 'left';
   ctx.fillStyle = PAL.footerBrand;
-  ctx.font = '500 20px "JetBrains Mono", monospace';
-  ctx.fillText(CARD.brand, 96, 1016);
+  ctx.font = L.footBrandFont;
+  ctx.fillText(S.brand, L.footerLeft, L.footerY);
   ctx.restore();
 
   // opening flash (card cut impact)
+  // v2.3：乘 PROFILE.flash（standard = 1 → 与 v2.2 逐位相同）。
   if (t < 0.09) {
     ctx.save();
-    ctx.globalAlpha = 0.85 * (1 - t / 0.09);
+    ctx.globalAlpha = 0.85 * PROFILE.flash * (1 - t / 0.09);
     ctx.fillStyle = PAL.flash; ctx.fillRect(0, 0, W, H);
     ctx.restore();
   }
+
+  // 质感层（v2.3）：颗粒 / 扫描线 / 纸纹。
+  // standard 档三者的强度都是 0 → 完全不画 → 像素不变。
+  drawTexture(t);
+  drawBrandLogo();
+
+  registerHits(S, { s1, s2, sx, sy, footIndex });
 };
+
+// ---------- edit contract（D3） ----------
+const bridge = createEditBridge({
+  getSpec: () => SPEC,
+  setPatch: (patches) => { SPEC.patches = patches; },
+  renderAt: (t) => window.renderFrame(t),
+  canvas,
+});
+bridge.install();
 
 window.__ready = false;
 (async () => {
-  await loadFonts(['Noto Sans SC', 'Inter', 'JetBrains Mono', 'Orbitron']);
-  ASSETS = makeLayers();          // rebuild text canvases with the real fonts
+  await loadBrandLogo();
+  await loadFonts(['Noto Sans SC', 'Inter', 'JetBrains Mono', 'Orbitron', ...(BRAND_FONT ? [BRAND_FONT] : [])]);
+  ASSETS = makeLayers(STATE);     // rebuild text canvases with the real fonts
   window.renderFrame(0);
   window.__ready = true;
 })().catch((e) => { window.__bootError = String(e && e.stack || e); });

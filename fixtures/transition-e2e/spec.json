@@ -1,0 +1,33 @@
+{
+  "specVersion": 1,
+  "meta": {
+    "name": "transition-e2e",
+    "brand": "CVS",
+    "cta": "立即体验",
+    "locale": "zh-CN",
+    "title": "转场端到端验证",
+    "description": "多段 + xfade，验证总时长收缩与边界叠化"
+  },
+  "format": { "width": 1920, "height": 1080, "fps": 30, "aspect": "16:9", "duration": 8.4 },
+  "look": { "mode": "showcase", "style": null, "theme": "coral-noir", "accentOverride": null },
+  "audio": { "mood": "electronic", "bpm": 120 },
+  "structure": { "opening": 1.0, "round": 2.7, "card": 1.0, "ending": 1.0, "moreCard": 1.0, "flash": { "count": 0, "each": 0.25 } },
+  "opening": { "page": "templates/segment.html", "name": "opening" },
+  "rounds": [
+    {
+      "id": "r01", "name": "甲",
+      "card": { "layout": 0, "first": "想做", "keyword": "转场？", "page": "templates/big-card.html" },
+      "style": { "page": "templates/recipe-flat.html", "t0": 0.3, "speed": 1.3, "copy": { "title": "扁平插画", "subtitle": "色块 / 圆角 / 矢量" } }
+    },
+    {
+      "id": "r02", "name": "乙",
+      "card": { "layout": 1, "first": "想开", "keyword": "发布会？", "page": "templates/big-card.html" },
+      "style": { "page": "templates/recipe-minimal.html", "t0": 0, "speed": 1, "copy": { "title": "极简大字", "subtitle": "留白 / 克制" } }
+    }
+  ],
+  "moreCard": { "page": "templates/big-card.html", "layout": 3, "first": "还有", "keyword": "更多？" },
+  "flash": { "page": "templates/big-card.html" },
+  "ending": { "page": "templates/segment.html", "name": "ending" },
+  "assets": [], "patches": [],
+  "render": { "quality": "master", "preset": "master", "concurrency": 4, "outDir": "out/transition-e2e" }
+}

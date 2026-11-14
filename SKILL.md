@@ -2,16 +2,18 @@
 name: code-video-showcase
 description: |
   用纯代码（HTML/Canvas/SVG/Three.js 逐帧渲染 + Python numpy/scipy 合成配乐 + FFmpeg 合成）制作 30–90 秒卡点风格展示视频的完整技能。
-  适用于：复刻/仿制《Opus 5.5 视频风格展示》、DeepSeek V4.1-Flash 61s 风格样片、多风格切换卡点视频、纯代码视频、程序化视频、
-  HTML/Canvas/Three.js 视频、逐帧渲染 + 节拍同步、风格展示短片；要求不使用任何视频/图像/音乐生成模型。
-  包含：调用前置需求采集与主题选择、8 套主题配色 × 8 种材质、剪辑结构公式、11 种风格配方、大字卡系统、120BPM 配乐合成、Playwright 渲染管线、质检清单与可运行模板。
+  适用于：复刻/仿制《Opus 5.5 视频风格展示》或 DeepSeek V4.1-Flash 61s 风格样片、多风格切换卡点视频、纯代码视频、程序化视频；要求不使用任何视频/图像/音乐生成模型。
+  包含：需求采集与主题选择、17 套主题 × 12 材质（OKLCH + APCA）、spec.json（IR）/ plan / 增量渲染、并行渲染农场、风格配方、大字卡、120BPM 配乐合成、CDP/Playwright 渲染管线、视频/音频质检、平台交付与封面、可选 AI 素材 lane。详见 references/ 与 SKILL 正文。
   当用户提到「卡点视频」「风格展示视频」「纯代码做视频」「类似 Opus 5.5 / DeepSeek 风格展示」「逐帧渲染」「用代码做视频」
-  「HTML Canvas 视频」「程序化视频」「主题配色」「换配色」「配色主题」时必须触发。
+  「HTML Canvas 视频」「程序化视频」「30 秒产品宣传片」「竖屏短视频成片」「多平台导出（抖音/B站/小红书）」「封面图」「批量变体」
+  「主题配色」「换配色」「配色主题」「卡点时间轴」「并行渲染」「视频质检」时必须触发。
+  不用于：AE/PR 时间轴操作、文生视频/图生视频、需要真人素材与多轨混音的整片剪辑。
 license: MIT
 metadata:
   domain: video-production
+  version: 2.6.1
   reference: Opus 5.5 / DeepSeek V4.1-Flash 61s style showcase
-compatibility: Node 20+ / Playwright Chromium / FFmpeg (libx264+AAC) / Python 3.10+ (numpy, scipy). Works on Windows and WSL/Linux. No external video, image or music generation models; fonts must be open-source and served locally.
+compatibility: Node 22+ (raw CDP needs global WebSocket) / Chrome or Edge (Playwright optional) / FFmpeg (libx264+AAC, libvmaf optional) / Python 3.10+ (numpy, scipy; matplotlib optional) / bash. Windows (Git Bash) and WSL/Linux. No external video/image/music generation models; fonts are open-source, served locally.
 allowed-tools: Bash, Read, Write, Edit, Glob, Grep
 ---
 
@@ -20,17 +22,78 @@ allowed-tools: Bash, Read, Write, Edit, Glob, Grep
 > 目标：不调用任何视频/图像/音乐生成模型，用**代码**逐帧画出画面、用 **numpy/scipy** 合成配乐，最后 FFmpeg 合成 MP4。
 > 参考样片：61.0s / 1920×1080 / 30fps / 1830 帧 / 120 BPM / H.264+AAC，见 `assets/contact-1fps.jpg` 与 `references/reference-film-analysis.md`。
 
+## 0.0 AGENT 执行契约（先读这 30 行）
+
+**唯一入口**：`project.spec.json` + `cvs lint → cvs build`。不要走 §12 的 timeline 快速启动——那是 timeline v1 兼容路线，plan 没有 `segmentHash`，增量、单段动效、品牌色覆盖会**静默失效**。
+**唯一产物**：`<outDir>/master.mp4`（`final.mp4` 已废弃）。母版永远按 master 预设出 1920×1080；`--platform` 是**附加**文件。
+
+**完成定义（缺一不可，禁止「看起来对」）**：① `out/master.mp4` 存在且 `ffprobe` 含音频流（或已显式 `--no-audio`）；② `qa/qa-video.json` `summary.fail==0` 且无 `placeholder pages` FAIL；③ `qa/qa-audio.json` `summary.fail==0`（有音轨时）；④ `render-manifest.json` 无 `failed`/`frame-mismatch`；⑤ plan 与成片参数不含 `{{BRAND}}`、`风格段标题`、`替换 drawScene()`。
+
+**四条硬断言**：`build` 自动合成 `spec.audio`（无音轨必须显式 `--no-audio`，不静默出默片）；`--resume` 同时校验帧数 + manifest hash（`cache hit` 才代表内容没变）；`--root` 默认 **cwd**（`E_PAGE_MISSING` 多半是 root 错了）；交付态加 `--strict`（QA warning 也算失败），迭代态可不加但要知道自己在迭代。
+
+**报错 → 唯一动作**（完整表 125 码见 `docs/ERRORS.md`）：
+
+| 前缀 | 唯一动作 |
+|---|---|
+| `E_PAGE_*` | 检查 `--root`；远程页默认禁止 |
+| `E_THEME_*` / `E_APCA` / `E_ACCENT` | 换主题，或改 `look.accentOverride` |
+| `E_BRAND_*` / `E_TITLE_*` / `E_FORBIDDEN_WORD` | 填真实品牌/标题/文案，不要留占位符 |
+| `E_UNKNOWN_FIELD` / `E_COPY` | 删拼错的字段；自定义参数放 `style.params` |
+| `E_DURATION*` / `E_STRUCTURE*` / `E_ROUND_*` | 改 `structure` / `rounds`，不要手改 plan |
+| `E_AUDIO_*` | 装 numpy/scipy，或传 `--audio`，或 `--no-audio` |
+| `E_RENDER` / `E_CONCAT` / `E_QA_*` | 看 `error.json.failedSegments` 或 `out/qa/*.json` 的 FAIL 项 |
+| `E_ASSET_PATH` / `E_ASSET_MISSING` / `E_LOGO_MISSING` | 素材/logo 必须在项目根内且真实存在 |
+| `E_BURN_SUBTITLES` / `E_COVER` | 换 ffmpeg（需 libass），或去掉该开关 |
+| `E_SNAPSHOT_TAMPERED` / `E_ROLLBACK_HASH` / `E_ENV_MISMATCH` | 快照被动过 / 环境与基线不同：`cvs verify`、`golden --selfcheck` |
+
+**退出码**：0 ok · 2 用法 · 10 spec · 11 render · 12 concat · 13 qa · 14 env。
+
+## 0.5 编译器入口（新项目优先）
+
+新项目不再从 timeline.json 起步，而是从 `project.spec.json`（IR）起步：
+
+```bash
+node bin/cvs.mjs lint  project.spec.json --root .            # 页面/主题/APCA/占位品牌/标题
+node bin/cvs.mjs plan  project.spec.json --root . --print
+node bin/cvs.mjs build project.spec.json --root . --platform douyin --strict
+```
+
+- **spec 是唯一真相**：文字、画风、主题、时长、剧本都改 spec；不要手改 `plan.json` 或段 mp4。
+- **音频**：`spec.audio` 存在时 `build` 自动合成并 mux；不要音轨须显式 `--no-audio`。
+- **平台版**：`spec.render.preset`（或 `--platform`）额外产出 `<outDir>/<platform>.mp4`，master 始终保留。
+- **再来一版**：`cvs again --set look.theme=amber-noir` 读上次 spec、只重编译 dirty 段。
+- **交付清单**：`cvs deliver` 产出 `delivery.json` + `master.srt/.vtt`。
+- **增量**：每段 `segmentHash` 含页面及依赖内容哈希；`render-farm` 先查 `<outDir>/.cache/<hash>.mp4`；改页面/模板也失效。
+- **内容参数**：`meta.title/description`、`opening.title/sub`、`style.copy{title,subtitle,caption}` 由 plan 下发到段 URL；页面不回退占位文案。
+- **单段动效**：`rounds[].style.motion` 覆盖全局档位；未知字段报 `E_UNKNOWN_FIELD`。
+- **品牌门禁**：`brand apply` 写入 `meta.brandKit`；`build`/`lint` 对禁用词/logo/品牌色对比度 error 级拦截。没有 `brandKit` 不做品牌检查。
+- **字幕与封面**：`build --burn-subtitles` 只给投放版加硬字幕（母版永远干净）；`build --cover` 用 `cvs image` 出 card 版式封面；都如实记进 `delivery.json`。
+- **版本闭环**：`cvs snapshot --label 首版` → `history` → `verify v001` → `rollback v001`；回滚**先校验再写盘**，快照被改过 exit 13。
+- **母版契约**：`master.mp4` 永远 1920×1080（master 预设）；`--platform` 是附加文件，QA 量的始终是母版。
+- **排版 token**：`templates/tokens.mjs` = 4 级字阶 + 唯一安全区 `safe()`；新页面必须 import 并写 `window.__typeProbe`，否则 `test-type-tokens.mjs` 红。
+- **页面编辑契约（D3）**：编辑入口只有 `__patch` / `__patchMany`；`SPEC.params` 是 patch 的合并基座；空文本不注册命中区。细则见 `docs/DECISIONS.md` D3。
+- **占位文案**：beat 缺 `copy` 时填内置缺省值并发 `W_COPY_DEFAULT`（warn）——看到就补 `beats[].copy[]`。
+- **渲染器恢复**：`--timeout`(120s) 与 `--launch-timeout`(30s) 独立；页面抛错杀 ffmpeg + 浏览器进程树，重启换全新 profile——失败不挂住、不留孤儿。
+- **失败对象**：`logPath` 恒指构建日志；`detailPath` 是阶段诊断产物（render/concat/deliver 各自的清单或日志）。
+- **确定性检测**：`golden` manifest 记 Chrome/Node/字体指纹；环境不一致跳过哈希比对并告警（`--strict-env` 改失败）。跨机可比前提 = 同一镜像 + 同一字体锁。
+- **统一入口**：`node bin/cvs.mjs`（28 个子命令，`cvs --help` 全列）。
+- **参考图**：`cvs ref poster.jpg --spec project.spec.json` 只提取色板/强调色/密度与 top-3 主题候选（不复制像素），写 `meta.reference`。
+- **动效档位**：`look.motion` 选 `calm|standard|dynamic|maximal`，不写按「类型 × 画风」推导；换档位改变画面并触发重渲染（进段哈希），写 `standard` 与旧成片逐像素一致。
+- **画风 → 页面**：`templates/style-pages.mjs` 是唯一真值（20 画风 → 渲染页）；生成端按表填 `style.page`，未知画风回落通用场景页，新增配方页只加一行。
+- **强调色覆盖**：`look.accentOverride` 展开成段 URL 的 `?accent=/accentInk=/accentSoft=`，进 `segmentHash`（换品牌色必重渲染）；没有覆盖时 URL 不变。
+- **代码生图**：`cvs image --spec project.spec.json` 用同一 spec 出图集（cover/card/poster/story，`--list` 全部；默认画风段 78% 处），产物带 `image-manifest.json`（每张 sha256）。
+- **spec 是不可信输入**：id 匹配 `^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$`；页面路径禁绝对 URL/路径/`..`/编码穿越；`flash.count`≤256、单段≤600s、总帧≤18000；outDir 钉在根内；API 默认同源、错误信息抹本机路径。
+- **界面**：`app/wizard/`(5181)、`app/canvas/`(5182)、`app/script/`(5183)、`app/versions/`(5184)、`app/review/`(5185)、`server/api.mjs`(5190)。
+- **旧项目**：timeline v1 仍完全可用，`spec.mjs` 自动迁移；`render-farm` 默认 batch 模式（一个 worker 一个浏览器跑一个 shard），`--legacy` 回退逐段进程。页面按视口自适应（横/竖/方真重排），16:9 输出位级不变。
+- **质量闸门**：`npm run test:all`（纯 Node）、`npm run test:browser`、`npm run golden`（静帧位级回归）、`npm run brand -- check …`。
+- **配方页**：13–29 号在 `templates/recipe-*.html`（清单见 `templates/style-pages.mjs`）；**实拍素材** `cvs ingest` 出 EDL + spec 草稿（启发式，需人工审）。
+- **覆盖扩展（v2.5）**：段间转场 35 种（`--transition`，xfade 在拼接层做，默认关闭逐字节不变）、确定性效果库 26 个（`templates/effects.mjs`）、风格 20 种、领域 24 种。覆盖矩阵单一真值 `docs/COVERAGE.md`。
+- **禁止**：让 LLM 直接生成 HTML/CSS/JS，或绕过 spec 直接改像素。模型只填枚举与文案。
 ## 0. 适用与不适用
 
-**适用**
-- 30–90 秒内快速切换多种美术风格的「风格展示 / 能力展示 / 产品宣传」短片；
-- 强节拍（120 BPM）、大字卡 + 风格段交替、结尾升华的卡点结构；
-- 同一套内容需要不同品牌气质（8 套主题：珊瑚暗夜 / 橙光白 / 水蓝白·莫兰迪 / 琥珀黑金 / 蓝图纸 / 石墨信号 / 青瓷白 / 绯墨剧场）；
-- 用户明确要求纯代码、可复现、逐帧确定性渲染（同一 t 必出同一帧）。
+**适用**：30–90 s 多美术风格切换的「风格展示 / 产品宣传」短片；120 BPM 强节拍 + 大字卡与风格段交替的卡点结构；同一内容要换品牌气质（17 套主题，见 §5）；明确要求纯代码、可复现、逐帧确定性渲染。
 
-**不适用**
-- 需要写实镜头、真人、复杂叙事的长视频；
-- 需要调用文生视频/文生图/文生音乐模型的场景（本技能明确禁止）。
+**不适用**：写实镜头/真人/复杂叙事长视频；需要调用文生视频/图/音乐模型的场景（本技能明确禁止）。
 
 ---
 
@@ -39,45 +102,33 @@ allowed-tools: Bash, Read, Write, Edit, Glob, Grep
 | 项目 | 默认值 |
 |---|---|
 | 画幅/帧率 | 1920×1080，30 fps |
-| 时长 | 61.0 s = 1830 帧（可按公式改） |
-| 音频 | 48 kHz 立体声 AAC 192 kbps |
-| 视频 | H.264 High，yuv420p，libx264，2-pass 约 3.4 Mbps（成片约 26 MB） |
+| 时长 | 61.0 s = 1830 帧（按 §3 公式改） |
+| 音频 | 48 kHz 立体声 AAC 192–320 kbps，EBU R128 −14 LUFS |
+| 视频 | H.264 High，yuv420p，bt709，CRF 21（母版）/22–24（平台），maxrate 限峰，+faststart |
 | 节拍 | 120 BPM：1 拍 = 0.5 s，1 小节 = 2 s |
-| 主题配色 | 8 选 1，默认 `coral-noir`（原版：珊瑚 `#d97757` + 深底 `#0e0e0d`）；角色 token 与选择流程见 §5、`references/intake.md` |
-| 字体 | 全部 OFL：Noto Sans/Serif CJK SC、Ma Shan Zheng、Long Cang、ZCOOL KuaiLe、ZCOOL QingKe HuangYou、Press Start 2P、JetBrains Mono、Inter、Orbitron、Playfair Display |
+| 主题配色 | 13 选 1，默认 `coral-noir`（原版：珊瑚 `#d97757` + 深底 `#0e0e0d`）；OKLCH token + APCA 审计，见 §5、`references/themes.md` |
+| 字体 | 全部 OFL（Noto Sans/Serif CJK SC、Ma Shan Zheng、ZCOOL、Press Start 2P、JetBrains Mono、Inter、Orbitron、Playfair Display…）；集合与许可见 `references/themes.md` |
 | 字幕 | 不要底部字幕；信息都做成画面内的胶囊/HUD/注释 |
 | 确定性 | 画面是 `t` 的纯函数，禁止 CSS transition/animation、rAF、Date.now、Math.random |
 
-**每个片段必须满足**（Playwright 渲染契约）：
-
-```js
-window.DURATION = 3.0;                 // 片段时长（秒）
-window.renderFrame = (t) => { /* 只依赖 t 和常量；禁止时间/随机副作用 */ };
-window.__ready = false;                // 字体等资源就绪后置 true
-window.__bootError = null;             // 初始化失败时写入错误字符串（渲染器立即报错）
-```
+**每个片段必须满足**（渲染契约，Playwright 与零依赖 CDP 共用）：`window.DURATION`（秒）、`window.renderFrame(t)`（只依赖 t 和常量；禁止时间/随机副作用）、`window.__ready`（资源就绪置 true）、`window.__bootError`（初始化失败写错误串，渲染器立即报错）、`window.__capture`（可选 `'canvas'`/`'cdp'`）。单 canvas 默认 `toDataURL()`（快 30–50%），有 DOM 叠加自动回退 `Page.captureScreenshot`；WebGL 必须 `preserveDrawingBuffer:true` 或设 `__capture='cdp'`。
 
 ---
 
 ## 2. 十阶段工作流
 
-1. **需求采集 + 主题锁定**（先做，不要先写代码）：先读 `references/intake.md`；默认按 61s / 横屏 1920×1080 / 11 段 / 珊瑚暗夜 / 120BPM 电子起一版，**最多 2 轮**收齐信息——必问 4 项（题材、渠道/画幅、品牌名 `{{BRAND}}`、结尾 CTA），时长/风格数 N/主题/配乐给默认或按用户主动提调整。把 8 套主题预览图发给用户选（`theme-three-up.jpg` → `theme-contact-sheet.jpg` → 单主题图），锁定主题 id 后把全部答案写成项目根 `brief.json`（模板见 intake.md），后续所有页面用 `?theme=<id>` 透传。主题未锁定前不渲染成片。
-2. **写剪辑表**：用第 3 节公式算出每一段 `[start,end,type,style,t0,speed]`，先落成 JSON/Markdown 常量，后面所有脚本都读它。
-3. **环境准备**：Node/Playwright/Chromium/FFmpeg/numpy+scipy/本地字体；参考 `references/render-pipeline.md` 的跨平台方案（WSL 下 Playwright CDN 慢时用 Chrome for Testing + `executablePath`）。
-4. **工程骨架**：`common.js` + `themes.js`（与 HTML 同目录）、`templates/theme-board.html`（主题预览）、`templates/segment.html`、`templates/big-card.html`、`templates/render-segment.mjs`、`templates/concat-and-encode.sh`、`templates/synth_audio.py`（渲染器内置静态服务器，无需另写）。
-5. **逐段实现（外循环 11 次）**：先写场景 → 渲染 5–6 张静帧拼接触表检查构图与字体 → 再整段渲染 → `ffprobe` 核帧数。
+1. **需求采集 + 主题锁定**（先做，不要先写代码）：读 `references/intake.md`；默认 61s / 横屏 1920×1080 / 11 段 / 珊瑚暗夜 / 120BPM 电子，**最多 2 轮**收齐信息——必问 4 项（题材、渠道/画幅、品牌名、结尾 CTA）。主题预览图给用户选（先 2–3 套短名单），锁定 id 后写项目根 `brief.json`；主题未锁定前不渲染成片。
+2. **写 spec**：按 §0.5 主线填 `project.spec.json`；渲染/合成/音频/QA 全部读 plan，不要在别的脚本里重算时长/帧数。
+3. **环境准备**：`node scripts/doctor.mjs`（Node/Chrome/FFmpeg/numpy+scipy/字体）。Playwright 不是必需。
+4. **工程骨架**：`node scripts/new-project.mjs --out ../my-film --theme <id> --styles 11`。
+5. **逐段实现**：场景 → 5–6 张静帧接触表检查构图与字体 → 整段渲染 → `ffprobe` 核帧数（或 `render-farm --only <id>`）。
 6. **开场**：逐字打字 + 代码列上滚 + 粒子爆炸 + 闪白，8 s。
-7. **大字卡**：4 套版式轮换，2 拍/张；砸入、速度线、回声字、`STYLE 0X / 11`。
-8. **八连闪 + 结尾**（可选）：8×0.25 s 的微海报，接着 6 s 电影感收尾。
-9. **配乐合成**：120 BPM、A 小调、与剪辑表共用同一组时间常数；生成 WAV 后先检查频谱图与卡点对齐，再做「高频克制」听感自检（§8）。
-10. **合成与质检**：分段 mp4 → concat → 混音 → 2-pass → 抽帧接触表 + 频谱图 + 人工看片；输出 `成片 + 封面帧 + 参数说明`。
+7. **大字卡**：4 套版式轮换，2 拍/张（§6）。
+8. **八连闪 + 结尾**（可选）：8×0.25 s 微海报 + 6 s 电影感收尾。
+9. **配乐合成**：§8；生成 WAV 后查频谱与卡点，再做高频听感自检。
+10. **合成与质检**：`render-farm` → `concat-and-encode.sh --platform <平台>` → `qa-video` + `qa-audio` → 接触表 + 人工看片 → 成片 + 封面 + 参数说明。
 
-**每段闭环（必须）**：
-```
-设计 -> 写 HTML -> 渲染静帧(t=0.2/0.8/1.4/2.0/2.6) -> 拼接触表检查 -> 整段渲染
-     -> ffprobe 帧数 == duration*30 -> 记录到进度表 -> 下一段
-```
-不要一次写 11 段再统一渲染；先跑通 1 段样板再复制，错误成本最低。
+**每段闭环（必须）**：`设计 → 写 HTML → 静帧(t=0.2/0.8/1.4/2.0/2.6) → 接触表检查 → 整段渲染 → 帧数对账 → 写回 manifest → 下一段`；先跑通 1 段样板再复制，不要一次写完 N 段。
 
 ---
 
@@ -86,300 +137,187 @@ window.__bootError = null;             // 初始化失败时写入错误字符�
 设风格数 `N`，每轮 `R = 4s`（大字卡 1s = 2 拍，风格展示 3s = 6 拍）：
 
 ```
-0 ── opening (O=8s) ── 8 ── 11 轮 ×4s = 44s ── 52 ── 大字卡 "还有更多?" (1s) ── 53
-   ── 八连闪 (2s，8×0.25s) ── 55 ── 结尾 (E=6s) ── 61
+0 ── opening (O=8s) ── 8 ── N 轮 ×4s ── 大字卡"还有更多?"(1s) ── 八连闪(2s) ── 结尾 (E=6s)
 ```
 
-- 总时长 = `O + N*R + 1 + 2 + E`（本片 8+44+1+2+6 = 61 s）。
-- 展示段第一帧就是「啪」的卡点：style 段 `t0` 通常是 0–0.9 之间的场景内偏移，用 `t = t0 + u*speed` 把 3 s 的片段加速到 6 拍内。
-- 帧数校验：每段 `round(duration*30)`，全片合计必须 `== 1830`。
-- 参考样片实测：镜头切点 60 个；每轮切点 = `8+4k`（大字卡）、`9+4k`（风格段），其中风格段开头 9.0/9.033/9.067/9.1 有连续微切（卡点冲击/故障效果）。
-
-**61s 参考剪辑表**（品牌词替换成 `{{BRAND}}` 即可复用；t0/speed 来自原任务书，也是样片验证过的值）：
-
-| 轮 | 大字卡（行1 / 关键词+后缀 / 强调色） | 风格 | t0 | speed |
-|---|---|---|---|---|
-| 1 | 想做 / 科普视频？ / #ffcf5c | 扁平插画科普 | 0.35 | 1.4 |
-| 2 | 想做 / 知识讲解？ / #58c4dd | 数学动画 | 0.5 | 1.45 |
-| 3 | 想开 / 产品发布会？ / #a58bff | 极简发布会 | 0 | 1.0 |
-| 4 | 想做 / 培训课件？ / #e0674b | 手绘白板 | 0.3 | 1.4 |
-| 5 | 想做 / 炫酷预告片？ / #ff2bd6 | 赛博故障 | 0.8 | 1.3 |
-| 6 | 想拍 / 国风短片？ / #e0513a | 水墨国风 | 0.5 | 1.35 |
-| 7 | 想做 / 数据新闻？ / #ff5a4a | 数据可视化 | 0.4 | 1.4 |
-| 8 | 想做 / 游戏视频？ / #ffd84a | 8-bit 像素 | 0.9 | 1.25 |
-| 9 | 想录 / 编程教程？ / #c792ea | 代码录屏 | 0.4 | 1.4 |
-| 10 | 想要 / 3D质感？ / #ff8a5c | Three.js 三维 | 0.3 | 1.3 |
-| 11 | 想做 / 竖屏短视频？ / #ff5f9e | 竖屏短视频 | 0.3 | 1.45 |
+- 总时长 = `O + N*R + 1 + 2 + E`。
+- 展示段第一帧就是「啪」的卡点：`t0` 是场景内偏移（0–0.9），`t = t0 + u*speed` 把 3 s 加速到 6 拍。
+- 帧边界由 `timeline.mjs` 吸附（`startFrame=round(t*fps)`），全片合计必须等于 `plan.stats.frames`；不要手写 `round(duration*30)`。
+- 61 s 参考剪辑表（含每轮文案/强调色/t0/speed 实测值）见 `references/reference-film-analysis.md` 末节。
 
 ---
 
 ## 4. 画面契约与公共库
 
-`templates/common.js` 提供（直接复制进项目）：
+`templates/common.js`（复制进项目，并已重新导出 `motion.js` / `color.js` 的 v2 API）提供：缓动（`ease.outExpo` 等）、种子随机 `mulberry32`（**禁止 `Math.random`**）、value noise + fbm、片段模式（解析 `?seg=&t0=&speed=&dur=` → `t = t0 + u*speed`）、标准角标 `drawCapsuleLabel / drawCountdown / drawStamp`、卡点冲击（白闪 0.12 s / 缩放 1.13→1 / 抖动 14 px / 之后推镜 1→1.05）。**禁止每个 HTML 自己 `requestAnimationFrame`**；渲染器每帧调 `renderFrame(t)`。
 
-- 缓动：`ease.outQuad/ease.outCubic/ease.outExpo/ease.outBack/ease.inOutCubic` 等；
-- 种子随机：`mulberry32(seed)`；禁止 `Math.random`；
-- value noise + fbm；
-- 片段模式：解析 `?seg=1&t0=&speed=&dur=`，映射 `t = t0 + u*speed`；
-- 标准角标：`drawCapsuleLabel`（左上胶囊）、`drawCountdown`（右下 3 秒倒计时）、`drawStamp`（品牌水印）；
-- 卡点冲击（`u∈[0,0.4]`）：
-  - 白闪 `0.85→0`，0.12 s；
-  - 整体缩放 `1.13→1`，0.32 s，`outCubic`；
-  - 抖动 14 px 衰减，0.16 s；
-  - 之后整段缓慢推镜 `1→1.05`。
-- 禁止每个 HTML 自己调用 `requestAnimationFrame`；渲染器负责每帧调用 `renderFrame(t)`。
+v2 动效/颜色 API：`spring / stagger / track / rateFunc / transitionParams / drawKineticText / drawGrain / drawRGBSplit / drawBloom / toOklch / derivePalette / apcaLc / readableInk` —— 签名与配方见 `references/motion-and-color.md`。
 
-2D 片段的推荐骨架：
+2D 片段骨架（`createSegment()` 读 URL 参数，`applyImpact2D` 做冲击变换，`drawFlash` 盖最上层）：
 
 ```js
-const seg = createSegment();          // 读取 URL 参数 + DURATION
-window.DURATION = seg.duration;
 window.renderFrame = (u) => {
-  const { t, fx } = seg.sample(u);    // t = t0 + u*speed；fx = { scale, shakeX, shakeY, flash, push }
-  ctx.setTransform(1,0,0,1,0,0);
-  ctx.clearRect(0,0,W,H);
-  ctx.save();
-  applyImpact2D(ctx, fx);             // 缩放/抖动/缓慢推镜
+  const { t, fx } = seg.sample(u);
+  ctx.setTransform(1,0,0,1,0,0); ctx.clearRect(0,0,W,H); ctx.save();
+  applyImpact2D(ctx, fx);
   drawScene(ctx, t, u);               // 只依赖 t/u
   ctx.restore();
-  drawFlash(ctx, fx.flash);           // 白闪盖在最上层
+  drawFlash(ctx, fx.flash);
 };
 ```
 
-Three.js 片段：`renderer` 必须 `{ preserveDrawingBuffer: true }`；启动参数
-`--use-angle=swiftshader --enable-webgl --ignore-gpu-blocklist --enable-unsafe-swiftshader`。
-镜头动画写 `camera.position`，不要依赖 `Date.now`。
+Three.js 片段：`renderer` 必须 `{ preserveDrawingBuffer: true }`；启动参数 `--use-angle=swiftshader --enable-webgl --ignore-gpu-blocklist --enable-unsafe-swiftshader`；镜头动画写 `camera.position`，禁 `Date.now`。
 
 ---
 
-## 5. 主题系统（8 套配色 × 8 种材质）
+## 5. 主题系统（17 套配色 × 12 种材质 + OKLCH/APCA）
 
-主题不是换三个颜色，而是**角色色板 + 材质 + HUD 规格 + 点缀色**四层一起换。数据唯一来源 `templates/themes.js`，完整规范（材质画法、token 阈值、推荐矩阵、加主题步骤）见 `references/themes.md`。
+主题 = **角色色板 + 材质 + HUD 规格 + 点缀色**四层一起换。数据唯一来源 `templates/themes.js`；材质画法、token 阈值、推荐矩阵、加主题步骤见 `references/themes.md`。
 
-| # | id | 名称 | 明暗 | 主材质 | 一句话 |
-|---|---|---|---|---|---|
-| 01 | `coral-noir` | 珊瑚暗夜 | dark | 胶片颗粒 | 默认，原版逐值一致 |
-| 02 | `claude-light` | 橙光白 | light | 纸面柔光 | 暖纸 + 陶土橙，品牌/知识 |
-| 03 | `aqua-morandi` | 水蓝白 · 莫兰迪 | light | 液态玻璃 · 柔光 | 雾面水色 + 淡绿/淡粉，品牌/生活方式 |
-| 04 | `amber-noir` | 琥珀黑金 | dark | 金属烫金 | 近黑 + 旧金，高端/电影感 |
-| 05 | `blueprint-stone` | 蓝图纸 | light | 蓝图网格 | 石色纸 + 钴蓝，工程/数据 |
-| 06 | `graphite-signal` | 石墨信号 | dark | 哑光工业 | 石墨灰 + 安全橙，开发者/硬件 |
-| 07 | `celadon-paper` | 青瓷白 | light | 水墨晕染 | 单色青 + 宋体，东方/文化 |
-| 08 | `crimson-theater` | 绯墨剧场 | dark | 舞台聚光 | 近黑 + 绯红，时尚/艺术 |
+| id | 明暗 | 一句话 |
+|---|---|---|
+| `coral-noir` | dark | **默认**，原版逐值一致（珊瑚 + 胶片颗粒） |
+| `claude-light` | light | 暖纸 + 陶土橙，品牌/知识 |
+| `aqua-morandi` | light | 雾面水色 + 淡绿/淡粉，品牌/生活方式 |
+| `amber-noir` | dark | 近黑 + 旧金，高端/电影感 |
+| `blueprint-stone` | light | 石色纸 + 钴蓝，工程/数据 |
+| `graphite-signal` | dark | 石墨灰 + 安全橙，开发者/硬件 |
+| `celadon-paper` | light | 单色青 + 宋体，东方/文化 |
+| `crimson-theater` | dark | 近黑 + 绯红，时尚/艺术 |
+| `cyber-neon` | dark | 近黑 + 电光青，科技/游戏/预告 |
+| `paper-journal` | light | 米白 + 赭红，知识/教程/生活 |
+| `dark-gold-cinema` | dark | 近黑 + 旧金，高端/电影感 |
+| `ice-minimal` | light | 冷白 + 钴蓝，SaaS/数据/医疗 |
+| `pop-acid` | dark | 近黑 + 酸性黄绿，潮流/音乐/社交 |
+| `terminal-phosphor` | dark | 墨绿 CRT 扫描线 + 磷光绿，开发者/CLI |
+| `solar-dusk` | light | 奶油暮色 + 陶土落日，旅行/美食/户外 |
+| `abyss-teal` | dark | 深水藏青 + 天蓝焦散，医疗/海洋/深科技 |
+| `sand-linen` | light | 本色亚麻织纹 + 靛蓝，出版/教育/人文 |
 
-默认 `coral-noir` 与旧版逐值一致：**不传 `theme` 时老项目行为完全不变**。模板按 URL 选主题，也接受中英文别名：
-
-```text
-/segments/01.html?theme=aqua-morandi
-/segments/big-card.html?theme=水蓝白&layout=1      # 别名同样有效
-```
-
-```js
-// 页面里读取主题（big-card.html / segment.html 已内置）
-const theme = themeFromURL(location.search);        // ?theme=xxx / ?t=xxx → 主题对象
-drawThemeBackground(ctx, theme, W, H, t);           // 底色 + 材质 + 颗粒（确定性）
-const hud = chrome(theme);                          // 胶囊/倒计时/水印配色
-drawCapsuleLabel(ctx, seg.index, name, category, hud.capsule);
-const c = cardColors(theme, layout);                // 大字卡 4 版式：{ field, bg, ink, sub, keyword, echo, grid, sheen }
-drawGlassPanel(ctx, theme, { x, y, w, h });         // 仅 glass 主题的信息面板
-```
+不传 `theme` 时行为与旧版逐值一致；页面按 URL 选主题，接受中英文别名（`?theme=aqua-morandi`、`?theme=水蓝白`）。页面 API（`themeFromURL / drawThemeBackground / chrome / cardColors / drawGlassPanel`）见 `references/themes.md`。
 
 **铁律**
+- 浅色主题的胶囊/倒计时/水印必须用 `chrome(theme)`（深墨实体胶囊）；每套主题（含浅色）都有 `cardDark`，大字卡 layout 2/3 仍是深色卡。
+- 大字卡字体固定 Noto Sans SC 900（卡是节拍器）；主题 `type` 字体只用于片头/结尾/风格段。
+- 用户只给品牌色时用 `accentOverride` 改 4 个值并校验对比度，不自创第 18 套主题。
+- 改完主题必须 `node scripts/theme-audit.mjs --strict` 全绿；暗底细字用 APCA（正文 ≥60 Lc、小字 ≥75、大字 ≥45）；新增主题优先 `derivePalette({mode, accent})` 生成 14 角色，不手调十几个 hex。
+- 新增主题必须同步 4 处真值：`templates/themes.js`、`scripts/nl2spec.mjs` 的 `THEME_IDS`、`content/combos.json`（`node scripts/build-combos.mjs` 重生成）、`content/presets.json`（如需首屏预设）；`test-core.mjs` 会交叉校验前三者。
 
-- 浅色主题的胶囊/倒计时/水印必须用 `chrome(theme)`（深墨实体胶囊 + 浅字）；照搬原版半透明黑胶囊会在纸上变成脏补丁。
-- 每套主题（含浅色）都有 `cardDark`：大字卡 layout 2/3 仍是深色卡，整片才有明暗节奏。
-- 大字卡字体固定 Noto Sans SC 900（卡是节拍器）；主题 `type` 的字体只用于片头/结尾/风格段。
-- 风格段主色按主题 `accents` 替换；青瓷白保持单色青，橙光白禁止渐变光球，水蓝白柔光/玻璃是主角但只做局部。
-- 用户只给品牌色时，用 `accentOverride` 改 4 个值并校验对比度，不要自创第 9 套主题（见 `references/themes.md` §9）。
-- 改完主题必须 `node scripts/theme-audit.mjs --strict` 全绿（当前 8 套全通过）。
-
-调性与禁忌、按内容类型选主题的矩阵见 `references/themes.md`；预览图在 `assets/theme-previews/`（单主题 8 张 + 联系表 + 三拼对比）。
+调性与禁忌、按内容类型选主题的矩阵见 `references/themes.md`；预览图在 `assets/theme-previews/`。
 
 ---
 
 ## 6. 大字卡系统（1 s / 2 拍）
 
-4 套版式轮换（样片实测顺序：强调色底 → 米白底 → 黑底 → 黑底；也可按任务书 `i%4` 自定义）：
+4 套版式轮换（样片实测顺序：强调色底 → 米白底 → 黑底 → 黑底换排版；也可按任务书 `i%4`）。颜色来自 `cardColors(theme, layout)`，版式结构不随主题变（见 §5）。
 
-> 下表颜色是默认主题 `coral-noir` 的实际值；换主题后底/字/关键词来自 `cardColors(theme, layout)`，版式结构不变（见 §5）。
-
-| 版式 | 底 | 字 | 关键词 |
-|---|---|---|---|
-| A 强调色底 | 卡片的强调色 | 黑 | 黑色下划线 |
-| B 米白底 | `#f4efe6` | 黑 | 强调色下划线，文字遮罩上推 |
-| C 黑底 | `#0e0e0d` | 白 | 强调色字 |
-| D 黑底 | `#0e0e0d` | 白 | 强调色字（换排版/位置） |
-
-- 第 1 拍 `t=0`：第一行 150 px 砸入；第 2 拍 `t=0.5`：关键词+后缀 280 px（Noto Sans Black）砸入。150/280 是任务书理论值；样片实测偏海报比例（约 70/170 px），模板用 76/190 px 并按宽度自动缩放，以「最多 8 个汉字放得下」为准，详见 `references/big-card-and-typography.md` 第 4 节。
-- **砸入**：缩放 `1.7→1`、模糊 `16→0`，时长 0.11 s，`outExpo`；伴随强调色速度线 + 径向光晕 + 画面抖动 6 px / 12 px。
-- 背景：600 px 描边回声大字横向漂移；右下角 `STYLE 0X / 11`；样片还有细线网格/流线背景。
-- 卡片期间配乐 drop-out（音乐压到 6%），只保留 2 拍打击；卡片结束接风格段「啪」。
-- 细节与观测偏差见 `references/big-card-and-typography.md`。
+- **砸入**：缩放 `1.7→1`、模糊 `16→0`，0.11 s `outExpo`，伴随强调色速度线 + 径向光晕 + 画面抖动 6/12 px。第 1 拍第一行、第 2 拍关键词（280 px 理论值；模板用 76/190 px 并按宽度自动缩放，以「最多 8 个汉字放得下」为准）。
+- 背景 600 px 描边回声大字漂移 + 右下 `STYLE 0X / 11`；卡片期间配乐压到 6%，结束接风格段「啪」。尺寸推导与逐版式参数见 `references/big-card-and-typography.md`。
 
 ---
 
 ## 7. 风格展示配方（每段 3 s / 6 拍）
 
-11 种风格是「视觉美术 + 技术实现 + 音色」三件套，完整参数见 **`references/style-recipes.md`**。
-速查：
+20 种风格是「视觉美术 + 技术实现 + 音色」三件套；逐页参数见 `references/style-recipes.md`，配方页映射见 §0.5，完整覆盖矩阵见 `docs/COVERAGE.md`。v2.5 新增 6 风格 + 收编 kinetic，音色按领域 mood 合成。
 
-| # | 风格 | 核心手法 | 关键元素 | 专属音色 |
-|---|---|---|---|---|
-| 01 | 扁平插画科普 | Canvas 2D 分层圆/三角/虚线轨道 | 太阳、地球、光束、标签胶囊 | 马林巴 |
-| 02 | 数学动画 | Canvas + 傅里叶（DFT 本轮） | 金色心形、KaTeX 公式、N/θ | FM 电钢琶音 + 铺底 |
-| 03 | 极简发布会 | Canvas 大字 + Three.js LatheGeometry | 金属戒指、LED 环、Nova Ring | 逐拍重低音 + 钟声 |
-| 04 | 手绘白板 | SVG stroke-dashoffset + turbulence | 灯泡→代码→视频、红圈 | 尤克里里 + 笔摩擦 |
-| 05 | 赛博故障 | Canvas 渐变/透视网格 + RGB 分离 | 条纹落日、城市、故障切片 | 失真锯齿 16 分 + 四拍底鼓 |
-| 06 | 水墨国风 | Canvas fbm 山峦 + 宣纸纹理 | 三远山、红日、渔舟、竖排书法 | 古筝五声 + 太鼓 + 笛 |
-| 07 | 数据可视化 | Canvas 条形赛跑 + CSS3D 透视 | 条图、年份、玻璃卡 | 方波琶音 + 滴答 |
-| 08 | 8-bit 像素 | 240×135 低分辨率 + pixelated | 机器人、金币、史莱姆、HUD | 芯片音乐 + 跳跃/金币 |
-| 09 | 代码录屏 | Canvas 编辑器 + 逐字代码 | 文件树、行号、实时预览 | lo-fi 电钢 + 黑胶噪声 |
-| 10 | Three.js 三维 | Lathe/TorusKnot + PhysicalMaterial | 粘土影棚、玻璃球、金属球 | 钟声琶音 + 弹跳 |
-| 11 | 竖屏短视频 | Canvas 手机壳 + 弹出动画 | 9:16、步骤卡、评论/点赞 | 808 + 超级锯齿 + trap 镲 |
+| 风格 | 一句话 | 音色 |
+|---|---|---|
+| 扁平插画科普 | 分层圆/三角/虚线轨道 | 马林巴 |
+| 数学动画 | 傅里叶心形 + KaTeX 公式 | FM 电钢琶音 |
+| 极简发布会 | 大字 + Three.js 金属戒指 | 重低音 + 钟声 |
+| 手绘白板 | SVG 描边 + turbulence + 红圈 | 尤克里里 + 笔摩擦 |
+| 赛博故障 | 透视网格 + RGB 分离 | 失真锯齿 16 分 + 四拍底鼓 |
+| 赛博像素 cyber-pixel | 480×270 像素放大 + Bayer 抖动 + CRT 扫描线 | 芯片噪声 + 低频脉冲 |
+| 水墨国风 | fbm 山峦 + 宣纸纹理 + 竖排书法 | 古筝五声 + 太鼓 + 笛 |
+| 长城 great-wall | 关隘山峦 + 烽燧 + 暗金材质 | 按 mood（dynamic） |
+| 数据可视化 | 条形赛跑 + CSS3D 玻璃卡 | 方波琶音 + 滴答 |
+| 8-bit 像素 | 240×135 低分辨率 + pixelated | 芯片音乐 + 跳跃/金币 |
+| 代码录屏 | Canvas 编辑器 + 逐字代码 | lo-fi 电钢 + 黑胶噪声 |
+| Three.js 三维 | 粘土影棚 + 玻璃/金属球 | 钟声琶音 + 弹跳 |
+| 竖屏短视频 | 手机壳 + 步骤卡/评论点赞 | 808 + 超级锯齿 + trap 镲 |
+| 动态字体 kinetic | 逐字入场 + 速度线 + 巨型描边数字 | 按 mood（dynamic） |
+| 瑞士网格 swiss | 12 列网格 + 发丝线 + 单红锚点 + 越大越轻 | 按 mood（calm） |
+| 报纸编辑 editorial | 衬线大标 + 栏线 + 首字下沉 + 半调图 | 按 mood（calm） |
+| 新粗野 brutalist | 粗边框 + 硬投影 + 撞色 + 贴纸徽章 | 按 mood（dynamic） |
+| 蒸汽波 vaporwave | 渐变天空 + 透视网格 + 扫描线落日 + 镀铬字 | 按 mood（dynamic） |
+| 工程蓝图 blueprint | 普鲁士蓝 + 尺寸箭头 + 标题栏 + 十字线 | 按 mood（standard） |
+| 孔版印刷 risograph | 双专色 + 套印错位 + 颗粒平涂 + 纸纹 | 按 mood（calm） |
 
-**每段必须有的视觉锚点**：左上胶囊标签（主题化编号，默认主题为珊瑚 + 风格名）、右下 3 秒倒计时/帧计数、1–2 个风格内小标签、标题或主视觉在 6 拍内完成一次完整叙事。不要底部字幕。
+**每段必须有的视觉锚点**：左上胶囊标签（主题化编号 + 风格名）、右下 3 秒倒计时/帧计数、1–2 个风格内小标签、6 拍内完成一次完整叙事。不要底部字幕。
 
 ---
 
 ## 8. 配乐合成（120 BPM，A 小调，纯 numpy/scipy）
 
-- 音色：kick（正弦扫频）、snare、clap、hat、crash、sub boom、噪声 riser、反向镲、whoosh、拨弦、FM 电钢、FM 钟声、超级锯齿、808、方波/三角波、笛子；
-- 和弦（每段前 4 拍 / 后 2 拍）：Am/F、C/G、F/G、C/F、Am/G、Am/Em、Dm/E、C/G、Dm/G、F/G、Am/F；
-- 结构：开场铺底 + 逐字键盘咔哒 → 4.55 s sub boom + 底鼓渐强 → 5.5 s 8 分踩镲 → 6.5–7.95 s 军鼓滚奏 → 7.45 s 反向镲；
-- 大字卡：第 1 拍 kick+tom，第 2 拍 kick+clap+sub+whoosh，后半反向镲；音乐压到 6%；
-- 风格段：6 拍律动 + 专属乐器；第一帧 kick+clap+snare+crash+sub+高频爆裂；
-- 混音：kick 包络侧链（闪避 55%）、2.2 s 合成混响、tanh 软削波、归一化 -0.6 dBFS；
-- **高频克制（必读）**：金属感音色（FM 钟声、拨弦、亮 saw stab、coin 音、高八度琶音）只作关键节点点缀，**全片 2–3 处**（标题揭示 / 结尾 impact / 唯一一次 resolve）；统计与数字段用 sub+tom+kick+clap 的鼓点，不用铃音代替鼓点，更不要整段高音琶音铺底；
-- **高频自检**：切掉 <200 Hz 只听高频，若只剩「叮叮叮」= 点缀过量；8–16 kHz 在非点缀段应比关键点缀段低 ≥ 6 dB。细则与检测代码见 `references/audio-recipes.md` 第 7 节；
-- **实测参考**：样片 120.0 BPM、相位 0.0 s、86.3% 强 onset 落在 120 BPM 网格 ±30 ms 内；8/12/16… s 的大字卡起拍能量是前 300 ms 的 8–9 倍，9/13/17… s 的风格段起拍是 2.8–3.5 倍。
-
-公式、编排表与混音函数见 **`references/audio-recipes.md`**，可运行骨架见 `templates/synth_audio.py`（模板默认输出 8 s demo，按编排表扩展到 61 s）。
+- 可运行骨架 `templates/synth_audio.py`：无参 = 8 s demo；`--plan out/plan.json` = 全片长度，并把每个 `audio.cues` 落成鼓点（61 s 实测 cue 命中 100% ±30 ms）。
+- 结构：开场铺底 + 逐字键盘咔哒 → 4.55 s sub boom + 底鼓渐强 → 军鼓滚奏 → 反向镲；大字卡 drop-out（音乐压到 6%）；风格段 6 拍律动 + 专属乐器。
+- 混音链：kick 侧链（闪避 55%）→ 2.2 s 合成混响 → tanh 软削波 → 母版峰值 −1.5 dBFS（留余量给 loudnorm 与 QA 门限）。
+- **高频克制（必读）**：金属音色（FM 钟声/拨弦/亮 stab/coin/高八度琶音）只作关键节点点缀，**全片 2–3 处**；统计与数字段用 sub+tom+kick+clap，不用铃音代替鼓点；切掉 <200 Hz 只剩「叮叮叮」= 过量；8–16 kHz 非点缀段应比点缀段低 ≥6 dB。
+- 音色公式、和弦进行表、编排、混音函数与 numpy 检测代码见 `references/audio-recipes.md`。
 
 ---
 
-## 9. 渲染管线
+## 9. 渲染管线（v2）
 
-1. 本地静态服务器：`render-segment.mjs` 内置同源服务器（服务 `--root` 目录，默认 cwd）；字体/KaTeX/Three 全部同源，禁止 `file://`。
-2. `render-segment.mjs`：把 `--t0/--speed/--duration` 拼成 `?seg=1&t0=&speed=&dur=` 附加到相对路径页面 URL → 启动无头 Chromium → `goto(url)` → 等 `document.fonts.ready` 与 `window.__ready`（或 `window.__bootError`）→ 逐帧
-   `page.evaluate(t => renderFrame(t), i/fps)` → CDP `Page.captureScreenshot({format:'jpeg', quality:95})` → stdin 管道给
-   `ffmpeg -f image2pipe -framerate 30 -i pipe:0 -c:v libx264 -preset medium -crf 16 -pix_fmt yuv420p`。
-3. `concat-and-encode.sh`：segment mp4 → concat（`-f concat -safe 0 -c copy`）→ 与音轨合成 → 2-pass 3.4 Mbps。
-4. 每段渲染后 `ffprobe -count_frames` 校验帧数；全片合计 1830。
+主线：`spec → plan`（`templates/timeline.mjs`，**plan 是唯一真源**）→ 并行渲染（`render-farm.mjs --concurrency N --resume`，缓存按 `segmentHash`）→ 合成（`concat-and-encode.sh --platform …`，CRF 终编 + loudnorm −14 LUFS / −1 dBTP + bt709）→ 质检（§10）→ 交付（`cvs deliver`）。
 
-**跨平台要点**（WSL 实测）
-- Playwright 自带浏览器下载可能极慢（本机 ~17 KB/s）→ 用 Chrome for Testing + `executablePath`；
-- WSL 跑 Chromium 需补齐 `libnss3/libnspr4/libasound2`，可用 `apt-get download` + `dpkg-deb -x` 解到 `~/.local/opt/chromium-libs` 并设置 `LD_LIBRARY_PATH`，无需 root；
-- 项目在 `/mnt/e` 时小文件写入很慢（2000 个文件约 4.9 s），venv/浏览器缓存放 Linux home；渲染帧直接管道，不落盘。
+要点：
+- 浏览器：Playwright（若装）或系统 Chrome/Edge **原生 CDP**（`templates/cdp.mjs`，零 npm 依赖）；等 `document.fonts.ready` + `window.__ready` 再取帧。单 canvas 用 `toDataURL()`（快 30–50%），DOM/WebGL 回退 `Page.captureScreenshot({optimizeForSpeed:true})`。
+- 中间片 `-crf 12 -preset veryfast`、yuv420p、bt709 四元标签、timescale 90000。
+- 帧直接进 ffmpeg stdin 不落盘；进程退出调 `server.closeAllConnections()`，避免 5 s keep-alive 拖尾。
+- Three.js 必须 `preserveDrawingBuffer:true`、`setPixelRatio(1)`、`renderer.compile()`、关自动动画循环；Canvas 2D 不要每帧 `ctx.filter=blur()`。
+- WSL 下 ffmpeg 放 Linux 侧、取帧留 Windows 侧；Chrome 路径用 `CHROME_EXE`。
 
-详见 **`references/render-pipeline.md`**；可运行模板在 `templates/`。
+完整施工说明、故障排查与平台预设见 `references/render-pipeline.md`、`references/qa.md`、`references/platform-presets.md`。
 
 ---
 
-## 10. 质检清单（必须全绿）
+## 10. 质检清单（自动 + 人工）
 
-**画面**
-- [ ] 浏览器 console 无错误、无 404（favicon 也要处理）；
-- [ ] 所有字体 `document.fonts.check()` 为 true，CJK 不缺字；
-- [ ] 每个风格段抽 5–6 帧拼接触表检查构图；全片抽 1 fps 接触表；
-- [ ] 无 CSS 动画/rAF/Date.now/Math.random（grep 检查）；
-- [ ] 不用逐帧 `ctx.filter blur` / 大量 shadowBlur（模糊层预渲染再交叉淡化）；
-- [ ] 镜头 transform 下不依赖 `getBoundingClientRect`（先缓存坐标）；
-- [ ] 1920×1080 @1x，`preserveDrawingBuffer: true`，WebGL 用 SwiftShader。
-
-**主题**
-- [ ] `node scripts/theme-audit.mjs --strict` 全绿；
-- [ ] 浅色主题（02/03/05/07）的胶囊/倒计时/水印是深墨实体，不是半透明黑；
-- [ ] 大字卡 4 版式在所选主题下明暗交替成立（layout 2/3 仍是深卡）；
-- [ ] 水蓝白：玻璃面板可见、淡绿/淡粉只从柔光与高光里透出、无脏灰；
-- [ ] 青瓷白画面里没有第二个彩色；蓝图纸/石墨没有柔光或投影；橙光白没有渐变光球；
-- [ ] 默认主题「不传 theme」与旧版逐像素一致（与基线做 PSNR/像素差对比）；
-- [ ] 风格段没有被主题压成同一色，各段识别度仍在。
-
-**音频**
-- [ ] 频谱图检查每个卡点：鼓点与剪辑表时间误差 < 30 ms；
-- [ ] 大字卡有 drop-out，风格段第一帧有「啪」；
-- [ ] 结尾 5.5–6.0 s 淡出；峰值 -0.6 dBFS 不削波（tanh 后归一化）；
-- [ ] 高频铃音点缀 ≤ 3 处且只落在关键节点；统计/数字段是低频鼓点，不是「叮叮叮」（`references/audio-recipes.md` §7）；
-- [ ] 8–16 kHz 非点缀段比关键点缀段低 ≥ 6 dB；频谱图无连续亮高频竖条或水平泛音线；
-- [ ] 切掉低频（<200 Hz）听一遍：不应只剩「叮叮叮」；铃音之间留白 ≥ 1 拍。
-
-**合成**
-- [ ] 每段帧数 = duration×30，全片 1830 帧；
-- [ ] 音轨与视频对齐（`-shortest`，必要时 `-t 61`）；
-- [ ] 2-pass 3.4 Mbps，H.264 yuv420p + AAC 48 kHz，体积约 26 MB；
-- [ ] 抽 6 帧出封面图；写一页参数说明（帧率/时长/风格数/字体/工具链）。
-
----
-
-## 11. 文件地图
-
+**一条命令**
+```bash
+node scripts/qa-video.mjs out/master.mp4 --plan out/plan.json  # 三档：FAIL 拦 / WARN strict 拦 / ADVISORY 永不拦
+python scripts/qa-audio.py audio/mix.wav --plan out/plan.json --strict
+node scripts/theme-audit.mjs --strict
+node scripts/determinism-check.mjs --page "segments/01.html?theme=coral-noir" --t 0.5
 ```
-code-video-showcase/
-├─ SKILL.md                              ← 本文件（工作流/约束/索引）
-├─ README.md                             ← 仓库首页：安装、快速上手、完整清单
-├─ LICENSE                               ← MIT 许可证
-├─ .gitignore / .gitattributes           ← 忽略构建产物 / 强制 LF 行尾
-├─ references/
-│  ├─ original-brief.txt                 ← 参考样片的原始任务书（可直接改品牌复用）
-│  ├─ reference-film-analysis.md         ← 61s 样片的实测拆解（切点/画面/音频/偏差）
-│  ├─ intake.md                          ← 调用前置：8 项需求采集、BRIEF.json、主题推荐与锁定
-│  ├─ themes.md                          ← 8 套主题的调性/材质/token/HUD/推荐矩阵/加主题
-│  ├─ style-recipes.md                   ← 11 种风格的美术+技术+音色配方（含主题换色规则）
-│  ├─ big-card-and-typography.md         ← 大字卡 4 版式、字体/字号/砸入参数
-│  ├─ audio-recipes.md                   ← 120BPM 编曲、音色合成公式、混音链
-│  └─ render-pipeline.md                 ← Playwright/FFmpeg/跨平台环境与命令
-├─ templates/
-│  ├─ common.js                          ← 缓动/种子随机/noise/片段模式/卡点冲击
-│  ├─ themes.js                          ← 8 套主题数据 + 材质/卡片/HUD API（唯一数据源）
-│  ├─ theme-board.html                   ← 单主题预览板（?theme=<id>，1920×1080）
-│  ├─ segment.html                       ← 风格段 HTML 骨架（Canvas + Three 可扩展）
-│  ├─ big-card.html                      ← 大字卡骨架（4 版式 + 砸入 + 回声字）
-│  ├─ render-segment.mjs                 ← 逐帧渲染 → ffmpeg 管道（内置静态服务器）
-│  ├─ concat-and-encode.sh               ← concat + 混音 + 2-pass
-│  └─ synth_audio.py                     ← numpy/scipy 音色库 + 编排骨架
-├─ scripts/
-│  ├─ analyze-reference.sh               ← 任意参考片 → 接触表/切点/频谱/音频分析
-│  ├─ theme-preview.mjs                  ← 批量渲染 8 套主题预览板 + 联系表 + 三拼对比
-│  ├─ theme-audit.mjs                    ← 主题对比度审计（--strict 可进 CI）
-│  └─ qa-check.sh                        ← 分段 MP4 质检（编码/尺寸/帧数）
-└─ assets/                               ← 样片接触表、频谱、切点、配色数据、模板截图
-   └─ theme-previews/                    ← 交付用主题预览图（01–08、联系表、三拼）
-```
+自动覆盖（工具强制，阈值表见 `references/qa.md`）：帧数/尺寸/fps/bt709 四元标签；黑帧、冻结、静音；−14 ±1 LUFS / TP ≤ −1 dBTP / LRA ≤ 14；cue 对齐 ≥80% ±30 ms、BPM 误差 ≤2、网格命中 ≥70%；高频克制 ≥6 dB；17 套主题 WCAG 全绿。
 
-### 模板实测记录
-
-`templates/segment.html` 与 `templates/big-card.html` 已用 `templates/render-segment.mjs` 实际渲染出 1920×1080@30fps 片段；`templates/synth_audio.py` 输出 48 kHz 立体声 WAV（峰值 -0.6 dBFS）；`scripts/qa-check.sh`、`scripts/analyze-reference.sh`、`templates/concat-and-encode.sh`（concat + 2-pass + AAC）均实跑通过。
-截图证据：`assets/template-demo-segment.jpg`、`assets/template-demo-card.jpg`。
+**人工看片（仍必须）**
+- [ ] 浏览器 console 无错误/404；CJK 字体 `document.fonts.check()` 全 true；
+- [ ] 每个风格段抽 5–6 帧接触表；无 CSS 动画/rAF/Date.now/Math.random；无逐帧大范围 `filter blur`/`shadowBlur`；
+- [ ] 浅色主题胶囊/倒计时/水印是深墨实体；大字卡 4 版式明暗节奏成立；
+- [ ] 默认主题「不传 theme」与旧版基线像素对比仍一致；
+- [ ] 切掉 <200 Hz 听一遍不应只剩「叮叮叮」；抽帧出封面 + 一页参数说明。
 
 ---
 
-## 12. 参考样片拆解摘要（实测）
+## 11. 文件地图（关键入口）
 
-- 成片：61.013 s（视频 61.000 / 1830 帧）、1920×1080、30 fps、H.264 + AAC 48 kHz stereo、26.9 MB、~3.53 Mbps 总码率（视频流 3.32 Mbps + 音频 197 kbps）；样片把品牌换成了 `DeepSeek V4.1-Flash`，其余结构/技巧与任务书一致。
-- 镜头：60 个切点；开场 0–8 s 打字 6 行；8–52 s 每 4 s 一轮（1 s 卡 + 3 s 风格）；53–55 s 八连闪；55–61 s 结尾。
-- 画面锚点：左上胶囊「01 扁平插画 · 科普」、右下 3 秒倒计时、卡片右下 `STYLE 0X / 11`、风格内 HUD/小标签、结尾上下 138 px 黑边。
-- 大字卡：样片采用「强调色底 → 米白底 → 黑底 → 黑底」4 循环（不是任务书的 i%4 顺序），文字左中/居中排版两种。
-- 音频：120.0 BPM、相位 0 s、86.3% 强 onset 在 ±30 ms 内；开头 0–0.56 s 与结尾 60.38–61.0 s 为近静音。
-- 详细逐段观察与偏差见 `references/reference-film-analysis.md`，图片证据在 `assets/`。
+| 你要改什么 | 去哪里 |
+|---|---|
+| spec 模型 / plan / 深度校验 | `templates/spec.mjs`、`templates/plan.mjs`、`templates/spec-check.mjs` |
+| 渲染 / 合成 / 质检 | `templates/render-segment.mjs`、`render-farm.mjs`、`cdp.mjs`、`concat-and-encode.sh`、`synth_audio.py`、`scripts/qa-video.mjs`、`qa-audio.py` |
+| CLI / again / deliver / 版本 | `bin/cvs.mjs`、`scripts/again.mjs`、`scripts/deliver.mjs`、`scripts/versions.mjs` |
+| 错误码 / 离线 / 完整目录树 | `schema/errors.json`→`docs/ERRORS.md`、`docs/OFFLINE.md`、`references/repo-map.md` |
+
+参考样片：61.013 s / 1080p30 / 1830 帧 / 60 切点。完整拆解（镜头表/锚点/音频/配色/频谱）见 `references/reference-film-analysis.md`，图片在 `assets/`。
+
 
 ---
 
-## 13. 快速启动
+## 12. 快速启动（v2 · 仅限 timeline v1 旧项目）
+
+> **新项目请走 §0.5 的 spec 主线。** 这条路生成的 `timeline.json` 没有 `segmentHash`，增量缓存 / 单段动效 / 品牌色覆盖会静默失效；只为兼容存量项目保留。
 
 ```bash
-# 0) 先按 references/intake.md 采集 8 项信息，用 theme-three-up.jpg 锁定主题 → BRIEF.json
-#    再复制模板到新项目（common.js / themes.js 与 HTML 放同一目录，如 segments/）
-cp -r templates/* <project>/
-# 1) 渲染一个片段（渲染器自带同源静态服务器，无需另起服务）；?theme= 选主题
-node render-segment.mjs --page "/segments/01.html?theme=aqua-morandi" --out out/01.mp4 --duration 3
-#    按剪辑表给风格段传场景偏移/速度（自动拼成 ?seg=1&t0=&speed=&dur=）：
-node render-segment.mjs --page "/segments/01.html?theme=coral-noir" --out out/09.mp4 --duration 3 --t0 0.35 --speed 1.4
-# 2) 先出静帧接触表（不编码）
-node render-segment.mjs --page "/segments/01.html?theme=claude-light" --still 0.2,0.8,1.4,2.0,2.6 --outdir out/stills
-# 3) 生成/更新 8 套主题预览图（需 <project> 内已装 playwright；也可直接用仓库 assets/theme-previews/）
-node scripts/theme-preview.mjs --root <project>
-# 4) 合成
-./concat-and-encode.sh segments.txt audio.wav out/final.mp4
+node scripts/doctor.mjs                                                  # 体检
+node scripts/new-project.mjs --out ../my-film --theme cyber-neon --styles 11    # 脚手架
+node templates/timeline.mjs --spec timeline.json --out out/plan.json --concat out/segments.txt  # 计划
+node templates/render-farm.mjs --plan out/plan.json --concurrency 4 --resume    # 并行渲染
+python templates/synth_audio.py --plan out/plan.json --out audio/mix.wav
+bash templates/concat-and-encode.sh --platform master out/segments.txt audio/mix.wav out/master.mp4 61 30
+node scripts/qa-video.mjs out/master.mp4 --plan out/plan.json && node scripts/theme-audit.mjs --strict
 ```
 
-**写任务书时直接复制 `references/original-brief.txt`，替换品牌词、风格清单与文案即可**；主题按 `references/intake.md` 锁定，结构公式、技术管线、QA 无需改。
+写任务书直接复制 `references/original-brief.txt` 替换品牌词/风格/文案；主题按 `references/intake.md` 锁定；结构与渲染全由 plan 驱动。

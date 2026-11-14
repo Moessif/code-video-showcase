@@ -1,0 +1,194 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="dark" />
+    <title>视频编译器 · 七张选择卡</title>
+    <link
+      rel="icon"
+      href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%230b0c0e'/%3E%3Ccircle cx='16' cy='16' r='7' fill='%23d97757'/%3E%3C/svg%3E"
+    />
+    <link rel="stylesheet" href="style.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="brand">
+        <span class="brand-dot" aria-hidden="true"></span>
+        <span>code-video-showcase</span>
+        <span class="slash">/</span>
+        <span class="muted">入口 C1</span>
+      </div>
+      <nav class="topnav" aria-label="相关文档">
+        <a href="/docs/CLUSTER-PLAN.md">集群计划</a>
+        <a href="README.md">使用说明</a>
+      </nav>
+    </header>
+
+    <main class="layout">
+      <section class="choices" aria-label="选择卡">
+        <div class="req-banner" role="note" style="border:1px solid rgba(255,200,120,.45);background:rgba(255,200,120,.08);border-radius:12px;padding:14px 16px;margin:0 0 18px;line-height:1.65">
+          <strong>运行前提：本机需要 Node.js 22+、Chrome、FFmpeg。</strong><br />
+          这是一个本地开发页，不是托管网页。第一次使用请先在仓库根执行
+          <code>bash install.sh</code>（Windows：<code>powershell -ExecutionPolicy Bypass -File install.ps1</code>），
+          然后 <code>node app/wizard/serve.mjs</code> 再打开本页。没有 Node 时页面无法启动——这不是浏览器兼容问题。
+        </div>
+        <div class="intro">
+          <h1>选两下，得到一支片子的 spec。</h1>
+          <p>
+            先点一个推荐组合，或在下面展开「我自己调」。
+            右侧实时生成 <code>project.spec.json</code>，可直接下载或复制。
+          </p>
+        </div>
+
+        <section class="panel" aria-labelledby="ref-title">
+          <div class="panel-head">
+            <h2 id="ref-title">有参考图？</h2>
+            <span class="hint">提取配色与气质 · 浏览器内完成 · 不复制像素</span>
+          </div>
+          <div id="ref-drop" role="button" tabindex="0" aria-label="选择参考图（JPG/PNG），识别后套用主题与主色" style="display:flex;gap:14px;align-items:center;padding:14px;border:1px dashed rgba(255,255,255,.22);border-radius:12px;cursor:pointer">
+            <canvas id="ref-thumb" width="96" height="96" style="width:96px;height:96px;border-radius:8px;background:#111;image-rendering:pixelated;flex:none"></canvas>
+            <div style="flex:1;min-width:0">
+              <p id="ref-status" style="margin:0 0 8px">拖入或点击选择一张参考图（JPG/PNG）。识别后可一键套用主题与主色。</p>
+              <div id="ref-candidates" style="display:flex;gap:8px;flex-wrap:wrap"></div>
+            </div>
+            <input id="ref-input" type="file" accept="image/*" hidden />
+          </div>
+        </section>
+
+        <section class="panel" aria-labelledby="presets-title">
+          <div class="panel-head">
+            <h2 id="presets-title">8 组推荐组合</h2>
+            <span class="hint">首屏只露这些 · 全部通过 combos 推荐校验</span>
+          </div>
+          <div class="preset-grid" id="preset-grid" aria-live="polite"></div>
+        </section>
+
+        <button class="custom-toggle" id="custom-toggle" type="button" aria-expanded="false" aria-controls="custom-panel">
+          <span class="custom-toggle-label">我自己调</span>
+          <span class="custom-toggle-note">展开全部枚举</span>
+          <span class="chev" aria-hidden="true">▾</span>
+        </button>
+
+        <section class="custom" id="custom-panel" hidden aria-label="自定义七张选择卡">
+          <section class="card" data-card="kind">
+            <header class="card-head">
+              <span class="num">01</span>
+              <div><h3>做什么片</h3><p>决定文案骨架与默认节奏</p></div>
+            </header>
+            <div class="chips" id="chips-kind" role="group" aria-label="做什么片"></div>
+          </section>
+
+          <section class="card" data-card="style">
+            <header class="card-head">
+              <span class="num">02</span>
+              <div><h3>什么画风</h3><p id="style-count-copy">20 种配方；灰色虚线 = 与当前主题冲突（avoid），不可选</p></div>
+            </header>
+            <div class="chips" id="chips-style" role="group" aria-label="什么画风"></div>
+          </section>
+
+          <section class="card" data-card="theme">
+            <header class="card-head">
+              <span class="num">03</span>
+              <div><h3>什么气质</h3><p>themes.js 的 17 套真实主题；先换画风可解锁浅色主题</p></div>
+            </header>
+            <div class="chips chips-theme" id="chips-theme" role="group" aria-label="什么气质"></div>
+          </section>
+
+          <section class="card" data-card="format">
+            <header class="card-head">
+              <span class="num">04</span>
+              <div><h3>时长与画幅</h3><p>结构公式会自动精确匹配时长</p></div>
+            </header>
+            <div class="row">
+              <span class="row-label">时长</span>
+              <div class="chips" id="chips-duration" role="group" aria-label="时长"></div>
+              <label class="num-input">
+                <span>自定义</span>
+                <input id="duration-input" type="number" min="4" max="600" step="1" inputmode="numeric" />
+                <span>秒</span>
+              </label>
+            </div>
+            <div class="row">
+              <span class="row-label">画幅</span>
+              <div class="chips" id="chips-aspect" role="group" aria-label="画幅"></div>
+            </div>
+          </section>
+
+          <section class="card" data-card="mood">
+            <header class="card-head">
+              <span class="num">05</span>
+              <div><h3>什么节奏</h3><p>audio.mood，同步决定 BPM 与配乐气质</p></div>
+            </header>
+            <div class="chips" id="chips-mood" role="group" aria-label="什么节奏"></div>
+          </section>
+
+          <section class="card" data-card="brand">
+            <header class="card-head">
+              <span class="num">06</span>
+              <div><h3>品牌与点缀</h3><p>写入 meta.brand 与 look.accentOverride</p></div>
+            </header>
+            <div class="field">
+              <label for="brand-input">品牌名</label>
+              <input id="brand-input" type="text" autocomplete="off" placeholder="例如：青瓷实验室" />
+            </div>
+            <div class="field">
+              <label for="accent-input">点缀主色</label>
+              <input id="accent-input" type="color" value="#d97757" />
+              <code id="accent-hex">不指定</code>
+              <button id="accent-clear" class="ghost small" type="button" title="移除自定义主色，回到主题的对比度安全值">
+                用主题默认
+              </button>
+            </div>
+          </section>
+
+          <section class="card" data-card="cta">
+            <header class="card-head">
+              <span class="num">07</span>
+              <div><h3>结尾 CTA</h3><p>写进 meta.cta，出现在结尾段</p></div>
+            </header>
+            <div class="field">
+              <label for="cta-input">行动号召</label>
+              <input id="cta-input" type="text" autocomplete="off" maxlength="24" />
+            </div>
+            <div class="chips" id="chips-cta" role="group" aria-label="结尾 CTA 快捷选项"></div>
+          </section>
+
+          <div class="custom-footer">
+            <button id="reset-preset" class="ghost" type="button">回到 8 组推荐</button>
+            <span class="hint">推荐组合与「我自己调」共用同一份状态，随时可来回切。</span>
+            <span class="legend"><i class="rec-dot" aria-hidden="true"></i>推荐</span>
+            <span class="legend legend-avoid">灰色虚线 = avoid，不可选</span>
+          </div>
+        </section>
+      </section>
+
+      <aside class="preview" aria-label="实时 spec 预览">
+        <div class="panel preview-panel">
+          <div class="panel-head preview-head">
+            <h2>project.spec.json</h2>
+            <span class="badge" id="spec-badge">spec v1</span>
+          </div>
+          <p class="summary" id="summary">正在加载推荐组合…</p>
+          <div class="status" id="validation" role="status" aria-live="polite">正在加载校验器…</div>
+          <pre class="json" id="spec-json" tabindex="0" aria-label="生成的 spec JSON">…</pre>
+          <div class="actions">
+            <button id="download" class="primary" type="button" disabled>下载 project.spec.json</button>
+            <button id="copy" type="button" disabled>复制</button>
+          </div>
+          <ul class="issues" id="issues" aria-label="校验信息"></ul>
+          <p class="footnote">
+            生成后调用一次 <code>normalizeSpec</code> + <code>validateSpec</code>（来自
+            <code>/templates/spec.mjs</code>）。自定义主色的 APCA 对比度需用
+            <code>spec-lint</code> 复核。请通过 <code>node app/wizard/serve.mjs</code> 打开本页。
+          </p>
+        </div>
+      </aside>
+    </main>
+
+    <noscript>
+      <p class="fatal">这个页需要 JavaScript。请用 <code>node app/wizard/serve.mjs</code> 启动后访问。</p>
+    </noscript>
+    <script type="module" src="app.js"></script>
+  </body>
+</html>

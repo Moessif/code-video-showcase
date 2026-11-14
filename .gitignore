@@ -22,3 +22,13 @@ Thumbs.db
 # python cache
 __pycache__/
 *.pyc
+
+# generated fonts (scripts/build-fonts.mjs; 32MB, rebuild with `bash arm.sh`)
+shared/fonts/
+
+# v2 QA / optional AI lane
+qa/
+ai/cache/
+assets/ai/
+.theme-preview-tmp/
+*.passlog*

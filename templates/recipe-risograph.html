@@ -1,0 +1,164 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<link rel="stylesheet" href="/shared/fonts.css">
+<title>recipe 29 · risograph</title>
+<style>
+  html, body { margin: 0; padding: 0; overflow: hidden; background: #f2ede3; }
+  #c { display: block; }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+
+<script type="module">
+// recipe-risograph.html — 风格段 29「孔版印刷 / 双专色 / 套印错位 / 颗粒平涂 / 纸纹」。
+//
+// 渲染契约：window.DURATION / window.renderFrame(t)（纯函数）/ __ready / __bootError。
+// 画幅（D7）：setupStage() 取视口；竖屏图形上移、标题下移堆叠。
+//
+// 视觉：米纸底、两支专色（蓝 #2b4bd6 + 荧光粉 #ff48a4）、套印错位（同形偏移叠印，
+// multiply 混色出第三色）、颗粒平涂、纸纤维、半调网点。像一张 Riso 海报。
+// 入场：粉色版先印，蓝色版随后「套」上去（带轻微错位抖动归位），标题压印。
+// 确定性：全部 t 的纯函数；颗粒/纸纹/半调用 effects.mjs + motion.js。
+import { createSegment, applyImpact2D, drawFlash, loadFonts, vars } from './common.js';
+import { themeFromURL, getTheme, loadFontsFor, hexToRgba } from './themes.js';
+import { TAU, clamp, ease, setupStage, safePad, fitTextSize, drawTracked, drawHud, drawTopMeta } from './recipes/util.js';
+import { typeSize, safe, probe } from './tokens.mjs';
+import { drawGrain, drawHalftone } from './effects.mjs';
+import { drawPaperTexture } from './motion.js';
+
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d', { alpha: false });
+const { W, H, portrait } = setupStage(canvas);
+const pad = safePad(W, H);
+
+const params = new URLSearchParams(location.search);
+const seg = createSegment({ duration: 3.0 });
+window.DURATION = seg.duration;
+const THEME = getTheme(themeFromURL(location.search));
+const V = vars();
+const BRAND = String(V.brand || 'CVS').slice(0, 24);
+const TITLE = String(params.get('title') || V.title || '套色之美').slice(0, 12);
+const SUB = String(V.subtitle || 'TWO INKS · ONE PRINT').slice(0, 40);
+
+const PAPER = '#f2ede3';
+const BLUE = '#2b4bd6';
+const PINK = '#ff48a4';
+const INK = '#20222a';
+
+const SANS = '"Noto Sans SC", sans-serif';
+const MONO = '"JetBrains Mono", ui-monospace, monospace';
+const FAMILIES = Array.from(new Set([...(loadFontsFor(THEME) || []), 'Noto Sans SC', 'JetBrains Mono', 'Inter']));
+
+let L = null;
+function buildLayout() {
+  const cx = Math.round(W * (portrait ? 0.5 : 0.36));
+  const cy = Math.round(H * (portrait ? 0.34 : 0.46));
+  const R = Math.round(Math.min(W, H) * (portrait ? 0.20 : 0.24));
+  const titleSize = fitTextSize(ctx, TITLE, { maxWidth: W * (portrait ? 0.86 : 0.44), family: SANS, weight: 900, maxSize: typeSize('title', W, H), minSize: 44, spacing: 0.02 });
+  probe('title', titleSize, safe(W, H));
+  return {
+    cx, cy, R, titleSize,
+    titleX: portrait ? W / 2 : Math.round(W * 0.60),
+    titleY: Math.round(H * (portrait ? 0.62 : 0.44)),
+    subSize: Math.max(13, Math.round(titleSize * 0.2)),
+    align: portrait ? 'center' : 'left',
+  };
+}
+
+// 一个「太阳+山」的平涂图形，分两个专色版印。
+function drawPlate(color, ox, oy, alpha) {
+  ctx.save();
+  ctx.globalAlpha = alpha;
+  ctx.globalCompositeOperation = 'multiply';
+  ctx.fillStyle = color;
+  // 太阳（圆）
+  ctx.beginPath();
+  ctx.arc(L.cx + ox, L.cy - L.R * 0.3 + oy, L.R * 0.62, 0, TAU);
+  ctx.fill();
+  // 山（三角）
+  ctx.beginPath();
+  ctx.moveTo(L.cx - L.R + ox, L.cy + L.R * 0.7 + oy);
+  ctx.lineTo(L.cx + ox, L.cy - L.R * 0.1 + oy);
+  ctx.lineTo(L.cx + L.R + ox, L.cy + L.R * 0.7 + oy);
+  ctx.closePath();
+  ctx.fill();
+  ctx.restore();
+}
+
+function drawScene(t) {
+  // 粉版先印
+  const pk = ease.outCubic(clamp(t / 0.5));
+  if (pk > 0.001) drawPlate(PINK, 0, 0, pk * 0.9);
+  // 蓝版套上：从错位抖動归位（misregistration）
+  const bk = ease.outCubic(clamp((t - 0.3) / 0.7));
+  if (bk > 0.001) {
+    const mis = (1 - bk) * L.R * 0.12;
+    const jx = Math.sin(t * 30) * mis * 0.3;
+    drawPlate(BLUE, mis + jx, -mis * 0.6, bk * 0.9);
+  }
+  // 半调网点（压在图形上，增加印刷感）
+  if (bk > 0.3) {
+    ctx.save();
+    ctx.globalAlpha = (bk - 0.3) * 0.5;
+    ctx.beginPath();
+    ctx.arc(L.cx, L.cy, L.R * 1.1, 0, TAU);
+    ctx.clip();
+    drawHalftone(ctx, { W, H, cell: 8, color: hexToRgba(INK, 0.5), alpha: 0.4, t, region: { x0: L.cx - L.R * 1.1, y0: L.cy - L.R * 1.1, x1: L.cx + L.R * 1.1, y1: L.cy + L.R * 1.1 } });
+    ctx.restore();
+  }
+
+  // 标题（压印，蓝）
+  const tk = ease.outCubic(clamp((t - 0.6) / 0.6));
+  if (tk > 0.001) {
+    ctx.save();
+    ctx.globalAlpha = tk;
+    ctx.globalCompositeOperation = 'multiply';
+    ctx.fillStyle = BLUE;
+    ctx.font = `900 ${L.titleSize}px ${SANS}`;
+    ctx.textAlign = L.align;
+    ctx.textBaseline = 'middle';
+    ctx.fillText(TITLE, L.titleX, L.titleY);
+    ctx.restore();
+  }
+  const sk = ease.outCubic(clamp((t - 0.9) / 0.5));
+  if (sk > 0.001) {
+    ctx.save();
+    ctx.globalAlpha = sk;
+    drawTracked(ctx, SUB, L.titleX, L.titleY + L.titleSize * 0.85, { size: L.subSize, family: MONO, weight: 500, color: hexToRgba(PINK, 0.9), tracking: L.subSize * 0.24, align: L.align, baseline: 'middle' });
+    ctx.restore();
+  }
+}
+
+window.renderFrame = (u) => {
+  const { t, fx } = seg.sample(u);
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.globalAlpha = 1;
+  ctx.globalCompositeOperation = 'source-over';
+  ctx.save();
+  applyImpact2D(ctx, fx, W, H);
+  ctx.fillStyle = PAPER;
+  ctx.fillRect(-W, -H, W * 3, H * 3);
+  drawPaperTexture(ctx, { W, H, alpha: 0.06, seed: 11, t });
+  drawScene(t);
+  drawGrain(ctx, { W, H, t, alpha: 0.08, seed: 5, blend: 'multiply' });
+  drawTopMeta(ctx, { W, H, pad, text: `${BRAND} · RISOGRAPH`, sub: 'RECIPE 29 · PRINT', color: hexToRgba(INK, 0.55), accent: PINK });
+  drawHud(ctx, { W, H, u, duration: seg.duration, theme: THEME, label: 'STYLE 29', name: 'RISOGRAPH', brand: BRAND, pad, accent: PINK, ink: hexToRgba(INK, 0.55), frameColor: INK });
+  ctx.restore();
+  drawFlash(ctx, fx.flash, W, H, '#ffffff');
+};
+
+window.__ready = false;
+window.__bootError = null;
+(async () => {
+  await loadFonts(FAMILIES);
+  L = buildLayout();
+  window.renderFrame(0);
+  window.__ready = true;
+})().catch((err) => { window.__bootError = String((err && err.stack) || err); });
+window.__seg = seg;
+</script>
+</body>
+</html>

@@ -21,7 +21,7 @@
  * 这是一张「海报 + 规格板」而不是调色板调试图：
  *   左侧 = 主视觉（主题序号 / 中文名 / 英文名 / tagline / useFor / A·B·C 大字卡小样 / HUD 实物）
  *   右侧 = 规格板（8 个角色 token / 4 个点缀色 / 材质名 + 说明 / 对比度审计）
- *   底部 = 8 套主题名字轨（当前高亮）——一眼看出这是 8 选 1 的设计系统
+ *   底部 = 全部主题名字轨（当前高亮）——一眼看出这是 N 选 1 的设计系统
  *
  * 所有颜色都来自 themes.js 的 token（或 token 的 alpha/混色），不硬编码任何主题色。
  * 渲染契约：window.DURATION=1.0；window.renderFrame(t)；__ready；无随机/时间副作用。
@@ -208,7 +208,7 @@ function drawTitleBlock() {
   // overline：accent 粗短线 + 一句话定位（粗于 4px 才是图形元素）
   ctx.fillStyle = c.accent;
   ctx.fillRect(LEFT, 190, 30, 5);
-  drawSpaced('主题系统 · 一套版式 / 八种气质', LEFT + 46, 193, { size: 15, spacing: 1.5, color: c.muted });
+  drawSpaced('主题系统 · 一套版式 / 多种气质', LEFT + 46, 193, { size: 15, spacing: 1.5, color: c.muted });
 
   // 中文名
   const cnSize = fitSize(theme.name, CN_WEIGHT, CN, LEFT_R - LEFT, 112, 72);
@@ -493,22 +493,26 @@ function drawSpecPanel() {
 function drawRail() {
   const gap = 12;
   const n = THEME_IDS.length;
-  const w = (RIGHT - LEFT - gap * (n - 1)) / n;
-  const h = 60;
-  const y = 934;
+  // 17 套时单行每格只剩 ~90px，中文名会挤成一团：折成两行（9 + 8）。
+  const rows = n <= 14 ? 1 : 2;
+  const cols = Math.ceil(n / rows);
+  const w = (RIGHT - LEFT - gap * (cols - 1)) / cols;
+  const h = rows === 1 ? 60 : 34;
+  const rowGap = 8;
+  const y0 = rows === 1 ? 934 : 906;
+  const fontSize = rows === 1 ? 16 : 14;
   THEME_IDS.forEach((id, i) => {
     const th = THEMES[id];
-    const x = LEFT + i * (w + gap);
+    const col = i % cols;
+    const row = (i / cols) | 0;
+    const x = LEFT + col * (w + gap);
+    const y = y0 + row * (h + rowGap);
     const active = id === theme.id;
-    rr(x, y, w, h, 10);
+    rr(x, y, w, h, rows === 1 ? 10 : 8);
     ctx.fillStyle = active ? c.accent : hexToRgba(c.surface, 0.85);
     ctx.fill();
-    if (active) {
-      ctx.fillStyle = c.accentInk;
-    } else {
-      ctx.fillStyle = c.muted;
-    }
-    setFont(active ? 600 : 500, 16, SANS);
+    ctx.fillStyle = active ? c.accentInk : c.muted;
+    setFont(active ? 600 : 500, fontSize, SANS);
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     ctx.fillText(th.name, x + w / 2, y + h / 2 + 1);
@@ -518,7 +522,7 @@ function drawRail() {
 /* ---------- 9. footer ---------- */
 function drawFooter() {
   const y = 1036;
-  drawSpaced('CODE-VIDEO-SHOWCASE / THEME SYSTEM v1', LEFT, y, { size: 13, spacing: 2, color: c.muted });
+  drawSpaced('CODE-VIDEO-SHOWCASE / THEME SYSTEM v3', LEFT, y, { size: 13, spacing: 2, color: c.muted });
   drawSpaced(`1920 × 1080 · STATIC PREVIEW · ${NUM}/${TOTAL}`, RIGHT, y, { size: 13, spacing: 2, color: c.muted, align: 'right' });
 }
 
@@ -553,7 +557,7 @@ async function loadFonts(families) {
     m.name, m.note,
     ...rows.map((r) => r.label), ...theme.accents.map((a) => a.name),
     'ABCDEFGHIJKLMNOPQRSTUVWXYZ abcdefghijklmnopqrstuvwxyz 0123456789 /·×—',
-    '主题系统 一套版式 八种气质 适用场景 大字卡 三种底 强调 纸面 暗卡 HUD 实物 胶囊 倒计时 水印',
+    '主题系统 一套版式 多种气质 适用场景 大字卡 三种底 强调 纸面 暗卡 HUD 实物 胶囊 倒计时 水印',
     '底色 主字 强调 纸面 暗卡 表面 次要字 浅强调 点缀色 材质 对比度审计',
   ].join(' ');
   for (const family of families) {

@@ -1,0 +1,337 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<link rel="stylesheet" href="/shared/fonts.css">
+<title>cyber-pixel · recipe 12</title>
+<style>
+  html, body { margin: 0; padding: 0; background: #01030c; overflow: hidden; }
+  #stage { position: relative; width: 1920px; height: 1080px; overflow: hidden; }
+  canvas#c { position: absolute; inset: 0; width: 1920px; height: 1080px; }
+</style>
+</head>
+<body>
+<div id="stage"><canvas id="c" width="1920" height="1080"></canvas></div>
+
+<script type="module">
+// cyber-pixel.html — 单风格段「赛博像素」。
+//
+// 渲染契约：
+//   window.DURATION   ?dur= 读，默认 3
+//   window.renderFrame(t)  纯函数；同一 t 两次渲染像素一致
+//   window.__ready / window.__bootError
+//
+// URL：?theme=cyber-neon&recipe=cyber-pixel（渲染器还会追加 seg=1&t0=&speed=&dur=）
+import {
+  createSegment, applyImpact2D, drawFlash, loadFonts, vars,
+} from './common.js';
+import { themeFromURL, getTheme, loadFontsFor } from './themes.js';
+import {
+  drawCyberPixel, drawPixelText, measurePixelText, cyberPixelPalette, hash01,
+} from './styles/cyber-pixel.js';
+import { typeSize, safe, probe } from './tokens.mjs';
+import { setupStage } from './recipes/util.js';
+
+// D7 画幅契约：从视口取尺寸（偶数），不再硬编码 1920×1080——否则竖屏/方图
+// 会因 canvas 尺寸不匹配走 CDP 截图，把横屏画布裁进竖屏视口。
+const canvas = document.getElementById('c');
+const { W, H } = setupStage(canvas);
+document.getElementById('stage').style.width = `${W}px`;
+document.getElementById('stage').style.height = `${H}px`;
+const ctx = canvas.getContext('2d', { alpha: false });
+
+const params = new URLSearchParams(location.search);
+const seg = createSegment({ duration: 3.0 });
+window.DURATION = seg.duration;
+
+const THEME = getTheme(themeFromURL(location.search));
+const RECIPE = params.get('recipe') || 'cyber-pixel';
+const PAL = cyberPixelPalette(THEME);
+const V = vars();
+const BRAND = V.brand || 'CVS';
+const TITLE = V.title || '星尘 2.0';
+const SUBTITLE = V.subtitle || (RECIPE === 'cyber-pixel'
+  ? 'CYBER PIXEL / RECIPE 12'
+  : `RECIPE ${String(RECIPE).toUpperCase()}`);
+const MONO = '"JetBrains Mono", ui-monospace, monospace';
+
+const clamp01 = (v) => (v < 0 ? 0 : v > 1 ? 1 : v);
+const smooth = (v) => { const x = clamp01(v); return x * x * (3 - 2 * x); };
+const fract = (v) => v - Math.floor(v);
+const pad2 = (v) => String(Math.max(0, Math.floor(v))).padStart(2, '0');
+
+/* ────────────────────────── 低分辨率场景（480×270）────────────────────────── */
+
+function fillPx(c, x, y, w, h, color, alpha = 1) {
+  c.globalAlpha = alpha;
+  c.fillStyle = color;
+  c.fillRect(Math.round(x), Math.round(y), Math.round(w), Math.round(h));
+  c.globalAlpha = 1;
+}
+
+function drawAtmosphere(c, lw, lh, t) {
+  // 星空：位置固定、闪烁由 hash(x,y,frame) 决定
+  const frame = Math.floor(t * 12);
+  for (let i = 0; i < 88; i++) {
+    const x = Math.floor(hash01(i, 1, 7) * lw);
+    const y = Math.floor(hash01(i, 2, 9) * lh * 0.58);
+    const tw = 0.2 + 0.8 * hash01(i, 3, frame);
+    if (tw < 0.3) continue;
+    const big = hash01(i, 4, 13) > 0.86;
+    fillPx(c, x, y, big ? 2 : 1, 1, PAL.starInk, 0.28 + 0.55 * tw);
+  }
+  // 漂移的像素碎屑：水平视差，速度来自固定哈希
+  const span = lw + 24;
+  for (let i = 0; i < 14; i++) {
+    const speed = 3 + hash01(i, 11, 23) * 11;
+    const x = ((hash01(i, 12, 29) * span + t * speed) % span) - 12;
+    const y = 14 + hash01(i, 13, 31) * (lh * 0.5);
+    const w = hash01(i, 14, 37) > 0.7 ? 2 : 1;
+    fillPx(c, x, y, w, 1, PAL.subtitleInk, 0.45);
+  }
+}
+
+function drawSideVents(c, lw, lh, t) {
+  // 机箱侧面的散热槽：固定位置 + 确定性闪烁
+  const frame = Math.floor(t * 8);
+  for (let i = 0; i < 9; i++) {
+    const x = lw - 10 + (i % 2);
+    const y = lh * 0.18 + i * 9;
+    const on = hash01(i, 41, frame) > 0.42;
+    if (on) fillPx(c, x, y, 1, 5, PAL.ventInk, 0.28);
+  }
+}
+
+function drawSun(c, lw, lh, t) {
+  const rise = smooth(t / 3);
+  const cx = Math.round(lw * 0.5);
+  const cy = Math.round(lh * 0.435 - 4 * rise);
+  const r = Math.round(lh * 0.19);
+  const horizon = Math.round(lh * 0.62);
+
+  // 外圈柔光：三层像素环（Bayer 抖动后成为网点）
+  for (let k = 3; k >= 1; k--) {
+    const rr = r + k * 4;
+    c.globalAlpha = 0.05 + 0.03 * (3 - k);
+    c.fillStyle = PAL.accent;
+    c.beginPath();
+    c.arc(cx, cy, rr, 0, Math.PI * 2);
+    c.fill();
+    c.globalAlpha = 1;
+  }
+
+  // 像素圆：逐行填充，下半部切横向条纹
+  for (let dy = -r; dy <= r; dy++) {
+    const y = cy + dy;
+    if (y >= horizon) break;
+    if (dy > 3 && ((dy + 1) % 8) < 3) continue;
+    const half = Math.floor(Math.sqrt(Math.max(0, r * r - dy * dy)));
+    const color = dy < -r * 0.18 ? PAL.accentSoft : PAL.accent;
+    fillPx(c, cx - half, y, half * 2 + 1, 1, color, 0.92);
+  }
+  // 日面中心的高光块
+  fillPx(c, cx - 6, cy - Math.round(r * 0.34), 12, 2, PAL.paper, 0.5);
+}
+
+function drawGround(c, lw, lh, t) {
+  const horizon = Math.round(lh * 0.62);
+  // 地面压暗，压掉主题底色的渐变
+  fillPx(c, 0, horizon, lw, lh - horizon, PAL.groundShade, PAL.groundAlpha);
+  // 地平线辉光
+  fillPx(c, 0, horizon - 1, lw, 1, PAL.accent, 0.55);
+  fillPx(c, 0, horizon + 1, lw, 1, PAL.accent, 0.2);
+
+  // 透视网格：竖线从灭点发散
+  c.save();
+  c.lineWidth = 1;
+  c.strokeStyle = PAL.accent;
+  c.globalAlpha = 0.4;
+  for (let i = -7; i <= 7; i++) {
+    const xb = lw / 2 + i * (lw * 0.082);
+    c.beginPath();
+    c.moveTo(lw / 2 + 0.5, horizon + 0.5);
+    c.lineTo(xb + 0.5, lh + 0.5);
+    c.stroke();
+  }
+  // 横线：向观众滚动，间距按平方透视
+  const phase = fract(t * 0.5);
+  for (let k = 0; k < 9; k++) {
+    const p = (k + phase) / 9;
+    const y = Math.round(horizon + (lh - horizon) * p * p);
+    c.globalAlpha = 0.14 + 0.24 * p;
+    c.beginPath();
+    c.moveTo(0, y + 0.5);
+    c.lineTo(lw, y + 0.5);
+    c.stroke();
+  }
+  c.restore();
+}
+
+function drawTitle(c, lw, lh, t) {
+  // 这一页的标题是「街机大标题」——属于 display 级，不是常规 title 级。
+  // token 是屏幕像素；这里画在低分辨率画布上，按 lh/H 换算后仍保持同一字阶。
+  let size = Math.round(lh * (typeSize('display', W, H) / H));
+  probe('display', Math.round((size / lh) * H), safe(W, H));
+  let spacing = Math.round(size * 0.04);
+  const maxW = lw * 0.88;
+  const meas = measurePixelText(c, TITLE, size, { weight: 900, letterSpacing: spacing });
+  if (meas.width > maxW && meas.width > 0) {
+    size = Math.max(Math.round(lh * 0.14), Math.floor((size * maxW) / meas.width));
+    spacing = Math.round(size * 0.04);
+  }
+  const cy = Math.round(lh * 0.345);
+  // CJK 字面在 Noto Sans SC 里比数字更贴基线下方，抬 0.07em 让「星尘」与「2.0」视觉齐底
+  const isCJK = (ch) => /[\u3400-\u9fff\uf900-\ufaff]/.test(ch);
+  drawPixelText(c, TITLE, lw / 2, cy, size, PAL.titleInk, {
+    align: 'center', baseline: 'middle', weight: 900,
+    dither: true, letterSpacing: spacing,
+    outline: PAL.outlineInk, shadow: PAL.shadowInk,
+    perChar: (i, ch) => {
+      const p = smooth((t - 0.12 - i * 0.055) / 0.3);
+      return {
+        alpha: p,
+        dy: Math.round((1 - p) * 8) + (isCJK(ch) ? -Math.round(size * 0.07) : 0),
+        color: p < 0.55 ? PAL.subtitleInk : PAL.titleInk,
+      };
+    },
+  });
+
+  // 副标题 + 下划线；副标题给一块暗底芯片，避免压在太阳上失去对比
+  const subSize = Math.max(7, Math.round(lh * 0.038));
+  const subText = SUBTITLE.length > 44 ? `${SUBTITLE.slice(0, 43)}…` : SUBTITLE;
+  const subY = cy + Math.round(size * 0.75);
+  const subIn = smooth((t - 0.5) / 0.4);
+  const subMetrics = measurePixelText(c, subText, subSize, {
+    weight: 600, family: MONO, letterSpacing: 3,
+  });
+  const chipW = Math.round(subMetrics.width + 16);
+  const chipH = Math.round(subSize * 1.6);
+  fillPx(c, lw / 2 - chipW / 2, subY - chipH / 2 + 1, chipW, chipH, PAL.chipBg, 0.82 * subIn);
+  fillPx(c, lw / 2 - chipW / 2, subY - chipH / 2 + 1, chipW, 1, PAL.accent, 0.42 * subIn);
+  drawPixelText(c, subText, lw / 2, subY, subSize, PAL.subtitleInk, {
+    align: 'center', baseline: 'middle', weight: 600, family: MONO,
+    letterSpacing: 3, dither: true, alpha: subIn,
+  });
+  const lineW = Math.round(150 * smooth((t - 0.35) / 0.45));
+  if (lineW > 0) {
+    fillPx(c, lw / 2 - lineW / 2, subY + Math.round(subSize * 1.55), lineW, 1, PAL.accent, 0.7);
+    fillPx(c, lw / 2 - lineW / 2, subY + Math.round(subSize * 1.55) + 2, Math.round(lineW * 0.42), 1, PAL.ventInk, 0.35);
+  }
+}
+
+function timecode(t) {
+  const total = Math.max(0, t);
+  return `TC 00:00:${pad2(total % 60)}:${pad2((total % 1) * 30)}`;
+}
+
+function drawHud(c, lw, lh, t) {
+  const x = 14;
+  const w = lw - 28;
+  const h = 26;
+  const y = lh - 38;
+
+  fillPx(c, x, y, w, h, PAL.chipBg, 0.9);
+  // 1px 像素边框（low-res 像素 = 4 screen px，读起来是硬边）
+  fillPx(c, x, y, w, 1, PAL.accent, 0.62);
+  fillPx(c, x, y + h - 1, w, 1, PAL.accent, 0.42);
+  fillPx(c, x, y, 1, h, PAL.accent, 0.5);
+  fillPx(c, x + w - 1, y, 1, h, PAL.accent, 0.5);
+  // 左右两端的缺角
+  fillPx(c, x + 3, y + h, 2, 1, PAL.accent, 0.35);
+  fillPx(c, x + w - 5, y + h, 2, 1, PAL.accent, 0.35);
+
+  const ty = y + h / 2 + 1;
+  drawPixelText(c, 'STYLE 12 / 12', x + 10, ty, 12, PAL.accent, {
+    align: 'left', baseline: 'middle', weight: 700, family: MONO,
+    letterSpacing: 1, dither: true,
+  });
+  drawPixelText(c, `${PAL.count} COLOR · BAYER 4x4`, lw / 2, ty, 10, PAL.hudInk, {
+    align: 'center', baseline: 'middle', weight: 500, family: MONO,
+    letterSpacing: 1, dither: true, alpha: 0.72,
+  });
+  drawPixelText(c, timecode(t), x + w - 10, ty, 11, PAL.hudAccent, {
+    align: 'right', baseline: 'middle', weight: 600, family: MONO,
+    letterSpacing: 1, dither: true,
+  });
+
+  // 左上 REC + 右上主题/品牌
+  const blink = 0.3 + 0.7 * (0.5 + 0.5 * Math.sin(t * 5.2));
+  fillPx(c, 16, 13, 3, 3, PAL.accent, blink);
+  drawPixelText(c, 'REC', 22, 15, 9, PAL.accent, {
+    align: 'left', baseline: 'middle', weight: 600, family: MONO,
+    letterSpacing: 2, dither: true, alpha: 0.9,
+  });
+  const tag = `${BRAND} · ${String(THEME.nameEn || THEME.id).toUpperCase()}`;
+  drawPixelText(c, tag, lw - 34, 15, 9, PAL.mutedInk, {
+    align: 'right', baseline: 'middle', weight: 500, family: MONO,
+    letterSpacing: 2, dither: true, alpha: 0.62,
+  });
+
+  // 四角括号
+  const m = 9, L = 16;
+  c.globalAlpha = 0.55;
+  c.fillStyle = PAL.accent;
+  c.fillRect(m, m, L, 1); c.fillRect(m, m, 1, L);
+  c.fillRect(lw - m - L, m, L, 1); c.fillRect(lw - m - 1, m, 1, L);
+  c.fillRect(m, lh - m - 1, L, 1); c.fillRect(m, lh - m - L, 1, L);
+  c.fillRect(lw - m - L, lh - m - 1, L, 1); c.fillRect(lw - m - 1, lh - m - L, 1, L);
+  c.globalAlpha = 1;
+}
+
+function drawLowScene(c, lw, lh, t) {
+  c.setTransform(1, 0, 0, 1, 0, 0);
+  c.globalAlpha = 1;
+  c.globalCompositeOperation = 'source-over';
+  c.imageSmoothingEnabled = false;
+
+  drawAtmosphere(c, lw, lh, t);
+  drawSideVents(c, lw, lh, t);
+  drawSun(c, lw, lh, t);
+  drawGround(c, lw, lh, t);
+  drawTitle(c, lw, lh, t);
+  drawHud(c, lw, lh, t);
+}
+
+/* ────────────────────────────── 渲染入口 ────────────────────────────── */
+
+window.renderFrame = (u) => {
+  const { t, fx } = seg.sample(u);
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.globalAlpha = 1;
+  ctx.globalCompositeOperation = 'source-over';
+  ctx.fillStyle = PAL.canvasBg;
+  ctx.fillRect(0, 0, W, H);
+
+  ctx.save();
+  applyImpact2D(ctx, fx, W, H);
+  drawCyberPixel(ctx, W, H, t, THEME, {
+    draw: (lowCtx, lw, lh, tt) => drawLowScene(lowCtx, lw, lh, tt),
+  });
+  ctx.restore();
+
+  drawFlash(ctx, fx.flash, W, H, '#ffffff');
+};
+
+/* ────────────────────────────── 启动 ────────────────────────────── */
+
+window.__ready = false;
+window.__bootError = null;
+
+(async () => {
+  const families = Array.from(new Set([
+    ...(loadFontsFor(THEME) || []),
+    'Noto Sans SC', 'JetBrains Mono', 'Inter',
+  ]));
+  await loadFonts(families);
+  window.renderFrame(0);
+  window.__ready = true;
+})().catch((err) => {
+  window.__bootError = String((err && err.stack) || err);
+});
+
+// 调试：控制台里可用 window.__seg.sample(1.0)
+window.__seg = seg;
+window.__cp = { theme: THEME, palette: PAL, recipe: RECIPE };
+</script>
+</body>
+</html>

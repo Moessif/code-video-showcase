@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>剧本表格 · code-video-showcase</title>
+  <link rel="stylesheet" href="./style.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <span class="dot" aria-hidden="true"></span>
+      <span>剧本表格</span>
+      <span class="tag">C2-06</span>
+    </div>
+    <div class="stats" id="stats" aria-live="polite">加载中…</div>
+  </header>
+
+  <section class="toolbar">
+    <button id="btn-download" type="button">下载 project.spec.json</button>
+    <button id="btn-copy" type="button">复制 JSON</button>
+    <button id="btn-reset" type="button" class="ghost">恢复原始</button>
+    <span class="formula" id="formula"></span>
+    <span class="status" id="status" aria-live="polite"></span>
+  </section>
+
+  <main class="layout">
+    <section class="table-wrap" aria-label="剧本表格">
+      <table id="rows">
+        <thead>
+          <tr>
+            <th class="col-idx">#</th>
+            <th class="col-id">ID</th>
+            <th>角色</th>
+            <th>名称</th>
+            <th class="col-num">起始秒</th>
+            <th class="col-num">时长</th>
+            <th>first</th>
+            <th>keyword</th>
+            <th>recipe</th>
+            <th class="col-num">t0</th>
+            <th class="col-num">speed</th>
+          </tr>
+        </thead>
+        <tbody id="tbody"></tbody>
+      </table>
+      <div class="empty" id="empty" hidden></div>
+    </section>
+
+    <aside class="side">
+      <section class="panel">
+        <h2>校验 <span class="badge" id="issue-count">0</span></h2>
+        <ul class="issues" id="issues"></ul>
+        <p class="hint">双击任意带虚线下划线的单元格就地编辑；Enter 提交，Esc 取消。</p>
+      </section>
+      <section class="panel grow">
+        <h2>JSON 预览 <span class="hash mono" id="hash"></span></h2>
+        <pre class="json" id="json"></pre>
+      </section>
+    </aside>
+  </main>
+
+  <div class="toast" id="toast" hidden></div>
+
+  <script type="module" src="./app.js"></script>
+</body>
+</html>

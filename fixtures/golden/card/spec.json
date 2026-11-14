@@ -1,0 +1,79 @@
+{
+  "specVersion": 1,
+  "meta": {
+    "name": "golden-card",
+    "brand": "Golden Labs",
+    "cta": "现在就试试",
+    "locale": "zh-CN"
+  },
+  "format": {
+    "width": 1920,
+    "height": 1080,
+    "fps": 30,
+    "aspect": "16:9",
+    "duration": 2
+  },
+  "look": {
+    "mode": "showcase",
+    "style": null,
+    "theme": "coral-noir",
+    "accentOverride": null
+  },
+  "audio": {
+    "mood": "electronic",
+    "bpm": 120
+  },
+  "structure": {
+    "opening": 0.8,
+    "round": 0.8,
+    "card": 0.4,
+    "ending": 0.2,
+    "moreCard": 0.2,
+    "flash": {
+      "count": 0,
+      "each": 0.25
+    }
+  },
+  "opening": {
+    "page": "templates/segment.html",
+    "name": "opening"
+  },
+  "rounds": [
+    {
+      "id": "r01",
+      "name": "黄金卡片",
+      "card": {
+        "layout": 0,
+        "first": "想做",
+        "keyword": "黄金基线？",
+        "page": "templates/big-card.html"
+      },
+      "style": {
+        "page": "templates/segment.html",
+        "t0": 0.2,
+        "speed": 1.2
+      }
+    }
+  ],
+  "moreCard": {
+    "page": "templates/big-card.html",
+    "layout": 1,
+    "first": "还有",
+    "keyword": "更多？"
+  },
+  "flash": {
+    "page": "templates/big-card.html"
+  },
+  "ending": {
+    "page": "templates/segment.html",
+    "name": "ending"
+  },
+  "assets": [],
+  "patches": [],
+  "render": {
+    "quality": "master",
+    "preset": "bilibili",
+    "concurrency": 1,
+    "outDir": "out/golden-card"
+  }
+}

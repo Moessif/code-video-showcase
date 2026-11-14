@@ -3,7 +3,8 @@
  * ============================================================================
  * 一个「主题」不是一组颜色，而是四件事的组合：
  *   1. 角色色板（palette roles）—— 底色 / 主字 / 强调 / 纸面 / 暗卡 …
- *   2. 材质（material）—— 颗粒、柔光、液态玻璃、烫金、蓝图网格、哑光、水墨、聚光
+ *   2. 材质（material）—— 颗粒、柔光、液态玻璃、烫金、蓝图网格、哑光、水墨、聚光、
+ *      扫描线、暮光带、焦散、织纹（v3 新增 4 种）
  *   3. HUD 规格 —— 胶囊标签 / 倒计时 / 水印在浅底和暗底上的不同画法
  *   4. 推荐点缀色（accents）+ 适用场景 —— 给 11 个风格段和 agent 的选色建议
  *
@@ -27,7 +28,7 @@
  * ============================================================================
  */
 
-export const THEME_SCHEMA_VERSION = 1;
+export const THEME_SCHEMA_VERSION = 3; // v3 adds four skins + four material kinds
 
 /* ────────────────────────────────────────────────────────────────────────────
  * 主题数据
@@ -518,11 +519,464 @@ export const THEMES = {
       fonts: ['Playfair Display', 'Noto Sans SC', 'JetBrains Mono'],
     },
   },
+
+  /* 9 ── 赛博霓虹（OKLCH 生成：青 × 品红）────────────────────────────── */
+  'cyber-neon': {
+    id: 'cyber-neon',
+    name: '赛博霓虹',
+    nameEn: 'Cyber Neon',
+    mode: 'dark',
+    tagline: '近黑底 + 电光青，品红只做第二重音',
+    useFor: '科技 / 游戏 / 预告片 / 直播',
+    aliases: ['cyber', 'neon', '赛博', '霓虹'],
+    colors: {
+      bg: '#070d1a', bgDeep: '#01030c', surface: '#0f182b',
+      ink: '#ecf3f8', muted: '#9099a5',
+      accent: '#00dadd', accentInk: '#111111', accentSoft: '#8cebea',
+      paper: '#ecf3f8', paperInk: '#090d16', paperMuted: '#4d5566',
+      cardDark: '#040915', cardDarkInk: '#e9f0f5', flash: '#ffffff',
+    },
+    accents: [
+      { name: '电光青', hex: '#00dadd' },
+      { name: '品红', hex: '#ff2bd6' },
+      { name: '酸性绿', hex: '#b6ff2e' },
+      { name: '电紫', hex: '#8a5cff' },
+    ],
+    hud: {
+      capsuleBg: 'rgba(5,8,16,0.78)',
+      capsuleBorder: 'rgba(0,218,221,0.35)',
+      capsuleNumber: '#00dadd',
+      capsuleText: '#e9f6ff',
+      hudText: 'rgba(233,246,255,0.42)',
+      countdown: 'rgba(233,246,255,0.7)',
+    },
+    cardSheen: 'rgba(0,218,221,0.08)',
+    material: {
+      kind: 'glow',
+      name: '霓虹辉光',
+      note: '青色辉光只从边角溢出，品红只做第二重音；禁止整屏渐变。',
+      grain: 0.045,
+      glow: { color: '#00dadd', alpha: 0.22, radius: 1100, x: 0.78, y: 0.26 },
+      grid: { color: '#00dadd', alpha: 0.035, step: 96, major: 4, majorAlpha: 0.07 },
+      glass: null, foil: null, tints: null, texture: 'grain',
+    },
+    type: {
+      display: 'Noto Sans SC 900',
+      accent: 'JetBrains Mono',
+      note: '等宽字体承担编号/参数，标题保持黑体；不要用圆体。',
+      fonts: ['Noto Sans SC', 'JetBrains Mono', 'Inter'],
+    },
+  },
+
+  /* 10 ── 纸质手账（OKLCH 生成：暖纸 × 赭红）─────────────────────────── */
+  'paper-journal': {
+    id: 'paper-journal',
+    name: '纸质手账',
+    nameEn: 'Paper Journal',
+    mode: 'light',
+    tagline: '米白纸 + 赭红印章，像一本工作笔记',
+    useFor: '知识 / 教程 / 生活 / 访谈',
+    aliases: ['journal', 'paper', '手账', '纸质'],
+    colors: {
+      bg: '#f5f1e9', bgDeep: '#ebe4d6', surface: '#fefcf6',
+      ink: '#1e130e', muted: '#635146',
+      accent: '#c13e2e', accentInk: '#ffffff', accentSoft: '#f6c3ba',
+      paper: '#fefcf6', paperInk: '#1e130e', paperMuted: '#635146',
+      cardDark: '#1e130e', cardDarkInk: '#f5f1e9', flash: '#ffffff',
+    },
+    accents: [
+      { name: '赭红', hex: '#c13e2e' },
+      { name: '墨蓝', hex: '#2f5d8a' },
+      { name: '橄榄', hex: '#6f7a4a' },
+      { name: '芥末', hex: '#b8862f' },
+    ],
+    hud: {
+      capsuleBg: 'rgba(30,19,14,0.9)',
+      capsuleBorder: 'rgba(255,255,255,0.18)',
+      capsuleNumber: '#f6c3ba',
+      capsuleText: '#faf6ee',
+      hudText: 'rgba(30,19,14,0.5)',
+      countdown: 'rgba(30,19,14,0.58)',
+    },
+    cardSheen: 'rgba(255,255,255,0.16)',
+    material: {
+      kind: 'paper',
+      name: '手账纸面',
+      note: '暖纸 + 细纤维 + 极淡的装订线；不要光晕，不要玻璃。',
+      grain: 0.035,
+      glow: null,
+      grid: { color: '#8a7258', alpha: 0.035, step: 64, major: 8, majorAlpha: 0.06 },
+      glass: null, foil: null, tints: null, texture: 'paper',
+    },
+    type: {
+      display: 'Noto Serif SC 900',
+      accent: 'Ma Shan Zheng',
+      note: '标题可用宋体/手写体；正文必须黑体，保证小字号可读。',
+      fonts: ['Noto Sans SC', 'Noto Serif SC', 'Ma Shan Zheng', 'JetBrains Mono'],
+    },
+  },
+
+  /* 11 ── 暗金电影（OKLCH 生成：近黑 × 旧金）─────────────────────────── */
+  'dark-gold-cinema': {
+    id: 'dark-gold-cinema',
+    name: '暗金电影',
+    nameEn: 'Dark Gold Cinema',
+    mode: 'dark',
+    tagline: '近黑底 + 旧金烫印，预告片质感',
+    useFor: '高端 / 电影感 / 品牌年度片',
+    aliases: ['dark-gold', 'cinema', '暗金', '电影'],
+    colors: {
+      bg: '#090503', bgDeep: '#020100', surface: '#140e09',
+      ink: '#f0ebe0', muted: '#a1968b',
+      accent: '#e7b643', accentInk: '#111111', accentSoft: '#f3dba9',
+      paper: '#f0ebe0', paperInk: '#120c07', paperMuted: '#554b42',
+      cardDark: '#050301', cardDarkInk: '#f0ebe0', flash: '#ffffff',
+    },
+    accents: [
+      { name: '旧金', hex: '#e7b643' },
+      { name: '香槟', hex: '#f3dba9' },
+      { name: '牛血红', hex: '#8f2f2f' },
+      { name: '祖母绿', hex: '#2f6b5a' },
+    ],
+    hud: {
+      capsuleBg: 'rgba(8,5,3,0.82)',
+      capsuleBorder: 'rgba(231,182,67,0.3)',
+      capsuleNumber: '#e7b643',
+      capsuleText: '#f3ead9',
+      hudText: 'rgba(243,234,217,0.4)',
+      countdown: 'rgba(243,234,217,0.66)',
+    },
+    cardSheen: 'rgba(231,182,67,0.1)',
+    material: {
+      kind: 'foil',
+      name: '金属烫金',
+      note: '金色只做烫印高光与细线，不做大面积金底；暗部保留颗粒。',
+      grain: 0.05,
+      glow: { color: '#e7b643', alpha: 0.16, radius: 980, x: 0.5, y: 0.3 },
+      grid: null, glass: null,
+      foil: { color: 'rgba(231,182,67,0.16)', angle: 24 },
+      tints: null, texture: 'grain',
+    },
+    type: {
+      display: 'Playfair Display + Noto Sans SC',
+      accent: 'Playfair Display',
+      note: '标题用高对比衬线，字距拉开；正文仍用黑体。',
+      fonts: ['Playfair Display', 'Noto Sans SC', 'JetBrains Mono'],
+    },
+  },
+
+  /* 12 ── 冰蓝极简（OKLCH 生成：冷白 × 钴蓝）────────────────────────── */
+  'ice-minimal': {
+    id: 'ice-minimal',
+    name: '冰蓝极简',
+    nameEn: 'Ice Minimal',
+    mode: 'light',
+    tagline: '冷白留白 + 钴蓝一条线，像实验室手册',
+    useFor: 'SaaS / 数据 / 医疗 / 极简品牌',
+    aliases: ['ice', 'minimal', '冰蓝', '极简'],
+    colors: {
+      bg: '#f5f9fc', bgDeep: '#e5edf1', surface: '#fcfefe',
+      ink: '#0c121a', muted: '#51606b',
+      accent: '#2171cc', accentInk: '#ffffff', accentSoft: '#b7d4f9',
+      paper: '#fcfefe', paperInk: '#0c121a', paperMuted: '#51606b',
+      cardDark: '#0c121a', cardDarkInk: '#f1f6f8', flash: '#ffffff',
+    },
+    accents: [
+      { name: '钴蓝', hex: '#2171cc' },
+      { name: '冰青', hex: '#8ec5e8' },
+      { name: '薄荷', hex: '#7fbfa8' },
+      { name: '石板', hex: '#5d6b78' },
+    ],
+    hud: {
+      capsuleBg: 'rgba(12,18,26,0.9)',
+      capsuleBorder: 'rgba(255,255,255,0.2)',
+      capsuleNumber: '#b7d4f9',
+      capsuleText: '#f7fbfe',
+      hudText: 'rgba(12,18,26,0.48)',
+      countdown: 'rgba(12,18,26,0.56)',
+    },
+    cardSheen: 'rgba(255,255,255,0.2)',
+    material: {
+      kind: 'matte',
+      name: '冷白哑光',
+      note: '大面积留白 + 1px 冷灰分割线；唯一彩色是钴蓝，禁止柔光球。',
+      grain: 0.012,
+      glow: null,
+      grid: { color: '#2171cc', alpha: 0.025, step: 120, major: 6, majorAlpha: 0.05 },
+      glass: null, foil: null, tints: null, texture: 'grid',
+    },
+    type: {
+      display: 'Noto Sans SC 700',
+      accent: 'Inter',
+      note: '数字用 Inter tnum，中文标题 700；字距略紧，行高 1.1。',
+      fonts: ['Noto Sans SC', 'Inter', 'JetBrains Mono'],
+    },
+  },
+
+  /* 13 ── 波普酸色（OKLCH 生成：酸性黄绿 × 热粉）────────────────────── */
+  'pop-acid': {
+    id: 'pop-acid',
+    name: '波普酸色',
+    nameEn: 'Pop Acid',
+    mode: 'dark',
+    tagline: '近黑 + 酸性黄绿，热粉做第二击',
+    useFor: '潮流 / 音乐 / 社交 / 青年文化',
+    aliases: ['pop', 'acid', '波普', '酸色'],
+    colors: {
+      bg: '#0b0614', bgDeep: '#030109', surface: '#170e27',
+      ink: '#f8f7ff', muted: '#a299b4',
+      accent: '#dcdb00', accentInk: '#111111', accentSoft: '#ebee9f',
+      paper: '#f5f4fc', paperInk: '#0b0614', paperMuted: '#534663',
+      cardDark: '#07040f', cardDarkInk: '#f8f7ff', flash: '#ffffff',
+    },
+    accents: [
+      { name: '酸性黄绿', hex: '#dcdb00' },
+      { name: '热粉', hex: '#ff3d8b' },
+      { name: '电青', hex: '#00e5ff' },
+      { name: '橘红', hex: '#ff7a1a' },
+    ],
+    hud: {
+      capsuleBg: 'rgba(6,3,12,0.8)',
+      capsuleBorder: 'rgba(220,219,0,0.32)',
+      capsuleNumber: '#dcdb00',
+      capsuleText: '#f8f7ff',
+      hudText: 'rgba(248,247,255,0.42)',
+      countdown: 'rgba(248,247,255,0.7)',
+    },
+    cardSheen: 'rgba(220,219,0,0.1)',
+    material: {
+      kind: 'glow',
+      name: '波普光斑',
+      note: '酸性黄绿做单点爆闪，热粉只做第二色；黑底必须压住饱和度。',
+      grain: 0.06,
+      glow: { color: '#dcdb00', alpha: 0.2, radius: 900, x: 0.3, y: 0.72 },
+      grid: { color: '#ff3d8b', alpha: 0.03, step: 72, major: 4, majorAlpha: 0.06 },
+      glass: null, foil: null, tints: null, texture: 'grain',
+    },
+    type: {
+      display: 'Noto Sans SC 900',
+      accent: 'ZCOOL KuaiLe',
+      note: '标题可以更粗更紧；数字/标签用等宽，形成反差错位。',
+      fonts: ['Noto Sans SC', 'ZCOOL KuaiLe', 'JetBrains Mono'],
+    },
+  },
+
+  /* 14 ── 终端磷光（v3：扫描线 CRT，开发者 / CLI / 开源发布）────────────── */
+  'terminal-phosphor': {
+    id: 'terminal-phosphor',
+    name: '终端磷光',
+    nameEn: 'Terminal Phosphor',
+    mode: 'dark',
+    tagline: '墨绿阴极射线 + 磷光绿，命令行发布片',
+    useFor: '开发者 / CLI / 开源发布 / 终端录屏',
+    aliases: ['terminal', 'phosphor', 'crt', 'cli', '终端', '磷光'],
+    colors: {
+      bg: '#07140d', bgDeep: '#030a06', surface: '#102318',
+      ink: '#d6ffe2', muted: '#83ae92',
+      accent: '#57f28f', accentInk: '#04160b', accentSoft: '#a9f7c2',
+      paper: '#e9f7ec', paperInk: '#0a1c11', paperMuted: '#4b6b55',
+      cardDark: '#04140b', cardDarkInk: '#dcffe6', flash: '#effff3',
+    },
+    accents: [
+      { name: '磷光绿', hex: '#57f28f' },
+      { name: '琥珀字符', hex: '#f2c14e' },
+      { name: '青蓝', hex: '#5cd6d6' },
+      { name: '洋红错误', hex: '#e879a6' },
+    ],
+    hud: {
+      capsuleBg: 'rgba(3,10,6,0.84)',
+      capsuleBorder: 'rgba(87,242,143,0.3)',
+      capsuleNumber: '#57f28f',
+      capsuleText: '#d6ffe2',
+      hudText: 'rgba(214,255,226,0.42)',
+      countdown: 'rgba(214,255,226,0.72)',
+    },
+    cardSheen: 'rgba(87,242,143,0.08)',
+    material: {
+      kind: 'scanline',
+      name: 'CRT 扫描线',
+      note: '4px 横向扫描线 + 极慢滚动的亮带 + 屏幕四角压暗；磷光绿只做辉光，不做整屏渐变。',
+      grain: 0.035,
+      glow: { color: '#57f28f', alpha: 0.16, radius: 820, x: 0.5, y: 0.42 },
+      grid: null, glass: null, foil: null, tints: null, texture: 'grain',
+      scanline: { step: 4, alpha: 0.1, band: 0.055, vignette: 0.34 },
+    },
+    type: {
+      display: 'Noto Sans SC 900',
+      accent: 'JetBrains Mono',
+      note: '编号 / 参数 / 命令一律等宽；标题仍用大字卡固定字体，不换成像素字。',
+      fonts: ['Noto Sans SC', 'JetBrains Mono'],
+    },
+  },
+
+  /* 15 ── 落日暖丘（v3：暮光带，旅行 / 美食 / 生活方式）─────────────────── */
+  'solar-dusk': {
+    id: 'solar-dusk',
+    name: '落日暖丘',
+    nameEn: 'Solar Dusk',
+    mode: 'light',
+    tagline: '奶油暮色 + 陶土落日，暖调生活方式',
+    useFor: '旅行 / 美食 / 生活方式 / 户外',
+    aliases: ['solar', 'dusk', 'sunset', '落日', '暖丘', '暮色'],
+    colors: {
+      bg: '#fff3e6', bgDeep: '#f6ddc4', surface: '#fbe6d2',
+      ink: '#3a2115', muted: '#8a5c43',
+      accent: '#c23c14', accentInk: '#fff3e6', accentSoft: '#f6b48f',
+      paper: '#fffaf2', paperInk: '#3a2115', paperMuted: '#8a6550',
+      cardDark: '#331a0e', cardDarkInk: '#fff3e6', flash: '#ffffff',
+    },
+    accents: [
+      { name: '落日橘', hex: '#c23c14' },
+      { name: '陶土', hex: '#d98b5f' },
+      { name: '橄榄', hex: '#7a7a3c' },
+      { name: '暮紫', hex: '#8a6a9c' },
+    ],
+    hud: {
+      capsuleBg: 'rgba(51,26,14,0.9)',
+      capsuleBorder: 'rgba(246,180,143,0.35)',
+      capsuleNumber: '#f6b48f',
+      capsuleText: '#fff3e6',
+      hudText: 'rgba(58,33,21,0.45)',
+      countdown: 'rgba(58,33,21,0.72)',
+    },
+    cardSheen: 'rgba(255,255,255,0.16)',
+    material: {
+      kind: 'dusk',
+      name: '落日暮光带',
+      note: '底部一条暖橙 → 暮紫的水平色带 + 顶部极淡暖晕；带高只占画面约 1/3，不铺满。',
+      grain: 0.025,
+      glow: { color: '#f6b48f', alpha: 0.2, radius: 980, x: 0.72, y: 0.12 },
+      grid: null, glass: null, foil: null, tints: null, texture: 'grain',
+      dusk: { bandTop: 0.66, warm: '#e98a4a', cool: '#9a6a9c', alpha: 0.22 },
+    },
+    type: {
+      display: 'Noto Sans SC 900',
+      accent: 'Playfair Display 斜体',
+      note: '片头 / 片尾可用衬线斜体拉情绪；正文保持无衬线，避免手写体。',
+      fonts: ['Noto Sans SC', 'Playfair Display', 'JetBrains Mono'],
+    },
+  },
+
+  /* 16 ── 深海青（v3：水下焦散，海洋 / 医疗 / 深科技）──────────────────────
+   * 刻意用紫调藏青 + 天蓝，而不是青绿：与 cyber-neon（#070d1a / #00dadd）
+   * 在 OKLab 色板空间太近会让「参考图反推主题」把两张预览认成同一套。      */
+  'abyss-teal': {
+    id: 'abyss-teal',
+    name: '深海青',
+    nameEn: 'Abyss Teal',
+    mode: 'dark',
+    tagline: '深水藏青 + 天蓝焦散，安静的高级感',
+    useFor: '海洋 / 医疗 / 深科技 / 纪录 / 品牌',
+    aliases: ['abyss', 'ocean', 'deep', '深海', '藏青', '深海青'],
+    colors: {
+      bg: '#0a1226', bgDeep: '#040918', surface: '#16263f',
+      ink: '#f0f2ff', muted: '#93a2c2',
+      accent: '#7fb8ef', accentInk: '#04121a', accentSoft: '#c9e2f8',
+      paper: '#eef1fb', paperInk: '#0a1424', paperMuted: '#4c5f78',
+      cardDark: '#050d1e', cardDarkInk: '#f0f2ff', flash: '#f8faff',
+    },
+    accents: [
+      { name: '天蓝', hex: '#7fb8ef' },
+      { name: '水母蓝', hex: '#6a9bd8' },
+      { name: '珊瑚', hex: '#e08a72' },
+      { name: '浮游绿', hex: '#8fd6a8' },
+    ],
+    hud: {
+      capsuleBg: 'rgba(4,9,24,0.86)',
+      capsuleBorder: 'rgba(127,184,239,0.3)',
+      capsuleNumber: '#7fb8ef',
+      capsuleText: '#f0f2ff',
+      hudText: 'rgba(240,242,255,0.42)',
+      countdown: 'rgba(240,242,255,0.72)',
+    },
+    cardSheen: 'rgba(127,184,239,0.08)',
+    material: {
+      kind: 'caustics',
+      name: '水下焦散',
+      note: '两三条缓慢漂移的天蓝光脊从上方渗入 + 底部深水渐暗；焦散只走正弦亮线，不画气泡。',
+      grain: 0.04,
+      glow: { color: '#7fb8ef', alpha: 0.14, radius: 1080, x: 0.36, y: 0.08 },
+      grid: null, glass: null, foil: null, tints: null, texture: 'grain',
+      caustics: { color: '#a9d3f5', alpha: 0.075, ridges: 3, depth: 0.2 },
+    },
+    type: {
+      display: 'Noto Sans SC 900',
+      accent: 'Noto Serif SC',
+      note: '标题字重略轻、字距略松；编号用等宽，营造仪器读数感。',
+      fonts: ['Noto Sans SC', 'Noto Serif SC', 'JetBrains Mono'],
+    },
+  },
+
+  /* 17 ── 亚麻宣纸（v3：织纹，出版 / 教育 / 人文）────────────────────────── */
+  'sand-linen': {
+    id: 'sand-linen',
+    name: '亚麻宣纸',
+    nameEn: 'Sand Linen',
+    mode: 'light',
+    tagline: '本色亚麻 + 靛蓝，编辑部与讲义',
+    useFor: '出版 / 教育 / 人文 / 访谈 / 播客',
+    aliases: ['linen', 'sand', 'fabric', '亚麻', '宣纸', '本色'],
+    colors: {
+      bg: '#f3ede1', bgDeep: '#e7ddca', surface: '#eae1cf',
+      ink: '#2d2a22', muted: '#6e6554',
+      accent: '#3f5a8a', accentInk: '#f7f4ea', accentSoft: '#aebbd4',
+      paper: '#fbf8ef', paperInk: '#2d2a22', paperMuted: '#6b6252',
+      cardDark: '#26241e', cardDarkInk: '#f7f4ea', flash: '#ffffff',
+    },
+    accents: [
+      { name: '靛蓝', hex: '#3f5a8a' },
+      { name: '赭石', hex: '#b06a3c' },
+      { name: '苔绿', hex: '#6b7a4a' },
+      { name: '绛红', hex: '#9c4a4a' },
+    ],
+    hud: {
+      capsuleBg: 'rgba(38,36,30,0.9)',
+      capsuleBorder: 'rgba(247,244,234,0.2)',
+      capsuleNumber: '#aebbd4',
+      capsuleText: '#f7f4ea',
+      hudText: 'rgba(45,42,34,0.45)',
+      countdown: 'rgba(45,42,34,0.72)',
+    },
+    cardSheen: 'rgba(255,255,255,0.14)',
+    material: {
+      kind: 'linen',
+      name: '亚麻织纹',
+      note: '极淡的经纬双向细线（12px / 10px）+ 纸边压色；不要玻璃、金属、光晕。',
+      grain: 0.02,
+      glow: null,
+      grid: null, glass: null, foil: null, tints: null, texture: 'grain',
+      linen: { warp: '#8a7c60', weft: '#a99a7c', alpha: 0.045, warpStep: 12, weftStep: 10, edge: 0.05 },
+    },
+    type: {
+      display: 'Noto Sans SC 900',
+      accent: 'Noto Serif SC',
+      note: '标题可用宋体，章节号用等宽；正文禁用手写体，保持讲义的克制。',
+      fonts: ['Noto Sans SC', 'Noto Serif SC', 'JetBrains Mono'],
+    },
+  },
 };
 
 export const THEME_IDS = Object.keys(THEMES);
 export const THEME_LIST = THEME_IDS.map((id) => THEMES[id]);
 export const DEFAULT_THEME = 'coral-noir';
+
+/**
+ * 别名歧义自检：getTheme() 按顺序线性匹配，重复别名会让后注册的主题永远
+ * 解析不到（例如 `teal` 曾同时属于 celadon-paper 和 abyss-teal）。
+ * 返回全部冲突；test-core.mjs 断言它为空，新增主题时不会静默埋雷。
+ */
+export function aliasConflicts() {
+  const seen = new Map();
+  const conflicts = [];
+  for (const theme of THEME_LIST) {
+    for (const raw of theme.aliases || []) {
+      const key = String(raw).toLowerCase();
+      if (seen.has(key)) conflicts.push({ alias: key, first: seen.get(key), second: theme.id });
+      else seen.set(key, theme.id);
+    }
+  }
+  return conflicts;
+}
 
 /* ────────────────────────────────────────────────────────────────────────────
  * 查询 / URL
@@ -546,7 +1000,19 @@ export function themeFromURL(search) {
   let q = search;
   if (q == null && typeof location !== 'undefined') q = location.search;
   const params = new URLSearchParams(q || '');
-  return getTheme(params.get('theme') || params.get('t') || DEFAULT_THEME);
+  const theme = getTheme(params.get('theme') || params.get('t') || DEFAULT_THEME);
+  // `?accent=` / `?accentInk=` / `?accentSoft=`：由 `spec.look.accentOverride` 下发
+  // （品牌色 `cvs brand apply`、以及 accentFix 给出的对比度安全主色）。
+  // 页面读不到 spec，所以覆盖值必须走 URL；不传 → 原样返回主题，逐像素不变。
+  const accent = params.get('accent');
+  const accentInk = params.get('accentInk');
+  const accentSoft = params.get('accentSoft');
+  if (!accent && !accentInk && !accentSoft) return theme;
+  return accentOverride(theme, {
+    accent: accent || undefined,
+    accentInk: accentInk || undefined,
+    accentSoft: accentSoft || undefined,
+  });
 }
 
 /**
@@ -669,21 +1135,24 @@ export function cardColors(themeRef, layout = 0) {
   const t = getTheme(themeRef);
   const c = t.colors;
   const sheen = t.cardSheen || 'rgba(255,255,255,0.06)';
-  // 关键词色必须能从底色里跳出来；最低 2.2（大字卡关键词是 190px 级特大字，
-  // 不按正文 4.5 要求）。celadon 这类「accent ≈ cardDark」的单色主题会退到 accentSoft。
-  const readable = (preferred, bg, fallbacks, min = 2.2) => {
+  // 关键词色必须能从底色里跳出来；最低 3.0（WCAG 大字 AA；旧值 2.2 低于标准，
+  // N08-F3）。celadon 这类「accent ≈ cardDark」的单色主题会退到 accentSoft。
+  const readable = (preferred, bg, fallbacks, min = 3.0) => {
     const cands = [preferred, ...fallbacks].filter(Boolean);
     return cands.find((hex) => contrastRatio(hex, bg) >= min) || cands[0];
   };
   if (layout === 0) {
+    // R2-05：强调底上的 ink 也要极性兜底——浅色 accent（或 ?color= 覆盖）
+    // 配近白 accentInk 会白字白底。候选含暗/亮两端，挑达标者。
+    const ink0 = readable(c.accentInk, c.accent, [c.cardDarkInk, c.paperInk, '#0e0e0d', '#f7f4ea']);
     return {
       field: 'accent',
       bg: c.accent,
-      ink: c.accentInk,
-      sub: hexToRgba(c.accentInk, 0.55),
-      keyword: c.accentInk,
-      echo: hexToRgba(c.accentInk, 0.07),
-      grid: hexToRgba(c.accentInk, 0.05),
+      ink: ink0,
+      sub: hexToRgba(ink0, 0.55),
+      keyword: ink0,
+      echo: hexToRgba(ink0, 0.07),
+      grid: hexToRgba(ink0, 0.05),
       sheen,
     };
   }
@@ -834,7 +1303,9 @@ export function drawGrain(ctx, themeRef, W, H, t = 0) {
   const ox = Math.round(((t * 30) % 256 + 256) % 256);
   const oy = Math.round(((t * 47) % 256 + 256) % 256);
   ctx.save();
-  ctx.globalAlpha = Math.min(0.5, m.grain * 3.2);
+  // v2: 1.8× instead of 3.2× — the old value read as digital noise at 1080p and
+  // pushed CRF intermediates past 90 Mbps. 0.10 alpha still reads as film grain.
+  ctx.globalAlpha = Math.min(0.5, m.grain * 1.5);
   ctx.translate(-ox, -oy);
   ctx.fillStyle = pattern;
   ctx.fillRect(0, 0, W + 256, H + 256);
@@ -854,6 +1325,97 @@ export function drawVignette(ctx, W, H, alpha = 0.5, inner = 0.42, outer = 0.86)
 }
 
 /**
+ * 静态材质烘焙缓存：linen / dusk / scanline 的静态层（织纹 / 色带 / 扫描线 +
+ * 压角）与 t 无关，逐帧重画在 1080p 下要 300–1100 次 canvas 调用。
+ * 这里把它们烘成一张**透明**离屏画布，逐帧只做一次 drawImage。
+ *
+ * 为什么透明：原绘制顺序是「不透明底色 → glow 呼吸 → 静态层 → 动态层 → 颗粒」。
+ * 静态层全是 source-over，而 source-over 满足结合律，所以把它们先合成到透明画布、
+ * 再整体盖到「底色 + glow」上，与逐层直接画逐值一致；若把底色也烘进去，glow
+ * 就会被盖到静态层之后，顺序错了。
+ *
+ * 动态层（scanline 亮带、caustics 光脊、grain）不烘焙，仍按 t 在主循环里绘制。
+ */
+const _staticMatCache = new Map();
+const BAKED_KINDS = new Set(['linen', 'dusk', 'scanline']);
+// ?noBake=1 只查一次：这个函数逐帧调用，不缓存就等于每帧 new URLSearchParams。
+let _noBakeFlag = null;
+function bakeDisabled() {
+  if (_noBakeFlag === null) {
+    _noBakeFlag = false;
+    try {
+      if (typeof location !== 'undefined' && typeof URLSearchParams !== 'undefined') {
+        _noBakeFlag = new URLSearchParams(location.search).get('noBake') === '1';
+      }
+    } catch { /* location 不可读时按未禁用处理 */ }
+  }
+  return _noBakeFlag;
+}
+function staticMaterialTile(theme, W, H, c, m) {
+  if (typeof document === 'undefined' || !BAKED_KINDS.has(m.kind)) return null;
+  // ?noBake=1：强制走原来的逐层绘制，用于像素级等价回归与问题定位。
+  if (bakeDisabled()) return null;
+  const key = `${theme.id}:${W}x${H}`;
+  if (_staticMatCache.has(key)) return _staticMatCache.get(key);
+  let cv;
+  try {
+    cv = document.createElement('canvas');
+    cv.width = W; cv.height = H;
+  } catch { return null; }
+  const g = cv.getContext('2d');
+  if (!g) return null;
+  // 不填底色：保持透明，让贴图能正确叠在「底色 + glow」之上。
+
+  if (m.kind === 'linen' && m.linen) {
+    const l = m.linen;
+    const warp = l.warpStep || 12, weft = l.weftStep || 10;
+    g.lineWidth = 1;
+    g.strokeStyle = hexToRgba(l.warp, l.alpha ?? 0.045);
+    for (let x = 0; x <= W; x += warp) {
+      g.beginPath(); g.moveTo(x + 0.5, 0); g.lineTo(x + 0.5, H); g.stroke();
+    }
+    g.strokeStyle = hexToRgba(l.weft, (l.alpha ?? 0.045) * 0.8);
+    for (let y = 0; y <= H; y += weft) {
+      g.beginPath(); g.moveTo(0, y + 0.5); g.lineTo(W, y + 0.5); g.stroke();
+    }
+    const edge = g.createLinearGradient(0, 0, 0, H);
+    edge.addColorStop(0, hexToRgba(c.paperInk, l.edge ?? 0.05));
+    edge.addColorStop(0.18, hexToRgba(c.paperInk, 0));
+    edge.addColorStop(0.82, hexToRgba(c.paperInk, 0));
+    edge.addColorStop(1, hexToRgba(c.paperInk, l.edge ?? 0.05));
+    g.fillStyle = edge;
+    g.fillRect(0, 0, W, H);
+  }
+
+  if (m.kind === 'dusk' && m.dusk) {
+    const d = m.dusk;
+    const top = H * (d.bandTop ?? 0.66);
+    const band = g.createLinearGradient(0, top, 0, H);
+    band.addColorStop(0, hexToRgba(d.warm, 0));
+    band.addColorStop(0.28, hexToRgba(d.warm, (d.alpha ?? 0.22) * 0.8));
+    band.addColorStop(1, hexToRgba(d.cool, d.alpha ?? 0.22));
+    g.save();
+    g.globalAlpha = 0.9;
+    g.fillStyle = band;
+    g.fillRect(0, top, W, H - top);
+    g.restore();
+    g.fillStyle = hexToRgba(d.warm, 0.1);
+    g.fillRect(0, top, W, 1);
+  }
+
+  if (m.kind === 'scanline' && m.scanline) {
+    const s = m.scanline;
+    g.fillStyle = hexToRgba(c.ink, s.alpha ?? 0.1);
+    for (let y = 0; y < H; y += (s.step || 4)) g.fillRect(0, y, W, 1);
+    drawVignette(g, W, H, s.vignette ?? 0.34, 0.34, 0.92);
+  }
+
+  if (_staticMatCache.size > 32) _staticMatCache.clear();
+  _staticMatCache.set(key, cv);
+  return cv;
+}
+
+/**
  * 画主题背景：底色 + 材质。所有内容都只由 t 决定，可安全用于逐帧渲染。
  * @param {CanvasRenderingContext2D} ctx
  * @param {object|string} themeRef
@@ -866,14 +1428,26 @@ export function drawThemeBackground(ctx, themeRef, W = 1920, H = 1080, t = 0) {
   const m = theme.material;
   ctx.save();
 
-  // 1) 底色：主色 → 深色 的极轻竖直渐变
+  // 1) 底色：主色 → 深色 的极轻竖直渐变（始终逐帧画，保证不透明基底）。
   const base = ctx.createLinearGradient(0, 0, 0, H);
   base.addColorStop(0, c.bg);
   base.addColorStop(1, c.bgDeep || c.bg);
   ctx.fillStyle = base;
   ctx.fillRect(0, 0, W, H);
 
+  // 静态材质贴图（透明层），Node / 无 document 时为 null，自动走原来的逐层绘制。
+  const baked = staticMaterialTile(theme, W, H, c, m);
+
   // 2) 材质：每种主题一种主材质
+  if (m.glow) {
+    const g = m.glow;
+    const breathe = 0.92 + 0.08 * Math.sin(t * 0.8);
+    radial(ctx, W * g.x, H * g.y, g.radius, g.color, g.alpha * breathe);
+  }
+
+  // 烘焙贴图插在 glow 之后、动态层之前，与原逐层顺序一致。
+  if (baked) ctx.drawImage(baked, 0, 0);
+
   if (m.kind === 'glass') {
     // 莫兰迪柔光：淡绿 / 淡粉 / 雾蓝三团，缓慢呼吸（确定性）
     const tints = m.tints || [c.accentSoft, c.paper];
@@ -891,12 +1465,6 @@ export function drawThemeBackground(ctx, themeRef, W = 1920, H = 1080, t = 0) {
     irid.addColorStop(1, 'rgba(255,255,255,0)');
     ctx.fillStyle = irid;
     ctx.fillRect(0, 0, W, H);
-  }
-
-  if (m.glow) {
-    const g = m.glow;
-    const breathe = 0.92 + 0.08 * Math.sin(t * 0.8);
-    radial(ctx, W * g.x, H * g.y, g.radius, g.color, g.alpha * breathe);
   }
 
   if (m.kind === 'foil' && m.foil) {
@@ -971,6 +1539,100 @@ export function drawThemeBackground(ctx, themeRef, W = 1920, H = 1080, t = 0) {
     edge.addColorStop(0, 'rgba(31,30,29,0.035)');
     edge.addColorStop(0.3, 'rgba(31,30,29,0)');
     edge.addColorStop(1, 'rgba(31,30,29,0.05)');
+    ctx.fillStyle = edge;
+    ctx.fillRect(0, 0, W, H);
+  }
+
+  /* v3 材质：每种都是 t 的纯函数，逐帧确定性，不消耗模块级 RNG。
+   * baked 存在时静态层已由贴图一次盖上，这里只画动态部分。 */
+  if (m.kind === 'scanline' && m.scanline) {
+    const s = m.scanline;
+    if (!baked) {
+      ctx.save();
+      ctx.fillStyle = hexToRgba(c.ink, s.alpha ?? 0.1);
+      for (let y = 0; y < H; y += (s.step || 4)) ctx.fillRect(0, y, W, 1);
+      ctx.restore();
+      drawVignette(ctx, W, H, s.vignette ?? 0.34, 0.34, 0.92);
+    }
+    // CRT：极慢下移的亮带（动态）。
+    const bandY = (((t * 26) % (H + 240)) + H + 240) % (H + 240) - 120;
+    const band = ctx.createLinearGradient(0, bandY - 90, 0, bandY + 90);
+    band.addColorStop(0, hexToRgba(s.bandColor || c.accent, 0));
+    band.addColorStop(0.5, hexToRgba(s.bandColor || c.accent, s.band ?? 0.055));
+    band.addColorStop(1, hexToRgba(s.bandColor || c.accent, 0));
+    ctx.fillStyle = band;
+    ctx.fillRect(0, bandY - 90, W, 180);
+  }
+
+  if (m.kind === 'dusk' && m.dusk && !baked) {
+    // 暮光：地平线以下一条暖→冷的水平色带，顶部渐隐，不铺满全屏。
+    const d = m.dusk;
+    const top = H * (d.bandTop ?? 0.66);
+    const band = ctx.createLinearGradient(0, top, 0, H);
+    band.addColorStop(0, hexToRgba(d.warm, 0));
+    band.addColorStop(0.28, hexToRgba(d.warm, (d.alpha ?? 0.22) * 0.8));
+    band.addColorStop(1, hexToRgba(d.cool, d.alpha ?? 0.22));
+    ctx.save();
+    ctx.globalAlpha = 0.9;
+    ctx.fillStyle = band;
+    ctx.fillRect(0, top, W, H - top);
+    ctx.restore();
+    // 地平线细线：让色带收口，避免像一整块渐变背景。
+    ctx.fillStyle = hexToRgba(d.warm, 0.1);
+    ctx.fillRect(0, top, W, 1);
+  }
+
+  if (m.kind === 'caustics' && m.caustics) {
+    // 水下焦散：三条正弦光脊从上方渗入，随 t 缓慢漂移；底部压深。
+    const k = m.caustics;
+    const ridges = k.ridges ?? 3;
+    const alpha = k.alpha ?? 0.075;
+    ctx.save();
+    ctx.lineWidth = 2;
+    for (let i = 0; i < ridges; i++) {
+      const phase = t * (0.22 + i * 0.07) + i * 1.9;
+      const amp = H * (0.035 + i * 0.012);
+      const baseY = H * (0.12 + i * 0.1);
+      const grad = ctx.createLinearGradient(0, baseY - amp, 0, H * 0.78);
+      grad.addColorStop(0, hexToRgba(k.color, alpha * (1 - i * 0.22)));
+      grad.addColorStop(1, hexToRgba(k.color, 0));
+      ctx.strokeStyle = grad;
+      ctx.beginPath();
+      for (let x = 0; x <= W; x += 24) {
+        const y = baseY + Math.sin(x / (260 + i * 90) + phase) * amp
+          + Math.sin(x / 620 + phase * 0.6) * amp * 0.4;
+        if (x === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+      }
+      ctx.stroke();
+    }
+    ctx.restore();
+    const depth = ctx.createLinearGradient(0, H * 0.62, 0, H);
+    depth.addColorStop(0, hexToRgba(c.bgDeep, 0));
+    depth.addColorStop(1, hexToRgba(c.bgDeep, k.depth ?? 0.2));
+    ctx.fillStyle = depth;
+    ctx.fillRect(0, H * 0.62, W, H * 0.38);
+  }
+
+  if (m.kind === 'linen' && m.linen && !baked) {
+    // 织纹：经纬双向极淡细线 + 纸边压色；线宽固定 1px，不随 t 变化。
+    const l = m.linen;
+    const warp = l.warpStep || 12, weft = l.weftStep || 10;
+    ctx.save();
+    ctx.lineWidth = 1;
+    ctx.strokeStyle = hexToRgba(l.warp, l.alpha ?? 0.045);
+    for (let x = 0; x <= W; x += warp) {
+      ctx.beginPath(); ctx.moveTo(x + 0.5, 0); ctx.lineTo(x + 0.5, H); ctx.stroke();
+    }
+    ctx.strokeStyle = hexToRgba(l.weft, (l.alpha ?? 0.045) * 0.8);
+    for (let y = 0; y <= H; y += weft) {
+      ctx.beginPath(); ctx.moveTo(0, y + 0.5); ctx.lineTo(W, y + 0.5); ctx.stroke();
+    }
+    ctx.restore();
+    const edge = ctx.createLinearGradient(0, 0, 0, H);
+    edge.addColorStop(0, hexToRgba(c.paperInk, l.edge ?? 0.05));
+    edge.addColorStop(0.18, hexToRgba(c.paperInk, 0));
+    edge.addColorStop(0.82, hexToRgba(c.paperInk, 0));
+    edge.addColorStop(1, hexToRgba(c.paperInk, l.edge ?? 0.05));
     ctx.fillStyle = edge;
     ctx.fillRect(0, 0, W, H);
   }

@@ -1,0 +1,152 @@
+{
+  "arch": "x64",
+  "chrome": "Google Chrome 157.0.8103.51",
+  "engineVersion": 2,
+  "fonts": "410182e5b25c22a2bdef168df3bbe281181a603b9d7e012d082ae58749d216cb",
+  "format": "png",
+  "generatedBy": "scripts/golden.mjs",
+  "git": "936b3d4",
+  "manifestVersion": 1,
+  "node": "v24.22.1",
+  "platform": "win32",
+  "specs": [
+    {
+      "duration": 2,
+      "name": "card",
+      "rounds": 1,
+      "spec": "fixtures/golden/card/spec.json",
+      "specHash": "f1947e867e2ed45a569bc491e11575f669ee20ffda69417f58fb21105061b377",
+      "stills": [
+        {
+          "bytes": 4098808,
+          "file": "card/01-t0.300.png",
+          "hash": "bfe250fe7fca927f1c0f990fb5a91a06e5a12ff4016de84f767cddece54ea12d",
+          "kind": "opening",
+          "local": 0.3,
+          "page": "templates/segment.html?theme=coral-noir&mp=standard&title=golden-card&brand=Golden+Labs",
+          "sceneT": 0.3,
+          "segment": "00-opening",
+          "t": 0.3
+        },
+        {
+          "bytes": 1638319,
+          "file": "card/02-t1.000.png",
+          "hash": "407ddbdc5723cd7d0c4b1238151c468c174c1b7820bbc86308ad95ae8e3903dc",
+          "kind": "card",
+          "local": 0.2,
+          "page": "templates/big-card.html?theme=coral-noir&mp=standard&layout=0&index=1&total=1&first=%E6%83%B3%E5%81%9A&keyword=%E9%BB%84%E9%87%91%E5%9F%BA%E7%BA%BF%EF%BC%9F&color=%23ffcf5c&brand=Golden+Labs&seconds=0.4",
+          "sceneT": 0.2,
+          "segment": "r01-card",
+          "t": 1
+        },
+        {
+          "bytes": 777667,
+          "file": "card/03-t1.700.png",
+          "hash": "d3b14ca1c77a8986bdfd1536edd259e4b1411a14fad2f68f934f147386732938",
+          "kind": "more",
+          "local": 0.1,
+          "page": "templates/big-card.html?theme=coral-noir&mp=standard&layout=1&index=2&total=2&first=%E8%BF%98%E6%9C%89&keyword=%E6%9B%B4%E5%A4%9A%EF%BC%9F&brand=Golden+Labs&seconds=0.2",
+          "sceneT": 0.1,
+          "segment": "99-more",
+          "t": 1.7
+        }
+      ],
+      "theme": "coral-noir"
+    },
+    {
+      "duration": 3,
+      "name": "cyber",
+      "rounds": 2,
+      "spec": "fixtures/golden/cyber/spec.json",
+      "specHash": "b5568e99c33501720f6a2d83bac5afbf9612d9b8683ff6e52038a0e7749e5ed6",
+      "stills": [
+        {
+          "bytes": 1820244,
+          "file": "cyber/01-t0.450.png",
+          "hash": "d5ee91785215509e18c41aed57b4ee42169bbe02d6d7d506ee7590b86082b8fa",
+          "kind": "opening",
+          "local": 0.45,
+          "page": "templates/cyber-pixel.html?theme=cyber-neon&mp=standard&title=golden-cyber&brand=Golden+Labs",
+          "sceneT": 0.45,
+          "segment": "00-opening",
+          "t": 0.45
+        },
+        {
+          "bytes": 1766406,
+          "file": "cyber/02-t1.500.png",
+          "hash": "98b8651fd8a0abb8cc37dd69eed9bd515e0e0c66687bfe7e2f2d8ef3e9e71ab8",
+          "kind": "style",
+          "local": 0.7,
+          "page": "templates/cyber-pixel.html?recipe=cyber-pixel&theme=cyber-neon&mp=standard&brand=Golden+Labs&title=%E8%B5%9B%E5%8D%9A%E5%83%8F%E7%B4%A0+%C2%B7+%E6%98%9F%E5%B0%98",
+          "sceneT": 0.8,
+          "segment": "r01-style",
+          "t": 1.5
+        },
+        {
+          "bytes": 1735714,
+          "file": "cyber/03-t2.550.png",
+          "hash": "57cc930e0676cbc5ae6f8a99e3a594fc9d0332709e1ae25179066345aa518b7a",
+          "kind": "style",
+          "local": 0.55,
+          "page": "templates/cyber-pixel.html?recipe=cyber-pixel&theme=cyber-neon&mp=standard&brand=Golden+Labs&title=%E8%B5%9B%E5%8D%9A%E5%83%8F%E7%B4%A0+%C2%B7+%E9%9C%93%E8%99%B9",
+          "sceneT": 1.115,
+          "segment": "r02-style",
+          "t": 2.55
+        }
+      ],
+      "theme": "cyber-neon"
+    },
+    {
+      "duration": 5,
+      "name": "mixed",
+      "rounds": 2,
+      "spec": "fixtures/golden/mixed/spec.json",
+      "specHash": "d8a7297d1bf94d145d255d62ef90572bb47a1665a51c2f53f210d7968ad59c58",
+      "stills": [
+        {
+          "bytes": 82510,
+          "file": "mixed/01-t0.750.png",
+          "hash": "ff45485a9fc460df861fa98caa3470b125fe0035298e39397dc59d7dd5160c8c",
+          "kind": "card",
+          "local": 0.15,
+          "page": "templates/big-card.html?theme=aqua-morandi&mp=standard&accentInk=%23151d1f&layout=1&index=1&total=2&first=%E6%83%B3%E5%81%9A&keyword=%E5%93%81%E7%89%8C%E7%89%87%EF%BC%9F&color=%23ffcf5c&brand=Golden+Labs&seconds=0.4",
+          "sceneT": 0.15,
+          "segment": "r01-card",
+          "t": 0.75
+        },
+        {
+          "bytes": 3426008,
+          "file": "mixed/02-t2.500.png",
+          "hash": "6c6dc43acfbda6ba558b7ce045c1d181a28c21f90bcb9ddedaad286991704a8f",
+          "kind": "style",
+          "local": 0.1,
+          "page": "templates/segment.html?theme=aqua-morandi&mp=standard&accentInk=%23151d1f&brand=Golden+Labs&title=%E6%9F%94%E5%85%89%E7%8E%BB%E7%92%83",
+          "sceneT": 0.475,
+          "segment": "r02-style",
+          "t": 2.5
+        },
+        {
+          "bytes": 3115028,
+          "file": "mixed/03-t4.250.png",
+          "hash": "9b6a218c20106c34edd9f1591eb97de6c0d31344ba029c01f9a1f0efd3a4d585",
+          "kind": "ending",
+          "local": 0.05,
+          "page": "templates/segment.html?theme=aqua-morandi&mp=standard&accentInk=%23151d1f&title=golden-mixed&brand=Golden+Labs&sub=%E7%8E%B0%E5%9C%A8%E5%B0%B1%E8%AF%95%E8%AF%95",
+          "sceneT": 0.05,
+          "segment": "99-ending",
+          "t": 4.25
+        }
+      ],
+      "theme": "aqua-morandi"
+    }
+  ],
+  "times": [
+    0.15,
+    0.5,
+    0.85
+  ],
+  "viewport": {
+    "height": 1080,
+    "width": 1920
+  }
+}

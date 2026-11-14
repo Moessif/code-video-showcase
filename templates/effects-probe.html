@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<link rel="stylesheet" href="/shared/fonts.css">
+<title>effects probe · v2.5</title>
+<style>
+  html, body { margin: 0; padding: 0; overflow: hidden; background: #0e0e0d; }
+  #c { display: block; }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+
+<script type="module">
+// effects-probe.html — 共享效果库（templates/effects.mjs）的渲染探针。
+// 一帧里叠多种效果（粒子/频谱/乱码字/半调/暗角/颗粒），供
+// scripts/test-effects-render.mjs 验证 canvas 包装的确定性与非空白。
+// 渲染契约：window.DURATION / window.renderFrame(t) / __ready / __bootError。
+import { createSegment, applyImpact2D, drawFlash, loadFonts, vars } from './common.js';
+import { themeFromURL, getTheme, loadFontsFor, hexToRgba } from './themes.js';
+import { setupStage, safePad, drawHud, drawTopMeta } from './recipes/util.js';
+import {
+  drawParticles, drawSpectrum, drawScrambleText, drawHalftone,
+  drawVignette, drawDotGrid, drawLightLeak, particleField, scrambleText,
+} from './effects.mjs';
+import { drawGrain } from './motion.js';
+
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d', { alpha: false });
+const { W, H } = setupStage(canvas);
+const pad = safePad(W, H);
+
+const seg = createSegment({ duration: 3.0 });
+window.DURATION = seg.duration;
+const THEME = getTheme(themeFromURL(location.search));
+const TC = THEME.colors;
+const V = vars();
+const BRAND = String(V.brand || 'CVS').slice(0, 24);
+const TITLE = String(V.title || 'DETERMINISTIC EFFECTS').slice(0, 28);
+
+const SANS = '"Noto Sans SC", sans-serif';
+const MONO = '"JetBrains Mono", ui-monospace, monospace';
+const FAMILIES = Array.from(new Set([...(loadFontsFor(THEME) || []), 'Noto Sans SC', 'JetBrains Mono', 'Inter']));
+
+window.renderFrame = (u) => {
+  const { t, fx } = seg.sample(u);
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.globalAlpha = 1;
+  ctx.globalCompositeOperation = 'source-over';
+  ctx.save();
+  applyImpact2D(ctx, fx, W, H);
+
+  ctx.fillStyle = TC.bg;
+  ctx.fillRect(-W, -H, W * 3, H * 3);
+
+  drawDotGrid(ctx, { W, H, step: 48, r: 1.6, color: hexToRgba(TC.accent, 0.10) });
+  drawLightLeak(ctx, { t, seed: 3, W, H, strength: 0.22 });
+  drawParticles(ctx, { kind: 'confetti', t, seed: 7, count: 70, W, H });
+  drawParticles(ctx, { kind: 'embers', t, seed: 11, count: 40, W, H });
+  drawSpectrum(ctx, { t, seed: 2, n: 28, bpm: 120, W, H, color: TC.accent });
+
+  // 半调网点（左上角块）
+  ctx.save();
+  ctx.beginPath();
+  ctx.rect(pad, pad, W * 0.22, H * 0.22);
+  ctx.clip();
+  drawHalftone(ctx, { W, H, cell: 12, color: hexToRgba(TC.accent, 0.5), alpha: 0.5, t, region: { x0: pad, y0: pad, x1: pad + W * 0.22, y1: pad + H * 0.22 } });
+  ctx.restore();
+
+  // 乱码解码标题（p 随 t 推进）
+  const p = Math.min(1, t / 1.6);
+  drawScrambleText(ctx, TITLE, p, {
+    x: W / 2, y: H * 0.42, font: `800 ${Math.round(H * 0.07)}px ${MONO}`,
+    color: TC.paper || '#f5f0e8', seed: 5, t, align: 'center',
+  });
+  ctx.font = `500 ${Math.round(H * 0.026)}px ${SANS}`;
+  ctx.fillStyle = hexToRgba(TC.paper || '#f5f0e8', 0.6);
+  ctx.textAlign = 'center';
+  ctx.fillText('粒子 · 频谱 · 乱码 · 半调 · 暗角 · 颗粒', W / 2, H * 0.52);
+
+  drawVignette(ctx, { W, H, strength: 0.5 });
+  drawGrain(ctx, { W, H, t, alpha: 0.06, seed: 1 });
+
+  drawTopMeta(ctx, { W, H, pad, text: `${BRAND} · EFFECTS`, sub: 'PROBE · v2.5', color: hexToRgba(TC.paper || '#f5f0e8', 0.5), accent: TC.accent });
+  drawHud(ctx, { W, H, u, duration: seg.duration, theme: THEME, label: 'FX', name: 'EFFECTS PROBE', brand: BRAND, pad });
+  ctx.restore();
+  drawFlash(ctx, fx.flash, W, H, TC.flash || '#ffffff');
+};
+
+window.__ready = false;
+window.__bootError = null;
+(async () => {
+  await loadFonts(FAMILIES);
+  window.renderFrame(0);
+  window.__ready = true;
+})().catch((err) => { window.__bootError = String((err && err.stack) || err); });
+window.__seg = seg;
+</script>
+</body>
+</html>

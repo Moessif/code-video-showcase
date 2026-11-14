@@ -1,0 +1,29 @@
+{
+  "id": "tech-dark",
+  "name": "Tech Dark",
+  "aliases": ["tech", "cyber-dark", "科技暗色"],
+  "colors": {
+    "accent": "#00d4ff",
+    "accentInk": "#0e0e0d",
+    "accentSoft": "#6ee0f4"
+  },
+  "logo": {
+    "path": "assets/theme-previews/09-cyber-neon.jpg",
+    "safeArea": { "top": 32, "right": 40, "bottom": 32, "left": 40 },
+    "minWidth": 160
+  },
+  "fonts": {
+    "heading": "Noto Sans SC",
+    "body": "Noto Sans SC",
+    "mono": "JetBrains Mono"
+  },
+  "voice": {
+    "cta": "现在开始构建",
+    "forbiddenWords": ["最好", "第一", "唯一", "顶级", "国家级", "免费", "free", "guaranteed"],
+    "tone": "克制、工程化、用参数说话；不喊口号"
+  },
+  "meta": {
+    "owner": "Tech Dark Brand Team",
+    "updatedAt": "2026-11-11"
+  }
+}

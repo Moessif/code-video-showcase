@@ -16,7 +16,9 @@ fail=0
 printf "%-28s %8s %7s %9s %6s %5s %s\n" "file" "frames" "expect" "duration" "fps" "ok" "codec/pix"
 shopt -s nullglob
 for f in "$DIR"/*.mp4; do
-  read -r codec pix w h rate frames dur < <("$PYTHON" - "$f" <<'PY'
+  # Windows CRLF trap: native ffprobe emits CRLF, and MSYS/Windows Python rewrites \n to
+  # \r\n on stdout too. A stray CR makes the $dur float() and the numeric compares below fail.
+  read -r codec pix w h rate frames dur < <("$PYTHON" - "$f" <<'PY' | tr -d '\r'
 import json, os, subprocess, sys
 probe = os.environ.get("FFPROBE", "ffprobe")
 out = subprocess.check_output([probe, "-v", "error", "-count_frames", "-select_streams", "v:0",
@@ -28,7 +30,8 @@ print(s.get("codec_name", "?"), s.get("pix_fmt", "?"), s.get("width", "?"), s.ge
       s.get("r_frame_rate", "?"), s.get("nb_read_frames", "?"), d.get("format", {}).get("duration", "0"))
 PY
 )
-  expect=$("$PYTHON" -c "print(round(float('$dur')*$FPS))" 2>/dev/null || echo "?")
+  expect=$("$PYTHON" -c "print(round(float('$dur')*$FPS))" 2>/dev/null | tr -d '\r')
+  [ -n "$expect" ] || expect="?"
   ok="OK"
   [ "$codec" = "h264" ] || ok="CODEC"
   [ "$pix" = "yuv420p" ] || ok="PIXFMT"

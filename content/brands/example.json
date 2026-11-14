@@ -1,0 +1,29 @@
+{
+  "id": "example",
+  "name": "Warm Ember",
+  "aliases": ["warm", "ember", "暖色", "暖光"],
+  "colors": {
+    "accent": "#e08a62",
+    "accentInk": "#1f1e1d",
+    "accentSoft": "#f3c6a8"
+  },
+  "logo": {
+    "path": "assets/theme-previews/02-claude-light.jpg",
+    "safeArea": { "top": 28, "right": 28, "bottom": 28, "left": 28 },
+    "minWidth": 140
+  },
+  "fonts": {
+    "heading": "Playfair Display",
+    "body": "Noto Sans SC",
+    "mono": "JetBrains Mono"
+  },
+  "voice": {
+    "cta": "和我们聊聊",
+    "forbiddenWords": ["最强", "绝对", "零风险", "秒杀", "震惊", "best", "guaranteed"],
+    "tone": "温暖、克制，像一封手写的信"
+  },
+  "meta": {
+    "owner": "Warm Ember Studio",
+    "updatedAt": "2026-11-11"
+  }
+}

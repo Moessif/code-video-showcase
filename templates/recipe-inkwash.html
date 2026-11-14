@@ -1,0 +1,446 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<link rel="stylesheet" href="/shared/fonts.css">
+<title>recipe 15 · ink wash</title>
+<style>
+  html, body { margin: 0; padding: 0; overflow: hidden; background: #f7f9f8; }
+  #c { display: block; }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+
+<script type="module">
+// recipe-inkwash.html — 风格段 15「水墨 / 留白 / 笔触扩散」。
+//
+// 渲染契约：
+//   window.DURATION / window.renderFrame(t)（纯函数）/ window.__ready / window.__bootError
+//
+// 画幅（D7）：画布尺寸由 util.setupStage() 从 window.innerWidth / window.innerHeight
+// 取（偶数，缺省 1920×1080）；竖屏把竖排标题列收进右侧安全区。
+//
+// 性能：纸纹 + 3 层墨迹 + 墨点 + 光晕全部在启动时预渲染成离屏画布；
+// 逐帧只做 drawImage / 少量文字，单帧不新建渐变。
+import { createSegment, applyImpact2D, drawFlash, loadFonts, vars } from './common.js';
+import {
+  themeFromURL, getTheme, loadFontsFor, hexToRgba, mix, relativeLuminance,
+} from './themes.js';
+import {
+  TAU, clamp, ease, smooth, hash01, mulberry32, setupStage, safePad,
+  drawTracked, drawHud, drawTopMeta, roundRectPath,
+} from './recipes/util.js';
+import { typeSize, safe, probe } from './tokens.mjs';
+
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d', { alpha: false });
+const { W, H, portrait } = setupStage(canvas);
+const pad = safePad(W, H);
+
+const params = new URLSearchParams(location.search);
+const seg = createSegment({ duration: 3.0 });
+window.DURATION = seg.duration;
+
+const THEME = getTheme(themeFromURL(location.search));
+const TC = THEME.colors;
+const V = vars();
+const TITLE = String(params.get('title') || V.title || '山水之间').slice(0, 6);
+const POEM = String(V.subtitle || '行到水穷处').slice(0, 8);
+const BRAND = String(V.brand || 'CVS').slice(0, 24);
+
+const isLight = THEME.mode === 'light' || relativeLuminance(TC.bg) > 0.55;
+const PAPER_BG = isLight ? mix(TC.paper, TC.bg, 0.22) : TC.bgDeep;
+const INK = isLight ? TC.paperInk : TC.ink;
+const INK_MID = mix(INK, PAPER_BG, 0.45);
+const INK_FAINT = mix(INK, PAPER_BG, 0.7);
+const MUTED = hexToRgba(INK, 0.5);
+const ACCENT = TC.accent;
+const SEAL_INK = isLight ? TC.paper : TC.bgDeep;
+
+const SERIF = '"Noto Serif SC", "Songti SC", serif';
+const MONO = '"JetBrains Mono", ui-monospace, monospace';
+const FAMILIES = Array.from(new Set([
+  ...(loadFontsFor(THEME) || []),
+  'Noto Serif SC', 'Noto Sans SC', 'JetBrains Mono',
+]));
+
+/* ───────────────────────────── 预渲染图层 ───────────────────────────── */
+
+let LAYERS = null;
+
+function makeCanvas(w, h) {
+  const c = document.createElement('canvas');
+  c.width = Math.max(1, Math.round(w));
+  c.height = Math.max(1, Math.round(h));
+  return c;
+}
+
+function buildPaper() {
+  const cv = makeCanvas(W, H);
+  const g = cv.getContext('2d');
+  g.fillStyle = PAPER_BG;
+  g.fillRect(0, 0, W, H);
+
+  const rnd = mulberry32(0x5eed01);
+  const short = Math.min(W, H);
+
+  // 大块冷暖不匀：纸浆的云斑
+  for (let i = 0; i < 14; i++) {
+    const x = rnd() * W;
+    const y = rnd() * H;
+    const r = short * (0.09 + rnd() * 0.24);
+    const tint = i % 2 === 0 ? TC.accentSoft : INK_FAINT;
+    const grad = g.createRadialGradient(x, y, 0, x, y, r);
+    grad.addColorStop(0, hexToRgba(tint, 0.05 + rnd() * 0.04));
+    grad.addColorStop(1, hexToRgba(tint, 0));
+    g.fillStyle = grad;
+    g.fillRect(x - r, y - r, r * 2, r * 2);
+  }
+
+  // 纸纤维
+  g.strokeStyle = hexToRgba(INK, 0.055);
+  g.lineWidth = 1;
+  for (let i = 0; i < 850; i++) {
+    const x = rnd() * W;
+    const y = rnd() * H;
+    const len = 8 + rnd() * 64;
+    g.beginPath();
+    g.moveTo(x, y);
+    g.quadraticCurveTo(x + len * 0.5, y + (rnd() - 0.5) * 3, x + len, y + (rnd() - 0.5) * 1.6);
+    g.stroke();
+  }
+
+  // 四边压色
+  const edge = g.createRadialGradient(W / 2, H / 2, short * 0.34, W / 2, H / 2, Math.max(W, H) * 0.72);
+  edge.addColorStop(0, 'rgba(0,0,0,0)');
+  edge.addColorStop(1, hexToRgba(INK, 0.1));
+  g.fillStyle = edge;
+  g.fillRect(0, 0, W, H);
+  return cv;
+}
+
+function paintWashLayer(g, lw, lh, k) {
+  const rnd = mulberry32(0x9e37 + k * 977);
+  const short = Math.min(lw, lh);
+
+  // 墨团：中心浓、边缘用碎点制造晕开的毛边
+  const blots = 5 + k * 2;
+  for (let i = 0; i < blots; i++) {
+    const cx = lw * (0.08 + rnd() * 0.84);
+    const cy = lh * (0.1 + rnd() * 0.52);
+    const r = short * (0.1 + rnd() * 0.2);
+    const a = 0.09 + rnd() * 0.09;
+    const grad = g.createRadialGradient(cx, cy, 0, cx, cy, r);
+    grad.addColorStop(0, hexToRgba(INK, a));
+    grad.addColorStop(0.55, hexToRgba(INK, a * 0.45));
+    grad.addColorStop(1, hexToRgba(INK, 0));
+    g.fillStyle = grad;
+    g.fillRect(cx - r, cy - r, r * 2, r * 2);
+
+    for (let j = 0; j < 18; j++) {
+      const ang = (j / 18) * TAU + rnd() * 0.22;
+      const rr = r * (0.55 + rnd() * 0.5);
+      g.globalAlpha = 0.045 + rnd() * 0.055;
+      g.fillStyle = INK;
+      g.beginPath();
+      g.arc(cx + Math.cos(ang) * rr, cy + Math.sin(ang) * rr, r * (0.08 + rnd() * 0.16), 0, TAU);
+      g.fill();
+    }
+    g.globalAlpha = 1;
+  }
+
+  // 山脊：远层更高更淡，近层更低更浓
+  const horizon = lh * (0.6 + k * 0.085);
+  g.beginPath();
+  g.moveTo(0, lh);
+  for (let x = 0; x <= lw; x += 3) {
+    const ridge =
+      Math.sin(x * 0.0062 + k * 2.1) * lh * 0.05 +
+      Math.sin(x * 0.0131 + k * 0.9) * lh * 0.028 +
+      (hash01(x | 0, k + 1) - 0.5) * lh * 0.024;
+    g.lineTo(x, horizon - ridge);
+  }
+  g.lineTo(lw, lh);
+  g.closePath();
+  const mg = g.createLinearGradient(0, horizon - lh * 0.12, 0, lh);
+  mg.addColorStop(0, hexToRgba(INK, 0.15 + k * 0.05));
+  mg.addColorStop(0.5, hexToRgba(INK, 0.06 + k * 0.03));
+  mg.addColorStop(1, hexToRgba(INK, 0));
+  g.fillStyle = mg;
+  g.fill();
+
+  // 山脚的皴擦短线
+  g.strokeStyle = hexToRgba(INK, 0.1 + k * 0.03);
+  g.lineWidth = 1;
+  for (let i = 0; i < 60; i++) {
+    const x = rnd() * lw;
+    const y = horizon + rnd() * lh * 0.1;
+    g.beginPath();
+    g.moveTo(x, y);
+    g.lineTo(x + 2 + rnd() * 8, y + 1 + rnd() * 3);
+    g.stroke();
+  }
+}
+
+function buildDot() {
+  const cv = makeCanvas(256, 256);
+  const g = cv.getContext('2d');
+  const grad = g.createRadialGradient(128, 128, 4, 128, 128, 126);
+  grad.addColorStop(0, hexToRgba(INK, 0.55));
+  grad.addColorStop(0.45, hexToRgba(INK, 0.26));
+  grad.addColorStop(0.8, hexToRgba(INK, 0.08));
+  grad.addColorStop(1, hexToRgba(INK, 0));
+  g.fillStyle = grad;
+  g.fillRect(0, 0, 256, 256);
+  // 边缘碎点，避免完美圆形
+  const rnd = mulberry32(0x77aa11);
+  for (let i = 0; i < 40; i++) {
+    const ang = rnd() * TAU;
+    const rr = 96 + rnd() * 26;
+    g.globalAlpha = 0.05 + rnd() * 0.08;
+    g.fillStyle = INK;
+    g.beginPath();
+    g.arc(128 + Math.cos(ang) * rr, 128 + Math.sin(ang) * rr, 2 + rnd() * 7, 0, TAU);
+    g.fill();
+  }
+  return cv;
+}
+
+function buildHalo() {
+  const cv = makeCanvas(256, 256);
+  const g = cv.getContext('2d');
+  const grad = g.createRadialGradient(128, 128, 8, 128, 128, 126);
+  grad.addColorStop(0, hexToRgba(ACCENT, 0.22));
+  grad.addColorStop(0.5, hexToRgba(ACCENT, 0.08));
+  grad.addColorStop(1, hexToRgba(ACCENT, 0));
+  g.fillStyle = grad;
+  g.fillRect(0, 0, 256, 256);
+  return cv;
+}
+
+function buildLayers() {
+  const wash = [];
+  for (let k = 0; k < 3; k++) {
+    const cv = makeCanvas(W * 0.5, H * 0.5);
+    paintWashLayer(cv.getContext('2d'), cv.width, cv.height, k);
+    wash.push(cv);
+  }
+  return { paper: buildPaper(), wash, dot: buildDot(), halo: buildHalo() };
+}
+
+/* ───────────────────────────── 场景 ───────────────────────────── */
+
+function drawWash(t) {
+  const grow = 1 + 0.035 * clamp(t / 3);
+  const fades = [
+    1 - smooth((t - 0.15) / 1.25),
+    smooth((t - 0.4) / 0.9) * (1 - smooth((t - 2.35) / 0.7)),
+    smooth((t - 1.1) / 1.0),
+  ];
+  for (let k = 0; k < 3; k++) {
+    const alpha = clamp(fades[k]);
+    if (alpha <= 0.004) continue;
+    // 取整：半透明大图的非整数缩放会让浏览器抗锯齿结果在帧间抖动（位级不确定）。
+    const dw = Math.round(W * grow);
+    const dh = Math.round(H * grow);
+    ctx.globalAlpha = alpha;
+    ctx.drawImage(LAYERS.wash[k], Math.round((W - dw) / 2), Math.round((H - dh) / 2 - H * 0.01 * k), dw, dh);
+  }
+  ctx.globalAlpha = 1;
+}
+
+function drawSun() {
+  const sr = Math.round(Math.min(W, H) * 0.072);
+  const sx = Math.round(W * (portrait ? 0.24 : 0.2));
+  const sy = Math.round(H * (portrait ? 0.2 : 0.225));
+  ctx.globalAlpha = 0.85;
+  ctx.drawImage(LAYERS.halo, Math.round(sx - sr * 3), Math.round(sy - sr * 3), sr * 6, sr * 6);
+  ctx.globalAlpha = 0.55;
+  ctx.fillStyle = ACCENT;
+  ctx.beginPath();
+  ctx.arc(sx, sy, sr, 0, TAU);
+  ctx.fill();
+  ctx.globalAlpha = 1;
+}
+
+function drawDrop(t) {
+  const p = clamp((t - 0.35) / 1.15);
+  if (p <= 0) return;
+  const r = Math.round(Math.min(W, H) * (0.06 + ease.outCubic(p) * 0.3));
+  const cx = Math.round(W * (portrait ? 0.34 : 0.35));
+  const cy = Math.round(H * 0.46);
+  ctx.globalAlpha = (1 - p * 0.5) * 0.5;
+  ctx.drawImage(LAYERS.dot, Math.round(cx - r), Math.round(cy - r), r * 2, r * 2);
+  ctx.globalAlpha = 1;
+  ctx.strokeStyle = hexToRgba(INK, (1 - p) * 0.16);
+  ctx.lineWidth = 1.5;
+  ctx.beginPath();
+  ctx.arc(cx, cy, r * 0.96, 0, TAU);
+  ctx.stroke();
+}
+
+function drawBirds(t) {
+  ctx.save();
+  ctx.strokeStyle = hexToRgba(INK, 0.5);
+  ctx.lineWidth = Math.max(1, Math.min(W, H) * 0.0016);
+  for (let i = 0; i < 3; i++) {
+    const p = smooth((t - 1.0 - i * 0.18) / 0.5);
+    if (p <= 0.01) continue;
+    const bx = W * (0.15 + i * 0.065) + t * W * 0.012;
+    const by = H * (0.15 + i * 0.036) + Math.sin(t * 0.9 + i * 1.7) * H * 0.008;
+    const wing = Math.min(W, H) * 0.012;
+    ctx.globalAlpha = p * 0.72;
+    ctx.beginPath();
+    ctx.moveTo(bx - wing, by);
+    ctx.quadraticCurveTo(bx - wing * 0.4, by - wing * 0.62, bx, by);
+    ctx.quadraticCurveTo(bx + wing * 0.4, by - wing * 0.62, bx + wing, by);
+    ctx.stroke();
+  }
+  ctx.globalAlpha = 1;
+  ctx.restore();
+}
+
+let TITLE_COL = null;
+
+function buildTitleColumn() {
+  const chars = Array.from(TITLE);
+  const colH = H * (portrait ? 0.55 : 0.62);
+  const size = Math.max(34, Math.round(Math.min(typeSize('title', W, H), (colH / chars.length) * 0.9)));
+  probe('title', size, safe(W, H));
+  const spacing = Math.min(size * 1.18, (colH - size) / Math.max(1, chars.length - 1));
+  return {
+    chars,
+    size,
+    spacing,
+    x: W - pad - size * 0.55,
+    y0: H * (portrait ? 0.13 : 0.145),
+  };
+}
+
+function drawVerticalTitle(t) {
+  const C = TITLE_COL;
+  const n = C.chars.length;
+  ctx.save();
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.font = `900 ${C.size}px ${SERIF}`;
+
+  for (let i = 0; i < n; i++) {
+    const p = clamp((t - 0.5 - i * 0.16) / 0.5);
+    const e = ease.outCubic(p);
+    if (e <= 0.004) continue;
+    const cy = C.y0 + i * C.spacing;
+    // 晕开的淡墨副本 + 主字
+    ctx.globalAlpha = e * 0.3;
+    ctx.fillStyle = INK_MID;
+    ctx.fillText(C.chars[i], C.x + C.size * 0.035, cy + C.size * 0.045);
+    ctx.globalAlpha = e * 0.95;
+    ctx.fillStyle = INK;
+    ctx.fillText(C.chars[i], C.x, cy);
+  }
+  ctx.globalAlpha = 1;
+
+  // 竖排小字
+  const ps = Math.max(11, Math.round(C.size * 0.24));
+  const poemChars = Array.from(POEM);
+  ctx.font = `400 ${ps}px ${SERIF}`;
+  ctx.fillStyle = hexToRgba(INK, 0.55);
+  for (let i = 0; i < poemChars.length; i++) {
+    const p = smooth((t - 1.15 - i * 0.07) / 0.4);
+    if (p <= 0.01) continue;
+    ctx.globalAlpha = p * 0.82;
+    ctx.fillText(poemChars[i], C.x - C.size * 0.92, C.y0 + C.size * 0.5 + i * ps * 1.28);
+  }
+  ctx.globalAlpha = 1;
+  ctx.restore();
+}
+
+function drawSeal(t) {
+  const C = TITLE_COL;
+  const size = C.size * 0.8;
+  const cx = C.x;
+  const cy = C.y0 + (C.chars.length - 1) * C.spacing + C.size * 1.02;
+  const p = clamp((t - 1.95) / 0.32);
+  if (p <= 0.004) return;
+
+  const s = 1 + (1 - ease.outBack(p)) * 0.7;
+  ctx.save();
+  ctx.translate(cx, cy);
+  ctx.rotate(-0.055);
+  ctx.scale(s, s);
+  ctx.globalAlpha = clamp(p * 1.6);
+  roundRectPath(ctx, -size / 2, -size / 2, size, size, size * 0.1);
+  ctx.fillStyle = ACCENT;
+  ctx.fill();
+  roundRectPath(ctx, -size / 2 + size * 0.085, -size / 2 + size * 0.085, size * 0.83, size * 0.83, size * 0.06);
+  ctx.strokeStyle = hexToRgba(SEAL_INK, 0.8);
+  ctx.lineWidth = Math.max(1, size * 0.045);
+  ctx.stroke();
+  ctx.fillStyle = SEAL_INK;
+  ctx.font = `700 ${Math.round(size * 0.54)}px ${SERIF}`;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText('墨', 0, size * 0.015);
+  ctx.globalAlpha = 1;
+  ctx.restore();
+}
+
+/* ───────────────────────────── 渲染入口 ───────────────────────────── */
+
+window.renderFrame = (u) => {
+  const { t, fx } = seg.sample(u);
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.globalAlpha = 1;
+  ctx.globalCompositeOperation = 'source-over';
+
+  ctx.save();
+  applyImpact2D(ctx, fx, W, H);
+  ctx.drawImage(LAYERS.paper, 0, 0, W, H);
+  drawSun();
+  drawWash(t);
+  drawDrop(t);
+  drawBirds(t);
+  drawVerticalTitle(t);
+  drawSeal(t);
+
+  ctx.globalAlpha = 1;
+  drawTracked(ctx, '15 · INK WASH', pad, pad * 0.8, {
+    size: Math.max(11, Math.round(Math.min(W, H) * 0.016)), family: MONO, weight: 600,
+    color: ACCENT, tracking: Math.min(W, H) * 0.0052, baseline: 'middle',
+  });
+  drawTopMeta(ctx, {
+    W, H, pad,
+    text: `${BRAND} · ${String(THEME.nameEn || THEME.id).toUpperCase()}`,
+    sub: 'RECIPE 15 · INK WASH',
+    color: MUTED,
+    accent: ACCENT,
+  });
+  drawHud(ctx, {
+    W, H, u, duration: seg.duration, theme: THEME,
+    label: 'STYLE 15 / 16', name: 'INK WASH', brand: BRAND, pad,
+  });
+  ctx.restore();
+
+  drawFlash(ctx, fx.flash, W, H, TC.flash || '#ffffff');
+};
+
+/* ───────────────────────────── 启动 ───────────────────────────── */
+
+window.__ready = false;
+window.__bootError = null;
+
+(async () => {
+  await loadFonts(FAMILIES);
+  TITLE_COL = buildTitleColumn();
+  LAYERS = buildLayers();
+  window.renderFrame(0);
+  window.__ready = true;
+})().catch((err) => {
+  window.__bootError = String((err && err.stack) || err);
+});
+
+window.__seg = seg;
+</script>
+</body>
+</html>

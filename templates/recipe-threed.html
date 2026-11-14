@@ -1,0 +1,312 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<link rel="stylesheet" href="/shared/fonts.css">
+<title>recipe 20 · three-d</title>
+<style>
+  html, body { margin: 0; padding: 0; overflow: hidden; background: #0e0e0d; }
+  #c { display: block; }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+
+<script type="module">
+// recipe-threed.html — 风格段 20「3D 产品 / 环绕 / 材质高光」。
+//
+// 渲染契约：
+//   window.DURATION / window.renderFrame(t)（纯函数）/ window.__ready / window.__bootError
+//
+// 画幅（D7）：画布尺寸由 util.setupStage() 取视口（偶数，缺省 1920×1080）。
+// 横屏：物体在左、文案在右；竖屏：物体在上、文案在下，尺寸按短边重算。
+//
+// 视觉：一个等距投影的圆角盒子缓慢环绕（yaw 正弦），三个可见面用主题色派生明暗，
+// 顶面有一道随 t 扫过的高光带，地面有椭圆投影，另有一颗小光点绕行。
+// 全部是解析投影 + 多边形填充，没有 WebGL / 没有 Three.js。
+//
+// 确定性：yaw、高光位置、光点角度都是 t 的纯函数；无 Math.random / Date.now / rAF。
+import { createSegment, applyImpact2D, drawFlash, loadFonts, vars } from './common.js';
+import {
+  themeFromURL, getTheme, loadFontsFor, hexToRgba, mix, relativeLuminance,
+} from './themes.js';
+import {
+  TAU, clamp, ease, smooth, setupStage, safePad,
+  fitTextSize, drawTracked, drawHud, drawTopMeta,
+} from './recipes/util.js';
+import { typeSize, safe, probe } from './tokens.mjs';
+
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d', { alpha: false });
+const { W, H, portrait } = setupStage(canvas);
+const pad = safePad(W, H);
+
+const params = new URLSearchParams(location.search);
+const seg = createSegment({ duration: 3.0 });
+window.DURATION = seg.duration;
+
+const THEME = getTheme(themeFromURL(location.search));
+const TC = THEME.colors;
+const V = vars();
+
+const BRAND = String(V.brand || 'CVS').slice(0, 24);
+const TITLE = String(params.get('title') || V.title || '看得见的结构').slice(0, 12);
+const SUB = String(V.subtitle || '环绕 · 材质 · 高光').slice(0, 36);
+
+const isLight = THEME.mode === 'light' || relativeLuminance(TC.bg) > 0.55;
+const INK = isLight ? TC.ink : TC.paper;
+const MUTED = hexToRgba(INK, 0.5);
+const ACCENT = TC.accent;
+
+// 盒子三面的明暗：顶面最亮、正面中间、侧面最暗，全部从主题强调色派生。
+const FACE_TOP = mix(ACCENT, isLight ? '#ffffff' : '#ffffff', 0.46);
+const FACE_FRONT = ACCENT;
+const FACE_SIDE = mix(ACCENT, isLight ? '#000000' : '#000000', 0.30);
+const EDGE = hexToRgba(isLight ? '#000000' : '#ffffff', 0.22);
+
+const SANS = '"Noto Sans SC", "PingFang SC", sans-serif';
+const MONO = '"JetBrains Mono", ui-monospace, monospace';
+const FAMILIES = Array.from(new Set([
+  ...(loadFontsFor(THEME) || []),
+  'Noto Sans SC', 'JetBrains Mono', 'Inter',
+]));
+
+/* ───────────────────────────── 布局 ───────────────────────────── */
+
+let L = null;
+
+function buildLayout() {
+  const short = Math.min(W, H);
+  if (portrait) {
+    const objCy = Math.round(H * 0.36);
+    const objR = Math.round(Math.min(W * 0.30, H * 0.15));
+    const titleMaxW = W - pad * 2;
+    const titleSize = fitTextSize(ctx, TITLE, { maxWidth: titleMaxW * 0.92, family: SANS, weight: 800, maxSize: typeSize('title', W, H), minSize: 32, spacing: 0.02 });
+    probe('title', titleSize, safe(W, H));
+    return {
+      objCx: W / 2, objCy, objR,
+      titleSize, titleX: W / 2, titleY: Math.round(H * 0.64), titleAlign: 'center',
+      subSize: Math.max(13, Math.round(titleSize * 0.28)),
+      subX: W / 2, subY: Math.round(H * 0.64 + titleSize * 1.5), subAlign: 'center',
+    };
+  }
+  const objCx = Math.round(W * 0.30);
+  const objCy = Math.round(H * 0.52);
+  const objR = Math.round(Math.min(W * 0.16, H * 0.28));
+  const textX = Math.round(W * 0.56);
+  const titleMaxW = W - textX - pad;
+  const titleSize = fitTextSize(ctx, TITLE, { maxWidth: titleMaxW, family: SANS, weight: 800, maxSize: typeSize('title', W, H), minSize: 38, spacing: 0.02 });
+  probe('title', titleSize, safe(W, H));
+  return {
+    objCx, objCy, objR,
+    titleSize, titleX: textX, titleY: Math.round(H * 0.48), titleAlign: 'left',
+    subSize: Math.max(13, Math.round(titleSize * 0.22)),
+    subX: textX, subY: Math.round(H * 0.48 + titleSize * 1.25), subAlign: 'left',
+  };
+}
+
+/* ───────────────────────────── 等距投影 ───────────────────────────── */
+
+const ISO_X = Math.cos(Math.PI / 6);
+const ISO_Y = Math.sin(Math.PI / 6);
+
+/**
+ * 正交等距投影。y 轴向上为负（屏幕坐标）。
+ * 返回 [screenX, screenY]。
+ */
+function project(x, y, z, yaw, scale, cx, cy) {
+  const c = Math.cos(yaw);
+  const s = Math.sin(yaw);
+  const rx = x * c - z * s;
+  const rz = x * s + z * c;
+  return [
+    cx + (rx - rz) * ISO_X * scale,
+    cy + (rx + rz) * ISO_Y * scale - y * scale,
+  ];
+}
+
+function facePath(pts) {
+  ctx.beginPath();
+  ctx.moveTo(pts[0][0], pts[0][1]);
+  for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i][0], pts[i][1]);
+  ctx.closePath();
+}
+
+function drawBox(t) {
+  const { objCx: cx, objCy: cy, objR: R } = L;
+  const yaw = Math.sin(t * 0.55) * 0.36;                 // 缓慢环绕
+  // 半边长用**单位坐标**（world units），scale 负责换算成像素。
+  // 之前把像素尺寸又乘了一次 scale，盒子会铺满整个画面。
+  const hw = 0.78, hh = 0.46, hd = 0.78;
+  const scale = R * 0.82;
+
+  const P = (x, y, z) => project(x, y, z, yaw, scale, cx, cy);
+
+  // 地面投影：椭圆，随 yaw 轻微变形
+  const shR = R * (0.82 + Math.abs(Math.sin(yaw)) * 0.08);
+  ctx.save();
+  ctx.globalAlpha = 0.30;
+  ctx.fillStyle = isLight ? hexToRgba('#000000', 0.35) : hexToRgba('#000000', 0.55);
+  ctx.beginPath();
+  ctx.ellipse(cx, cy + R * 0.62, shR, shR * 0.26, 0, 0, TAU);
+  ctx.fill();
+  ctx.restore();
+
+  // 三个可见面。
+  // 这个投影的相机方向是 (1,1,1)：+x / +y / +z 三个面朝向观众。
+  // 注意 +y 在屏幕上是**向上**（sy 减去 y），所以顶面是 y=+hh——取 -hh 会画成底面。
+  const top = [P(-hw, hh, -hd), P(hw, hh, -hd), P(hw, hh, hd), P(-hw, hh, hd)];
+  const front = [P(-hw, -hh, hd), P(hw, -hh, hd), P(hw, hh, hd), P(-hw, hh, hd)];
+  const side = [P(hw, -hh, -hd), P(hw, -hh, hd), P(hw, hh, hd), P(hw, hh, -hd)];
+
+  ctx.save();
+  ctx.lineJoin = 'round';
+  ctx.lineWidth = Math.max(1.5, R * 0.012);
+
+  // 侧面 / 正面 / 顶面（先远后近，避免缝）
+  for (const [pts, fill] of [[side, FACE_SIDE], [front, FACE_FRONT], [top, FACE_TOP]]) {
+    facePath(pts);
+    ctx.fillStyle = fill;
+    ctx.fill();
+    ctx.strokeStyle = EDGE;
+    ctx.stroke();
+  }
+
+  // 顶面高光带：一条斜向白带，位置随 t 从左上扫到右下
+  ctx.save();
+  facePath(top);
+  ctx.clip();
+  const sweep = ((t * 0.55) % 1.6) - 0.3;                // -0.3 .. 1.3
+  const bx = cx + (sweep - 0.5) * R * 2.0;
+  ctx.globalAlpha = 0.30;
+  ctx.fillStyle = '#ffffff';
+  ctx.save();
+  ctx.translate(bx, cy - R * 0.35);
+  ctx.rotate(-0.55);
+  ctx.fillRect(-R * 0.10, -R * 1.6, R * 0.20, R * 3.2);
+  ctx.restore();
+  // 第二道更细的
+  ctx.globalAlpha = 0.16;
+  ctx.save();
+  ctx.translate(bx + R * 0.34, cy - R * 0.35);
+  ctx.rotate(-0.55);
+  ctx.fillRect(-R * 0.035, -R * 1.6, R * 0.07, R * 3.2);
+  ctx.restore();
+  ctx.restore();
+
+  // 正面的一条材质高光（竖直细带，缓慢移动）
+  ctx.save();
+  facePath(front);
+  ctx.clip();
+  const fx = ((t * 0.34) % 1.5) - 0.25;
+  ctx.globalAlpha = 0.12;
+  ctx.fillStyle = '#ffffff';
+  const fxScreen = L.objCx + (fx - 0.5) * R * 1.8;
+  ctx.fillRect(fxScreen, cy - R, R * 0.13, R * 2.2);
+  ctx.restore();
+
+  // 棱边再压一道亮线，强化"产品渲染"感
+  ctx.globalAlpha = 0.5;
+  ctx.strokeStyle = hexToRgba('#ffffff', 0.35);
+  ctx.lineWidth = Math.max(1, R * 0.006);
+  facePath(top);
+  ctx.stroke();
+
+  ctx.restore();
+
+  // 绕行光点：在盒子外侧的椭圆轨道上
+  const ang = t * 0.9 + 0.6;
+  const orbR = R * 1.05;
+  const ox = cx + Math.cos(ang) * orbR;
+  const oy = cy - R * 0.18 + Math.sin(ang) * orbR * 0.42;
+  const glow = ctx.createRadialGradient(ox, oy, 0, ox, oy, R * 0.34);
+  glow.addColorStop(0, hexToRgba('#ffffff', 0.85));
+  glow.addColorStop(0.25, hexToRgba(FACE_TOP, 0.45));
+  glow.addColorStop(1, hexToRgba(FACE_TOP, 0));
+  ctx.save();
+  ctx.fillStyle = glow;
+  ctx.fillRect(ox - R * 0.34, oy - R * 0.34, R * 0.68, R * 0.68);
+  ctx.fillStyle = '#ffffff';
+  ctx.beginPath();
+  ctx.arc(ox, oy, Math.max(2, R * 0.022), 0, TAU);
+  ctx.fill();
+  ctx.restore();
+}
+
+/* ───────────────────────────── 场景 ───────────────────────────── */
+
+function drawScene(t) {
+  drawBox(t);
+
+  // 文案：右侧 / 下方，从 0.15s 起淡入上移
+  const k = ease.outExpo(clamp((t - 0.15) / 0.55));
+  ctx.save();
+  ctx.globalAlpha = k;
+  ctx.textAlign = L.titleAlign;
+  ctx.textBaseline = 'middle';
+  ctx.fillStyle = INK;
+  ctx.font = `800 ${L.titleSize}px ${SANS}`;
+  ctx.fillText(TITLE, L.titleX, L.titleY + (1 - k) * 16);
+
+  const sk = ease.outCubic(clamp((t - 0.42) / 0.5));
+  if (sk > 0.001) {
+    ctx.globalAlpha = k * sk;
+    drawTracked(ctx, SUB, L.subX, L.subY, {
+      size: L.subSize, family: MONO, weight: 500, color: MUTED,
+      tracking: L.subSize * 0.16, align: L.subAlign === 'center' ? 'center' : 'left', baseline: 'middle',
+    });
+  }
+  ctx.restore();
+}
+
+/* ───────────────────────────── 渲染入口 ───────────────────────────── */
+
+window.renderFrame = (u) => {
+  const { t, fx } = seg.sample(u);
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.globalAlpha = 1;
+  ctx.globalCompositeOperation = 'source-over';
+
+  ctx.save();
+  applyImpact2D(ctx, fx, W, H);
+
+  // 底：竖向渐变，启动时烘一次会更好，但这里只有一个渐变，逐帧代价可接受
+  ctx.fillStyle = TC.bg;
+  ctx.fillRect(-W, -H, W * 3, H * 3);
+
+  drawScene(t);
+
+  drawTopMeta(ctx, {
+    W, H, pad,
+    text: `${BRAND} · ${String(THEME.nameEn || THEME.id).toUpperCase()}`,
+    sub: 'RECIPE 20 · THREE-D',
+    color: MUTED,
+    accent: ACCENT,
+  });
+  drawHud(ctx, {
+    W, H, u, duration: seg.duration, theme: THEME,
+    label: 'STYLE 20 / 23', name: 'THREE-D', brand: BRAND, pad,
+  });
+  ctx.restore();
+
+  drawFlash(ctx, fx.flash, W, H, TC.flash || '#ffffff');
+};
+
+/* ───────────────────────────── 启动 ───────────────────────────── */
+
+window.__ready = false;
+window.__bootError = null;
+
+(async () => {
+  await loadFonts(FAMILIES);
+  L = buildLayout();
+  window.renderFrame(0);
+  window.__ready = true;
+})().catch((err) => {
+  window.__bootError = String((err && err.stack) || err);
+});
+
+window.__seg = seg;
+</script>
+</body>
+</html>

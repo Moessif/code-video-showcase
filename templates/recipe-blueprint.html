@@ -1,0 +1,195 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<link rel="stylesheet" href="/shared/fonts.css">
+<title>recipe 28 · blueprint</title>
+<style>
+  html, body { margin: 0; padding: 0; overflow: hidden; background: #0d2b45; }
+  #c { display: block; }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+
+<script type="module">
+// recipe-blueprint.html — 风格段 28「工程蓝图 / 普鲁士蓝 / 尺寸标注 / 标题栏 / 十字线」。
+//
+// 渲染契约：window.DURATION / window.renderFrame(t)（纯函数）/ __ready / __bootError。
+// 画幅（D7）：setupStage() 取视口；竖屏图块上移、标题栏改底部横条。
+//
+// 视觉：普鲁士蓝底、白色线稿、细网格、尺寸箭头与标注、右下角标题栏、
+// 十字定位标记。像一张会动的施工图。
+// 入场：网格淡入，线稿按笔画「画」出来（stroke dash 进度），尺寸标注随后弹出。
+// 确定性：全部 t 的纯函数；点阵用 effects.mjs。
+import { createSegment, applyImpact2D, drawFlash, loadFonts, vars } from './common.js';
+import { themeFromURL, getTheme, loadFontsFor, hexToRgba } from './themes.js';
+import { TAU, clamp, ease, setupStage, safePad, fitTextSize, drawTracked, drawHud, drawTopMeta } from './recipes/util.js';
+import { typeSize, safe, probe } from './tokens.mjs';
+import { drawDotGrid } from './effects.mjs';
+
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d', { alpha: false });
+const { W, H, portrait } = setupStage(canvas);
+const pad = safePad(W, H);
+
+const params = new URLSearchParams(location.search);
+const seg = createSegment({ duration: 3.0 });
+window.DURATION = seg.duration;
+const THEME = getTheme(themeFromURL(location.search));
+const V = vars();
+const BRAND = String(V.brand || 'CVS').slice(0, 24);
+const TITLE = String(params.get('title') || V.title || '结构图示').slice(0, 12);
+const SUB = String(V.subtitle || 'SCALE 1:100 · REV C').slice(0, 40);
+
+const BG = '#0d2b45';
+const LINE = '#cfe3ff';
+const DIM = hexToRgba(LINE, 0.55);
+const ACCENT = '#6fd3ff';
+
+const MONO = '"JetBrains Mono", ui-monospace, monospace';
+const SANS = '"Noto Sans SC", sans-serif';
+const FAMILIES = Array.from(new Set([...(loadFontsFor(THEME) || []), 'JetBrains Mono', 'Noto Sans SC', 'Inter']));
+
+let L = null;
+function buildLayout() {
+  // 图块（一个带孔的法兰盘示意）中心与半径
+  const cx = Math.round(W * (portrait ? 0.5 : 0.42));
+  const cy = Math.round(H * (portrait ? 0.36 : 0.46));
+  const R = Math.round(Math.min(W, H) * (portrait ? 0.22 : 0.26));
+  const titleSize = fitTextSize(ctx, TITLE, { maxWidth: W * 0.4, family: SANS, weight: 700, maxSize: typeSize('title', W, H), minSize: 34, spacing: 0.02 });
+  probe('title', titleSize, safe(W, H));
+  return {
+    cx, cy, R, titleSize,
+    titleX: portrait ? pad : Math.round(W * 0.66),
+    titleY: Math.round(H * (portrait ? 0.66 : 0.40)),
+    subSize: Math.max(12, Math.round(titleSize * 0.24)),
+    blockW: Math.round(W * (portrait ? 0.86 : 0.30)),
+    blockH: Math.round(H * 0.14),
+  };
+}
+
+function arrow(x1, y1, x2, y2) {
+  ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke();
+  const ang = Math.atan2(y2 - y1, x2 - x1);
+  const a = Math.max(6, L.R * 0.06);
+  for (const s of [-1, 1]) {
+    ctx.beginPath();
+    ctx.moveTo(x2, y2);
+    ctx.lineTo(x2 - a * Math.cos(ang + s * 0.4), y2 - a * Math.sin(ang + s * 0.4));
+    ctx.stroke();
+  }
+}
+
+function drawObject(t) {
+  const k = ease.outCubic(clamp((t - 0.2) / 0.9));
+  if (k <= 0.001) return;
+  ctx.save();
+  ctx.strokeStyle = LINE;
+  ctx.lineWidth = 2;
+  // 外圆（按进度画弧）
+  ctx.beginPath();
+  ctx.arc(L.cx, L.cy, L.R, -Math.PI / 2, -Math.PI / 2 + TAU * k);
+  ctx.stroke();
+  // 内孔
+  if (k > 0.4) {
+    ctx.globalAlpha = clamp((k - 0.4) / 0.3);
+    ctx.beginPath(); ctx.arc(L.cx, L.cy, L.R * 0.42, 0, TAU); ctx.stroke();
+    // 螺栓孔分布圆
+    ctx.setLineDash([6, 6]);
+    ctx.strokeStyle = DIM;
+    ctx.beginPath(); ctx.arc(L.cx, L.cy, L.R * 0.7, 0, TAU); ctx.stroke();
+    ctx.setLineDash([]);
+    // 4 个螺栓孔
+    ctx.strokeStyle = LINE;
+    for (let i = 0; i < 4; i++) {
+      const a = (i / 4) * TAU + Math.PI / 4;
+      ctx.beginPath(); ctx.arc(L.cx + Math.cos(a) * L.R * 0.7, L.cy + Math.sin(a) * L.R * 0.7, L.R * 0.1, 0, TAU); ctx.stroke();
+    }
+    // 中心十字
+    ctx.strokeStyle = ACCENT;
+    ctx.lineWidth = 1;
+    const c = L.R * 0.16;
+    ctx.beginPath();
+    ctx.moveTo(L.cx - c, L.cy); ctx.lineTo(L.cx + c, L.cy);
+    ctx.moveTo(L.cx, L.cy - c); ctx.lineTo(L.cx, L.cy + c);
+    ctx.stroke();
+  }
+  ctx.restore();
+
+  // 尺寸标注（直径）
+  const dk = ease.outCubic(clamp((t - 0.9) / 0.5));
+  if (dk > 0.001) {
+    ctx.save();
+    ctx.globalAlpha = dk;
+    ctx.strokeStyle = DIM;
+    ctx.lineWidth = 1;
+    const y = L.cy + L.R + L.R * 0.28;
+    arrow(L.cx, y, L.cx - L.R, y);
+    arrow(L.cx, y, L.cx + L.R, y);
+    ctx.beginPath(); ctx.moveTo(L.cx - L.R, L.cy + L.R * 0.2); ctx.lineTo(L.cx - L.R, y + 6); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(L.cx + L.R, L.cy + L.R * 0.2); ctx.lineTo(L.cx + L.R, y + 6); ctx.stroke();
+    ctx.fillStyle = ACCENT;
+    ctx.font = `500 ${Math.round(L.R * 0.13)}px ${MONO}`;
+    ctx.textAlign = 'center';
+    ctx.fillText(`Ø ${(L.R * 2).toFixed(0)}`, L.cx, y - 8);
+    ctx.restore();
+  }
+}
+
+function drawTitleBlock(t) {
+  const bk = ease.outCubic(clamp((t - 0.6) / 0.5));
+  if (bk <= 0.001) return;
+  const bx = portrait ? Math.round((W - L.blockW) / 2) : W - pad - L.blockW;
+  const by = H - pad - L.blockH;
+  ctx.save();
+  ctx.globalAlpha = bk;
+  ctx.strokeStyle = LINE;
+  ctx.lineWidth = 1.5;
+  ctx.strokeRect(bx + 0.5, by + 0.5, L.blockW, L.blockH);
+  ctx.beginPath(); ctx.moveTo(bx, by + L.blockH * 0.5); ctx.lineTo(bx + L.blockW, by + L.blockH * 0.5); ctx.stroke();
+  ctx.fillStyle = LINE;
+  ctx.font = `700 ${Math.round(L.titleSize * 0.5)}px ${SANS}`;
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(TITLE, bx + 14, by + L.blockH * 0.27);
+  ctx.fillStyle = DIM;
+  ctx.font = `500 ${L.subSize}px ${MONO}`;
+  ctx.fillText(SUB, bx + 14, by + L.blockH * 0.74);
+  ctx.restore();
+}
+
+window.renderFrame = (u) => {
+  const { t, fx } = seg.sample(u);
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.globalAlpha = 1;
+  ctx.globalCompositeOperation = 'source-over';
+  ctx.save();
+  applyImpact2D(ctx, fx, W, H);
+  ctx.fillStyle = BG;
+  ctx.fillRect(-W, -H, W * 3, H * 3);
+  drawDotGrid(ctx, { W, H, step: 40, r: 1, color: hexToRgba(LINE, 0.10) });
+  // 图框
+  ctx.strokeStyle = hexToRgba(LINE, 0.4);
+  ctx.lineWidth = 1;
+  ctx.strokeRect(pad * 0.6 + 0.5, pad * 0.6 + 0.5, W - pad * 1.2, H - pad * 1.2);
+  drawObject(t);
+  drawTitleBlock(t);
+  drawTopMeta(ctx, { W, H, pad, text: `${BRAND} · BLUEPRINT`, sub: 'RECIPE 28 · TECHNICAL', color: DIM, accent: ACCENT });
+  drawHud(ctx, { W, H, u, duration: seg.duration, theme: THEME, label: 'STYLE 28', name: 'BLUEPRINT', brand: BRAND, pad, accent: ACCENT, ink: DIM, frameColor: LINE });
+  ctx.restore();
+  drawFlash(ctx, fx.flash, W, H, '#ffffff');
+};
+
+window.__ready = false;
+window.__bootError = null;
+(async () => {
+  await loadFonts(FAMILIES);
+  L = buildLayout();
+  window.renderFrame(0);
+  window.__ready = true;
+})().catch((err) => { window.__bootError = String((err && err.stack) || err); });
+window.__seg = seg;
+</script>
+</body>
+</html>
