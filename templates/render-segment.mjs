@@ -228,9 +228,10 @@ function launchFfmpeg(outFile, opts) {
   const codec = [
     '-c:v', 'libx264', '-preset', opts.preset, '-crf', String(opts.crf),
     ...(opts.tune ? ['-tune', opts.tune] : []),
-    // R2-11：段编码也钉死线程 + bitexact——帧渲染确定（golden 静帧稳定），
-    // 但 x264 auto 线程数会让段 mp4 逐次不同，破坏 master 幂等。与 concat 链一致。
-    '-threads', '2', '-x264-params', 'threads=2:lookahead_threads=1:rc-lookahead=10',
+    // R2-11：段编码钉死单线程 + bitexact——x264 帧线程>1 即使固定数量仍有调度
+    // 微差（实测 threads=2 解码帧全同但码流大小差 ~2KB）。单线程保证逐字节确定。
+    // 段用 veryfast 且短，单线程开销可接受；这是「确定性」卖点的硬保证。
+    '-threads', '1', '-x264-params', 'threads=1:lookahead_threads=1:rc-lookahead=10',
     '-fflags', '+bitexact', '-flags', '+bitexact',
     '-vf', filters,
     '-colorspace', 'bt709', '-color_primaries', 'bt709', '-color_trc', 'bt709', '-color_range', 'tv',
@@ -562,7 +563,15 @@ async function preparePage(ctx, opts, pageOpts) {
 async function warmUp(page, opts) {
   if (!opts.warmup) return;
   try {
-    await page.ev((t) => window.renderFrame(t), 0);
+    // R2-11：swiftshader 渲染器在 ~112 帧后有状态突变（shader 缓存/JIT 预热），
+    // 使通用开场段动画 arc 的抗锯齿出现逐次微差（帧 0-111 确定、112+ 漂移）。
+    // 捕获前先 discard 渲一段序列（只 renderFrame 不抓帧，开销小）越过突变点，
+    // 让捕获帧逐字节确定。recipe 页用简单形状不受影响，此预热对其无害。
+    const fps = opts.fps || 30;
+    const warmFrames = Math.max(150, Math.round(fps * 5));
+    for (let i = 0; i < warmFrames; i++) {
+      await page.ev((t) => window.renderFrame(t), i / fps);
+    }
     await page.ev(() => new Promise((r) => requestAnimationFrame(() => r(true))));
   } catch { /* warm-up is best effort */ }
 }
