@@ -3,6 +3,156 @@
 本项目的版本更新记录。版本号遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)，格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
 每个版本同时发布在 [GitHub Releases](https://github.com/Moessif/code-video-showcase/releases)。
 
+## [v2.6.1] - 2026-11-14 — 离线预览出图、静态材质烘焙、别名歧义清零
+
+上一版留的三个缺口收口：预览图没出（CDP 起不来）、静态材质每帧重画、两处重复别名。
+
+### 离线预览生成器（绕开 CDP）
+- 新增 `scripts/theme-preview-offline.mjs` + `npm run theme:preview:offline`。走 Chrome `--headless=new --screenshot --virtual-time-budget`，**不依赖 CDP WebSocket / Playwright / npm 包**。本机实测 17 套单图 + 2 张拼版全部产出。
+- 根因记录：首版脚本用 `spawnSync` 启动 Chrome，而静态 server 跑在**同一个 Node 进程**里 —— Node 事件循环被阻塞，Chrome 请求 HTML/字体时 server 无法响应，全部超时。改为异步 `spawn` 后立刻通过。
+- `img.decode()` 在 `--virtual-time-budget` 下不 resolve（虚拟时钟不推进真实解码），导致拼版页卡死出全黑图。`theme-sheet.html` 加 `?noDecode=1` 开关（仅离线路径使用），探针确认 `PROBE:READY`。
+- **默认不覆盖已有单图**：01–13 是 `test-assets`（sha256）与 `test-from-reference`（色板聚类）的固定基准。`--only-sheets` 只重建拼版，`--force` 才覆盖单图。首版误覆盖后两个套件红灯，恢复基准 + 重建拼版后清零。
+- 视觉验收：4 套新皮肤逐张确认（扫描线 / 暮光带 / 焦散 / 织纹特征清晰，色板正确，`CONTRAST AUDIT 9/9 PASS`），17 套联系表 6+6+5 三行无裁切、页脚 `17 OF 17`。
+
+### 静态材质离屏烘焙
+- `templates/themes.js` 新增 `staticMaterialTile()`：`linen` / `dusk` / `scanline` 的静态层烘成**透明**离屏画布，逐帧一次 `drawImage`。透明度是关键 —— 保持「底色 → glow 呼吸 → 静态层 → 动态层 → 颗粒」的合成顺序（source-over 结合律），否则 glow 会被盖到静态层之后。
+- 动态层（scanline 亮带、caustics 光脊、grain）不烘焙，仍按 `t` 绘制；`?noBake=1` 可强制回落逐层路径。
+- 逐帧 canvas 操作数（`1920×1080` 实测）：`sand-linen` **1099 → 8**（−99.3%）、`terminal-phosphor` **299 → 21**（−93%）、`solar-dusk` **25 → 15**。
+- 像素级等价验证（真实 Chrome 双路径截图逐像素比对）：最大差 **2/255**、平均 0.10–0.26，差值对称分布且散布全屏，属 canvas 8-bit 半透明合成舍入，无结构性差异。Golden 三套基准主题（`coral-noir` / `cyber-neon` / `aqua-morandi`）均不在烘焙集合，位级门禁不受影响。
+- `test-core.mjs` 新增回归：验证烘焙路径存在 `drawImage`、操作数 < 40、两条路径都确定性、17 套在烘焙/非烘焙两模式下均不抛错。
+
+### 别名歧义清零
+- `getTheme()` 线性匹配别名，重复值让后注册主题永远解析不到。`gold`（`amber-noir` / `dark-gold-cinema`）与 `teal`（`celadon-paper` / `abyss-teal`）冲突：`dark-gold-cinema` 改用 `dark-gold`，`abyss-teal` 改用 `abyss` / `深海青`。
+- 新增 `aliasConflicts()` 自检 + `test-core.mjs` 逐别名回指断言，新增主题不会静默埋雷。
+
+### 测试
+- `node scripts/test-all.mjs`：**21 套件 / 415 通过 / 0 失败**。
+- `theme-audit --strict` 17 套 WCAG 全 PASS；`build-combos --check` 17×20 / 20 preset recommended。
+
+## [v2.6.0] - 2026-11-14 — 4 套新皮肤 + 4 种新材质（主题系统 v3）
+
+`templates/themes.js` 的 `THEME_SCHEMA_VERSION` 2 → 3，主题 13 → 17（9 深 8 浅），材质 8 → 12。
+每套新皮肤都配一种**新材质 kind**，而不是换一组颜色；全部是 `t` 的纯函数、逐帧确定性。
+
+### 新增皮肤
+| id | 名称 | 明暗 | 新材质 | 场景 |
+|---|---|---|---|---|
+| `terminal-phosphor` | 终端磷光 | dark | `scanline` CRT 扫描线 + 慢移亮带 + 压角 | 开发者 / CLI / 开源发布 |
+| `solar-dusk` | 落日暖丘 | light | `dusk` 底部 1/3 暖橙→暮紫色带 + 地平线细线 | 旅行 / 美食 / 户外 |
+| `abyss-teal` | 深海青 | dark | `caustics` 三条天蓝正弦光脊 + 底部深水渐暗 | 医疗 / 海洋 / 深科技 |
+| `sand-linen` | 亚麻宣纸 | light | `linen` 经纬双向 12/10px 细线 + 纸边压色 | 出版 / 教育 / 人文 |
+
+- 4 套的 14 角色色板全部过 `theme-audit --strict`：**WCAG 全 PASS、APCA 零 WARN、HUD 胶囊达标**（全库 9 项 APCA 提醒仍全部来自旧 13 套）。
+- `abyss-teal` 刻意用紫调藏青 + 天蓝而非青绿：`ref-core.mjs` 的参考图反推用 OKLab 色板距离，与 `cyber-neon` 太近会把 `09-cyber-neon.jpg` 的 top-1 认错；调色后 `test-from-reference` 29/29 全绿。
+- 新增 4 组首屏预设（`devops-terminal` / `travel-solar-dusk` / `healthcare-abyss-teal` / `course-sand-linen`），16 → 20 组。
+
+### 真值同步与门禁
+- `scripts/nl2spec.mjs`：`THEME_IDS` 13 → 17，`THEME_RULES` 补 4 套中英文关键词。
+- `scripts/build-combos.mjs`：新增主题行现在从 `combos._meta.families.styleFamily` 解析**全部 20 个**风格的族归属（旧版只认 8 个新风格，新主题行会拒绝写）；`_meta.families.themeMode` / `themeNames` 改为从 `themes.js` 派生，杜绝手写第二份真值。`content/combos.json` 重生成 17×20=340，20 组 preset 全 recommended，`--check` 绿。
+- `scripts/test-core.mjs`：主题数断言 13 → 17，新增「材质 kind 必须登记」与「`nl2spec.THEME_IDS` / `combos` 行 / `themeMode` / `themeNames` 四处真值与 `themes.js` 逐项相等」交叉校验；`test-domains.mjs` 的 `>=13` 改为 `=== THEME_IDS.length`。
+- `templates/theme-board.html` 底部主题条 17 套折成两行（9+8），`theme-sheet.html` 联系表 17 套用 6 列 3 行，避免压到页脚。
+- `SKILL.md` / `README.md` / `ARMED.md` / `references/themes.md` / `intake.md` / `repo-map.md` / `style-recipes.md` / `big-card-and-typography.md` / `docs/ERRORS.md` / app README 等 13 → 17、8 → 12 全部对齐；`references/themes.md` 补 4 套逐项设计说明与 4 种材质表。
+
+### 顺带修掉的真缺陷
+- `scripts/test-script.mjs` 3 个断言把 `flash.count=8` 硬编码成 23 段 / `f08` / `-10` 偏移，与仓库里已改成 `flash.count=4` 的 fixture 漂移（上一轮遗留红灯）。改为从 `spec.structure.flash.count` 派生，不再随 fixture 改动失效。
+
+### 测试
+- `theme-audit --strict`：17 套 WCAG 全 PASS，新 4 套 APCA 零 WARN。
+- `build-combos --check`：17×20 / 20 preset recommended。
+- `node scripts/test-all.mjs`：**21 套件 / 414 通过 / 0 失败**（含 `test-from-reference` 29/29）。
+- 4 种新材质用 Canvas 2D stub 独立验证：逐帧确定性、`t` 驱动行为正确（`linen` 静态，其余随 t 变化）、17 套主题全部无异常渲染。
+- 预览图渲染在本机 CDP/Chrome 无法启动（`window.__ready` 超时，连原版 `coral-noir` 同样失败，属环境边界而非皮肤缺陷）；`assets/theme-previews/14…17` 需在可用 Chrome 的环境执行 `node scripts/theme-preview.mjs --root . --themes terminal-phosphor,solar-dusk,abyss-teal,sand-linen` 重建。
+
+## [v2.5.2] - 2026-11-14 — 多视角集群审计加固：8 视角找真缺陷，逐项落地 + 回归
+
+用 8 个并行只读审计视角（确定性/安全/集成/错误契约/性能/测试覆盖/音频/前端）对 v2.5 全面审查，
+把找到的**真缺陷**逐项修复并各带回归。全套 **33 套件 / 821 通过 / 0 失败**，golden 9 静帧位级一致。
+
+### 修复（CRITICAL / HIGH）
+- **encode() 把启动失败当成功**（CRITICAL）：`c.status || 0` 在 bash/ffmpeg 缺失（status=null）时返回 0，
+  编译器 exit 0 却没有 master.mp4。新增 `spawnStatus()` 把「没跑起来」归为 env/E_SPAWN。
+- **有限溢出绕过资源闸门**（CRITICAL）：`flash.each=1e308` → duration=Infinity → plan.frames=null → 渲染死循环。
+  flash.each 上限 MAX_SEGMENT_SECONDS、flash.count 必须整数、非有限 duration/structure 直接拒绝。
+- **normalizeSpec 污染共享 DEFAULTS.format**（HIGH）：同进程多 spec 串时长，API 拒收合法 job。改为深拷贝 DEFAULTS。
+- **segmentHash 漏 fps/width/height**（HIGH）：换画幅/帧率缓存假命中，横屏帧拷进「竖屏」成片。已补入哈希。
+- **big-card 版式 2/3 背景条纹消耗模块级 RNG**（HIGH）：renderFrame 非 t 的纯函数（stills≠video、D3 重渲漂移）。
+  改为每帧局部种子 RNG。
+- **great-wall 缺 STYLE_DEFAULT_THEME**（HIGH）：显式选 great-wall 静默得 coral-noir + `theme=undefined` 注记。补 dark-gold-cinema。
+- **cvs motion matrix 硬编码 8×12**（HIGH）：改为从 KIND_IDS/STYLE_IDS 导入（24×20）。
+- **nl2spec 丢弃 weixin/xiaohongshu preset**（HIGH）：白名单补全 8 个；ASPECTS 补 3:4/6:7。
+- **评审页跨源轮询被 CORS 拦**（HIGH）：review serve 同源反代 /jobs/* 与 /health，默认即可用。
+- **测试汇总解析丢 failed**（HIGH）：reflow/assets/variants 的 bare 尾行把 failed 吞成 0；去掉冗余行 + 解析器支持中点/分数/反序格式。
+- **xfade 内存上限无测试**（HIGH）：新增静态回归钉死两条拼接路径的线程/lookahead 旗标。
+- **build-combos --check 永不失败**（HIGH）：先修补再查 → 门禁形同虚设。改为只读检测在前；加 --file 覆盖 + 幂等/漂移测试。
+- **暗转场触发 QA 黑帧告警**（HIGH）：meta.transition.dark 的过渡窗黑帧豁免预算，strict/deliver 不再误红。
+
+### 修复（MEDIUM / LOW）
+- 安全：page 路径补 `..`/编码穿越（..%2f）/单反斜杠闸门；outDir 补单反斜杠/控制字符 + errorDir 收容；
+  deepMerge 原型污染闸门；API job.error scrub + 失败兜底 logPath；concat 绝对模式挡换行 + timeline-v1 id 字符闸。
+- 确定性：render-farm legacy 补 --width/--height；cyber-pixel 改 setupStage（D7 竖屏）；theme-sheet 颗粒重置种子；
+  pageContentHash 折入 fonts.lock.json（换字体缓存失效）；模块加载失败快速失败（__pageException）不烧满 timeout。
+- 音频：t=0 开场重音可测（STFT 前置静音 + 偏移还原）；HF key 窗与 synth 对齐、无 key 窗时产出 not-measurable advisory；
+  死 kind 'start' 清理；qa-video true-peak 闸门对齐 -1.0。
+- 集成：领域关键词消歧（游戏攻略→gaming、健身活动→fitness、新歌发布会→music 等）；wizard 3:4/6:7→xiaohongshu/weixin。
+- 前端：wizard 参考图套主题补 avoid 守卫、参考图上传键盘可达、预设/风格计数动态化；script 表格键盘编辑；
+  versions writeCurrent 配额守卫；评审页展示 errorCode/phase/失败段 + 诊断链接、specPath 不再猜路径。
+- 测试：type-tokens 从 STYLE_PAGES 派生（补 6 新风格）+ Chrome 自动发现；style-pages-render 加竖屏 b2 确定性；
+  wizard 测试改临时端口；contract 测试噪声脉冲改种子 LCG；swiss/blueprint 标题对齐字阶 token。
+- 性能（位级不变）：drawDotGrid 烘离屏缓存；greatwall 标题字号启动算一次。
+
+### 测试
+- 新增 `test-hardening.mjs`（11）钉死上述 CRITICAL/HIGH/MEDIUM 修复；transitions 18、domains 11、summary-parse 15。
+- 全套 33 套件 / 821 通过 / 0 失败；golden 3 spec / 9 静帧位级一致。
+
+### 第二轮 9 视角集群补充（N01–N09：新手/设计/后期/Agent/安全/性能/混音/无障碍/验证官）
+
+68 条 finding 去重为 P0×13 / P1×30，本轮再落地以下 distinct 项（台账 `docs/audit2/FINDINGS-ROUND2.md`）：
+
+**交付契约（P0）**
+- **master = 项目原生画幅**（R2-09）：旧版母版硬编 1920×1080，9:16 项目 + `--platform` 的 QA size 必红、从第一天出不了绿灯。母版改用 `spec.format` 原生尺寸 + master 预设高码率，平台版才是派生尺寸。3s 竖屏回归 qa-video 20/0/0。
+- **每条交付件都过 QA**（R2-01）：旧 QA 只测 master，平台件裸奔——实测 douyin.mp4 +2.67 dBTP / 0.0 dBFS 削顶出闸仍记 qaPass:true。compile 现遍历 master + 各平台件分别跑 qa-video/qa-audio；qa-audio 支持 mp4 直读（内部抽流）。
+- **true-peak 天花板**（R2-01）：concat 编码链 loudnorm 后接 **4× 过采样真峰限幅**（`aresample=192000,alimiter=limit=0.562,aresample=48000`）——采样峰限幅管不住 AAC inter-sample 过冲（实测平台 192k 件 +2.7dBTP 削顶），过采样域 -5dBFS 保守天花板留足余量，全件 post-AAC ≤ -1dBTP；qa-audio 峰值门改 **8× 过采样 dBTP**（旧版量采样峰是错的物理量）。
+- **qa-audio 假绿堵口**（R2-02/03）：`--plan` 指向不存在文件 → exit 2（旧版静默丢 cue/HF 门禁仍全绿）；有 plan 时门禁完整性断言；24/32-bit 位深改读 `wave.getsampwidth()`（旧版按幅值猜，低电平 32-bit 全表错 18 dB）。
+
+**编码链（P1）**
+- **GOP/level 受控**（R2-21/22）：`keyint=2×fps`（≤2s，平台二转友好）+ 固定 `level 4.1`（>1080p→5.0），不再让 x264 按 CPB 反推出 master 5.0 / douyin 4.0 打架。
+- **two-pass 参数对齐**（R2-23）：pass1 补齐 X264_PARAMS/COLOR_TAGS/level（旧版缺 AQ/cutree 统计自始错误）。
+- **master.mp4 幂等（部分，根因已定位）**（R2-11）：编码链全段钉死 `threads=2:lookahead_threads=1:rc-lookahead=10` + `-fflags +bitexact -flags +bitexact`（render-segment 与 concat 一致）。实测音频/配方页/大字卡段逐字节一致；**残余非确定性定位到渲染层**——segment.html 通用开场的动画 arc/径向渐变在 swiftshader 软件光栅下有抗锯齿浮点微差（固定 t 的 golden 静帧稳定，连续视频帧微差），非编码层。真实项目用配方页（简单形状）时输出确定；通用开场段的逐帧幂等待确定性光栅方案。
+- **并发钳制**（R2-10）：render-farm 上限按物理核估算（16 逻辑核→4 worker），超额请求钳并告警——实测 c8 在 16 核上 8/23 段 CDP 超时且负收益。
+
+**像素（P0/P1，golden 已重定 + 目视对照）**
+- **胶囊 HUD 文字对齐泄漏**（R2-06）：`drawCapsuleLabel` 显式 `textAlign='left'`——旧版继承场景的 center/right，文字溢出药丸框、浅色主题整条不可读（全主题全帧）。
+- **胶囊兜底复读标题**（R2-29）：eyebrow 兜底改品牌而非 `TITLE.slice`（仅传 ?title= 时不再标题复读两遍）。
+- **layout0 白字白底**（R2-05）：big-card/themes.js 字色按**实际底色**极性择色（候选含暗/亮两端，≥3:1）；timeline 不再硬编 #ffcf5c 黄底；readable 阈值 2.2→3.0（WCAG 大字 AA）。
+- **八连闪 WCAG 2.3.1**（R2-04/25）：默认/fixture flash 8×0.25s（3.75Hz 全画面白闪，光敏风险）→ 4×0.5s（2Hz）；flash 间距默认由**拍**派生（60/bpm），任意 BPM 落拍网格；qa-video 新增 YAVG 闪烁率闸门（>3 对/秒 WARN，strict 红）。
+
+**音频（P1）**
+- **tempo 八度归一**（R2-26）：有 plan 时检出值折叠到目标八度（自相关天生八度歧义）；无节奏素材置信度地板 → tempo=None（旧版纯正弦报 90.81 还 PASS）。
+- **synth LUFS 闭环**（R2-27）：master() 加 BS.1770 K-weighting 迭代到 -14 LUFS 再压峰值（旧版只峰值归一，响度随 BPM/时长漂 2.9 dB）；直出 wav 即交付级（实测 -14.03 LUFS / TP -2.52）。
+
+**机器消费者 / 集成（P1）**
+- **build --json**（R2-14）：stdout 单行结果 JSON，进度（含子进程）退 stderr；dry-run/成功/失败三态都 emit。
+- **plan 退出码契约**（R2-15）：spec 错 exit 10、usage exit 2（旧版一律 1，agent 路由表无此支）。
+- **flag allowlist + --set 字符串语义**（R2-16）：未知 flag exit 2 + did-you-mean（`--strik` 不再静默吞 strict）；`--set` 值默认字符串（`2024`/`007` 不再被强转 Number），`--set-json` 显式转型；顶层键拼写检查。
+- **manifest 增量可校验**（R2-17）：cached 条目补 expected/framesVerified；段键按 plan 时间轴排序（旧版键序=worker 完成顺序，幂等比较每轮误判）。
+- **API 并发尊重 spec + evict 清盘**（R2-19）：不再硬编 --concurrency 2；evictOldJobs 同步 fs.rm job 目录（旧版只删内存，长跑撑爆 outDir）。
+- **wizard/surface --help**（R2-35）：只打用法+URL 即退出，不再起服务占端口。
+- **brand 兜底漏检**（R2-36）：brand==title==name（cvs new 兜底）→ W_BRAND_FALLBACK（strict 升级 error）。
+- **SRT BOM+CRLF / VTT Language / 字幕间隙**（R2-32/33）：SRT 带 UTF-8 BOM+CRLF（记事本/剪辑器不乱码）；VTT 加 Language 头；相邻 cue ≥0.1s 呼吸；more 段补 cue。
+- **golden 探测失败≠相符**（R2-12）：Chrome 探测与渲染器同源（browserCandidates），probe-failed 判不匹配（旧版 actual:null 仍 match:true 假绿）。
+- **combos 锚定渲染真值**（R2-41）：test-domains 断言 STYLE_PAGES==STYLE_IDS 且每主题×每风格全格覆盖。
+- **install.ps1 CI 语法门禁**（R2-08）：windows-static job 用 PowerShell Parser 校验，防再次被剥光 `$`。
+
+### 第二轮实测
+- 纯 Node 全量 **409 通过 / 0 失败**（contract 31/31，+5 第二轮回归）；golden 3 spec / 9 静帧位级一致（chrome reason=equal）。
+- **41s 全片 strict 全链路 BUILD_EXIT=0**（`--platform douyin --strict`，全量重渲）：
+  master qa-video **20/0/0/0**（TP -3.15 dBTP）+ qa-audio 7/0/1 advisory；
+  douyin qa-video **18/0/1 advisory/0**（TP -2.13 dBTP，letterbox 黑边=advisory）+ qa-audio 7/0/1 advisory。
+  唯一 advisory 为 beat grid（非阻塞）；真峰全件 ≤ -1 dBTP，响度 -14±1 LUFS。
+- 3s 竖屏 strict：qa-video 20/0/0（R2-09 原生画幅验证）。
+- 非 120 BPM 矩阵（90/120/150）：cue alignment 全 PASS（R2-25 flash 拍派生 + duration 同源）；beat grid advisory 如实报告。
+- synth 直出 41s：-14 LUFS 闭环（R2-27）。
+
 ## [v2.5.1] - 2026-11-14 — 音频质检归零：两个 ADVISORY 清零 + 频谱图去 matplotlib
 
 收官后剩两条 advisory 与一条环境告警。本轮全部清零，41s 全片严格链路 **8 pass / 0 warn / 0 advisory / 0 fail**。

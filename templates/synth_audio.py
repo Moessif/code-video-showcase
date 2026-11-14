@@ -273,17 +273,65 @@ def kick_sidechain(n: int, kicks: list[float], depth: float = 0.55) -> np.ndarra
     return env
 
 
-def master(x: np.ndarray, peak_db: float = -1.5, drive: float = 1.1) -> np.ndarray:
-    """Master bus: soft-clip then normalise to `peak_db`.
+def _k_weight(x: np.ndarray, sr: int) -> np.ndarray:
+    """ITU-R BS.1770-4 K-weighting（高频架 + 高通），用于 LUFS 测量。"""
+    from scipy import signal
+    if sr == 48000:
+        b1 = [1.53512485958697, -2.69169618940638, 1.19839281085285]
+        a1 = [1.0, -1.69065929318241, 0.73248077421585]
+        b2 = [1.0, -2.0, 1.0]
+        a2 = [1.0, -1.99004745483398, 0.99007225036621]
+    else:
+        # 非 48k：用双线性变换从模拟原型近似（架 +4dB@1681Hz，高通 38Hz）。
+        import math
+        f0 = 1681.0; G = 4.0; Q = 0.707
+        A = 10 ** (G / 40); w0 = 2 * math.pi * f0 / sr
+        cw = math.cos(w0); sw = math.sin(w0); alpha = sw / (2 * Q)
+        b0 = A * ((A + 1) + (A - 1) * cw + 2 * math.sqrt(A) * alpha)
+        b1c = -2 * A * ((A - 1) + (A + 1) * cw)
+        b2c = A * ((A + 1) + (A - 1) * cw - 2 * math.sqrt(A) * alpha)
+        a0 = (A + 1) - (A - 1) * cw + 2 * math.sqrt(A) * alpha
+        a1c = 2 * ((A - 1) - (A + 1) * cw)
+        a2c = (A + 1) - (A - 1) * cw - 2 * math.sqrt(A) * alpha
+        b1 = [b0 / a0, b1c / a0, b2c / a0]; a1 = [1.0, a1c / a0, a2c / a0]
+        wc = 2 * math.pi * 38.0 / sr; c = math.cos(wc); s = math.sin(wc)
+        al = s / (2 * 0.5)
+        b2 = [1.0, -2.0, 1.0]; a2 = [1 + al, -2 * c, 1 - al]
+        a2 = [v / a2[0] for v in a2]
+    axis = 1 if (x.ndim == 2 and x.shape[0] <= 2) else 0
+    y = signal.lfilter(b1, a1, x, axis=axis)
+    return signal.lfilter(b2, a2, y, axis=axis)
 
-    v2.3.5: 默认峰值从 -0.6 dB 收到 **-1.5 dB**。原来的 -0.6 dB 让合成器自己
-    就超过 qa-audio 的 -1.0 dBFS 门限 —— 自动配乐出的片子在质检里必然 WARN，
-    `--strict` 下必然失败。留 1.5 dB 余量给 AAC 编码与 loudnorm。
+
+def integrated_lufs_synth(x: np.ndarray, sr: int) -> float:
+    """K-weighted 积分响度（无门限近似；密集配乐床与门限版差 <0.3 LU）。"""
+    y = _k_weight(x, sr)
+    if y.ndim == 1:
+        return -0.691 + 10 * np.log10(float(np.mean(y ** 2)) + 1e-12)
+    time_axis = 1 if y.shape[0] <= 2 else 0
+    ms = np.mean(y ** 2, axis=time_axis)
+    return -0.691 + 10 * np.log10(float(np.sum(ms)) + 1e-12)
+
+
+def master(x: np.ndarray, peak_db: float = -1.5, drive: float = 1.1,
+           target_lufs: float = -14.0) -> np.ndarray:
+    """Master bus: soft-clip → LUFS 闭环归一 → 峰值天花板。
+
+    v2.3.5: 峰值 -0.6→-1.5 dB，留余量给 AAC/loudnorm。
+    v2.5.2 R2-27（N07-F7）：旧版只做峰值归一，响度随 BPM/时长漂 2.9 dB
+    （8s@90=-10.9、41s@120=-12.5 LUFS），独立 `qa:audio` 量直出 wav 必 WARN。
+    现在 BS.1770 闭环迭代到 -14 LUFS，再压峰值天花板——直出即交付级响度，
+    与 concat 的 loudnorm 目标一致（后者此时增益≈0）。
     """
     x = np.tanh(x * drive)
-    peak = np.max(np.abs(x)) or 1.0
-    target = 10 ** (peak_db / 20)
-    return x / peak * target
+    ceiling = 10 ** (peak_db / 20)
+    for _ in range(3):
+        lufs = integrated_lufs_synth(x, SR)
+        x = x * (10 ** ((target_lufs - lufs) / 20))
+        peak = np.max(np.abs(x)) or 1.0
+        if peak > ceiling:
+            x = x / peak * ceiling
+    return x
 
 
 # ----------------------------------------------------------------------------- demo arrangement
@@ -379,7 +427,9 @@ def build_arrangement(plan: dict | None = None) -> np.ndarray:
             kind = cue.get("kind")
             place(fx, sub_boom(), tc, 0.55)
             place(drums, kick(), tc, 0.7); kicks.append(tc)
-            if kind in ("start", "card-keyword"):
+            # 'start' 从不是真实 cue kind（段首 cue 的 kind 是 opening/card/style/…），
+            # 旧写法里它永不命中；clap 实际落在 card-keyword（第二拍重音）。
+            if kind == "card-keyword":
                 place(drums, clap(), tc, 0.26)
             if kind == "flash":
                 # 八连闪：低频 click（短 hat 低通），不用高频爆裂

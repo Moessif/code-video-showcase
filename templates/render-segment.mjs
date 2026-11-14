@@ -228,6 +228,10 @@ function launchFfmpeg(outFile, opts) {
   const codec = [
     '-c:v', 'libx264', '-preset', opts.preset, '-crf', String(opts.crf),
     ...(opts.tune ? ['-tune', opts.tune] : []),
+    // R2-11：段编码也钉死线程 + bitexact——帧渲染确定（golden 静帧稳定），
+    // 但 x264 auto 线程数会让段 mp4 逐次不同，破坏 master 幂等。与 concat 链一致。
+    '-threads', '2', '-x264-params', 'threads=2:lookahead_threads=1:rc-lookahead=10',
+    '-fflags', '+bitexact', '-flags', '+bitexact',
     '-vf', filters,
     '-colorspace', 'bt709', '-color_primaries', 'bt709', '-color_trc', 'bt709', '-color_range', 'tv',
     '-video_track_timescale', '90000',
@@ -360,6 +364,9 @@ async function openCdp(opts) {
         b.client.on('Runtime.exceptionThrown', (params, sid) => {
           if (sid !== p.sessionId) return;
           errors.push(params?.exceptionDetails?.exception?.description || params?.exceptionDetails?.text || 'page exception');
+          // 模块加载失败（404 依赖）时模块体不执行，__ready/__bootError 都不会置位。
+          // 立一个旗标让 ready 等待提前退出，而不是烧满 timeout。
+          cdpEvaluate(b.client, p.sessionId, () => { if (!window.__ready) window.__pageException = true; }).catch(() => {});
         }),
         b.client.on('Runtime.consoleAPICalled', (params, sid) => {
           if (sid !== p.sessionId) return;
@@ -372,9 +379,11 @@ async function openCdp(opts) {
         }
         await b.client.send('Page.navigate', { url }, p.sessionId);
         await cdpWaitFor(b.client, p.sessionId, 'document.readyState === "complete" || document.readyState === "interactive"', { timeout: opts.timeout, label: 'document load', warn: opts.warn });
-        await cdpWaitFor(b.client, p.sessionId, 'window.__ready === true || !!window.__bootError', { timeout: opts.timeout, label: 'window.__ready', warn: opts.warn });
+        await cdpWaitFor(b.client, p.sessionId, 'window.__ready === true || !!window.__bootError || !!window.__pageException', { timeout: opts.timeout, label: 'window.__ready', warn: opts.warn });
         const bootError = await cdpEvaluate(b.client, p.sessionId, () => window.__bootError || null);
         if (bootError) throw new Error('page boot error: ' + bootError);
+        const isReady = await cdpEvaluate(b.client, p.sessionId, () => window.__ready === true);
+        if (!isReady && errors.length) throw new Error('page boot error: ' + errors[0]);
         await cdpEvaluate(b.client, p.sessionId, () => document.fonts.ready);
 
         const ev = (fn, arg) => cdpEvaluate(b.client, p.sessionId, fn, arg);

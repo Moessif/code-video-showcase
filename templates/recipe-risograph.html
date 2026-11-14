@@ -106,7 +106,7 @@ function drawScene(t) {
     ctx.beginPath();
     ctx.arc(L.cx, L.cy, L.R * 1.1, 0, TAU);
     ctx.clip();
-    drawHalftone(ctx, { W, H, cell: 8, color: hexToRgba(INK, 0.5), alpha: 0.4, t });
+    drawHalftone(ctx, { W, H, cell: 8, color: hexToRgba(INK, 0.5), alpha: 0.4, t, region: { x0: L.cx - L.R * 1.1, y0: L.cy - L.R * 1.1, x1: L.cx + L.R * 1.1, y1: L.cy + L.R * 1.1 } });
     ctx.restore();
   }
 

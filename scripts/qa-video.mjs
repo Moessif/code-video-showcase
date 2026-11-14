@@ -47,8 +47,10 @@ if (args.help || !FILE) {
 const FFMPEG = process.env.FFMPEG || 'ffmpeg';
 const FFPROBE = process.env.FFPROBE || 'ffprobe';
 const VIDEO = path.resolve(String(FILE));
-const REPORT = path.resolve(String(args.json || path.join('qa', 'qa-video.json')));
-const CONTACT = path.resolve(String(args.contact || path.join('qa', 'contact.jpg')));
+// R2-37（N01-F7/N09-F6）：质检附属产物不再落仓库根——默认跟着被检文件走。
+const QA_DIR = path.join(path.dirname(VIDEO), 'qa');
+const REPORT = path.resolve(String(args.json || path.join(QA_DIR, 'qa-video.json')));
+const CONTACT = path.resolve(String(args.contact || path.join(QA_DIR, 'contact.jpg')));
 const STRICT = !!args.strict;
 
 const report = { file: VIDEO, checkedAt: new Date().toISOString(), checks: [], metrics: {} };
@@ -110,12 +112,24 @@ if (plan) {
 }
 
 // ── 1. container / streams ─────────────────────────────────────────────────
-const probe = ffprobeJson(VIDEO, ['-count_frames', '-show_streams', '-show_format']);
-const v = (probe.streams || []).find((s) => s.codec_type === 'video');
-const au = (probe.streams || []).find((s) => s.codec_type === 'audio');
+// N06-F4/F5（v2.5.2）：`-count_frames` 是整片全解码（41s 1080p 实测 8.5s/遍）。
+// 容器里 x264/muxer 已写 nb_frames，先读元数据；只有元数据缺失、
+// 或 --count-frames 显式要求逐帧核账时才全解码。
+let probe = ffprobeJson(VIDEO, ['-show_streams', '-show_format']);
+let v = (probe.streams || []).find((s) => s.codec_type === 'video');
+let au = (probe.streams || []).find((s) => s.codec_type === 'audio');
+let frames = v && v.nb_frames !== undefined ? Number(v.nb_frames) : NaN;
+let framesSource = 'container';
+if (!v || !Number.isFinite(frames) || frames <= 0 || args['count-frames']) {
+  probe = ffprobeJson(VIDEO, ['-count_frames', '-show_streams', '-show_format']);
+  v = (probe.streams || []).find((s) => s.codec_type === 'video');
+  au = (probe.streams || []).find((s) => s.codec_type === 'audio');
+  frames = Number(v?.nb_read_frames || 0);
+  framesSource = 'decoded';
+}
 if (!v) { add('video stream', 'FAIL', 'no video stream'); }
 else {
-  const frames = Number(v.nb_read_frames || 0);
+  report.metrics.framesSource = framesSource;
   report.metrics.frames = frames;
   report.metrics.codec = v.codec_name;
   report.metrics.pix_fmt = v.pix_fmt;
@@ -151,14 +165,35 @@ function parseDetect(regex, text) {
   return out;
 }
 
-const bd = run(FFMPEG, ['-hide_banner', '-nostats', '-i', VIDEO, '-vf', 'blackdetect=d=0.10:pic_th=0.98:pix_th=0.10', '-an', '-f', 'null', '-']);
-const blacks = parseDetect(/black_start:(?<start>[\d.]+)\s+black_end:(?<end>[\d.]+)\s+black_duration:(?<dur>[\d.]+)/g, bd.stderr);
-const blackTotal = blacks.reduce((s, b) => s + Number(b.dur), 0);
-report.metrics.black = { count: blacks.length, seconds: +blackTotal.toFixed(3), spans: blacks.map((b) => [Number(b.start), Number(b.end)]) };
-add('black frames', blackTotal <= Math.max(0.5, (duration || 61) * 0.01) ? 'PASS' : 'WARN', `${blacks.length} spans, ${blackTotal.toFixed(2)}s total`);
+// N06-F7 + R2-04：blackdetect/freezedetect/signalstats 合并成**一次**解码
+// （旧代码 3 遍全解码；实测单遍合并 1.70s vs 两遍 3.31s）。
+const det = run(FFMPEG, ['-hide_banner', '-nostats', '-i', VIDEO,
+  '-vf', 'blackdetect=d=0.10:pic_th=0.98:pix_th=0.10,freezedetect=n=0.001:d=1.0,signalstats,metadata=print:key=lavfi.signalstats.YAVG:file=-',
+  '-an', '-f', 'null', '-']);
+const detErr = String(det.stderr || '');
+const detOut = String(det.stdout || '');
 
-const fd = run(FFMPEG, ['-hide_banner', '-nostats', '-i', VIDEO, '-vf', 'freezedetect=n=0.001:d=1.0', '-an', '-f', 'null', '-']);
-const freezes = parseDetect(/freeze_start:\s*(?<start>[\d.]+)[\s\S]*?freeze_duration:\s*(?<dur>[\d.]+)/g, fd.stderr);
+const blacks = parseDetect(/black_start:(?<start>[\d.]+)\s+black_end:(?<end>[\d.]+)\s+black_duration:(?<dur>[\d.]+)/g, detErr);
+// 暗转场（fadeblack/circlecrop/rectcrop，meta.transition.dark）故意在段边界产生黑帧。
+// 这些过渡窗内的黑帧不计入预算，否则注册表认可的转场会让 strict/deliver 必红。
+// 过渡窗 = 第 k+1 段平移后起点起的 duration 秒（与 xfade offset 同一真值）。
+const trMeta = plan?.meta?.transition;
+const darkWindows = (trMeta && trMeta.dark)
+  ? (plan?.segments || []).slice(1).map((s) => [s.start, s.start + trMeta.duration])
+  : [];
+const unexpectedBlacks = blacks.filter((b) => {
+  const a = Number(b.start), z = Number(b.end);
+  return !darkWindows.some(([s, e]) => z >= s - 0.05 && a <= e + 0.05);
+});
+const blackTotal = unexpectedBlacks.reduce((s, b) => s + Number(b.dur), 0);
+report.metrics.black = { count: blacks.length, unexpected: unexpectedBlacks.length, seconds: +blackTotal.toFixed(3), spans: blacks.map((b) => [Number(b.start), Number(b.end)]), darkTransitionWindows: darkWindows.length };
+// R2-09 配套：平台件画幅转换（横→竖 letterbox）的黑边是有意 padding，非渲染缺陷。
+// --allow-letterbox 时黑帧降为 advisory（报告但不拦 strict），避免误红。
+const blackOk = blackTotal <= Math.max(0.5, (duration || 61) * 0.01);
+const blackStatus = blackOk ? 'PASS' : (args['allow-letterbox'] ? 'ADVISORY' : 'WARN');
+add('black frames', blackStatus, `${unexpectedBlacks.length}/${blacks.length} spans, ${blackTotal.toFixed(2)}s total${darkWindows.length ? ` (${darkWindows.length} dark-transition windows exempt)` : ''}${args['allow-letterbox'] ? ' [letterbox padding allowed]' : ''}`);
+
+const freezes = parseDetect(/freeze_start:\s*(?<start>[\d.]+)[\s\S]*?freeze_duration:\s*(?<dur>[\d.]+)/g, detErr);
 const staticWindows = (plan?.segments || []).filter((s) => ['card', 'flash', 'more'].includes(s.kind)).map((s) => [s.start, s.end]);
 const unexpectedFreezes = freezes.filter((f) => {
   const a = Number(f.start), b = a + Number(f.dur);
@@ -166,6 +201,55 @@ const unexpectedFreezes = freezes.filter((f) => {
 });
 report.metrics.freeze = { count: freezes.length, unexpected: unexpectedFreezes.length, spans: freezes.map((f) => [Number(f.start), +Number(f.dur).toFixed(3)]) };
 add('frozen frames', unexpectedFreezes.length === 0 ? 'PASS' : 'WARN', `${freezes.length} spans (${unexpectedFreezes.length} outside card/flash windows)`);
+
+// R2-04（N08-F1）：WCAG 2.3.1 闪烁闸门。八连闪 8×0.25s = 3.75 次/秒，
+// 全画面亮度 Δ(相对亮度)=0.32——是判据(0.1)的 3 倍，属光敏风险；
+// 旧的 blackdetect 只看黑帧，白闪一路放行。逐帧 YAVG → sRGB EOTF →
+// 相对亮度摆动计数 → 任意 1s 滑窗内成对闪烁 >3 即不过。
+function flashAnalysis(out) {
+  const times = []; const lumas = [];
+  let pendingT = null;
+  for (const line of out.split(/\r?\n/)) {
+    const mt = line.match(/pts_time:([\d.]+)/);
+    if (mt) { pendingT = Number(mt[1]); continue; }
+    const my = line.match(/lavfi\.signalstats\.YAVG=([\d.]+)/);
+    if (my && pendingT !== null) { times.push(pendingT); lumas.push(Number(my[1])); pendingT = null; }
+  }
+  const lin = lumas.map((y) => {
+    const s = Math.min(1, Math.max(0, y / 255));
+    return s <= 0.04045 ? s / 12.92 : Math.pow((s + 0.055) / 1.055, 2.4);
+  });
+  // 转折点配对计数（不是贪心累积）：一次平滑的白闪衰减只有「升→降」一个转折，
+  // 算 1 次闪烁；旧版贪心 |Δ|≥0.12 累积会把同一次衰减切成 6-7 段假闪烁，
+  // 把 2Hz 的 flash 段误报成 3.5/s。这里只在亮度方向反转且幅度≥0.1 时记一次摆动。
+  const sm = lin.map((v, i) => {
+    const a = lin[Math.max(0, i - 1)], b = lin[Math.min(lin.length - 1, i + 1)];
+    return (a + v + b) / 3; // 3 帧平滑去噪
+  });
+  const swings = [];
+  let lastVal = sm[0] ?? 0, dir = 0;
+  for (let i = 1; i < sm.length; i++) {
+    const d = sm[i] - sm[i - 1];
+    const nd = d > 0.003 ? 1 : (d < -0.003 ? -1 : dir);
+    if (dir !== 0 && nd !== 0 && nd !== dir && Math.abs(sm[i - 1] - lastVal) >= 0.1) {
+      swings.push(times[i - 1]); lastVal = sm[i - 1];
+    }
+    if (nd !== 0) dir = nd;
+  }
+  let maxPairsPerSec = 0;
+  for (let i = 0; i < swings.length; i++) {
+    let j = i;
+    while (j < swings.length && swings[j] - swings[i] < 1.0) j++;
+    maxPairsPerSec = Math.max(maxPairsPerSec, Math.floor((j - i) / 2));
+  }
+  return { samples: lin.length, swings: swings.length, maxPairsPerSec };
+}
+if (detOut.includes('YAVG')) {
+  const fa = flashAnalysis(detOut);
+  report.metrics.flash = { samples: fa.samples, swings: fa.swings, maxPairPerSec: +fa.maxPairsPerSec.toFixed(2) };
+  add('flash rate', fa.maxPairsPerSec <= 3.0 ? 'PASS' : 'WARN',
+    `max ${fa.maxPairsPerSec.toFixed(1)} flash pair(s)/s over 1s window (WCAG 2.3.1 limit 3; ΔL≥0.12 swings: ${fa.swings})`);
+}
 
 if (au) {
   const sd = run(FFMPEG, ['-hide_banner', '-nostats', '-i', VIDEO, '-af', 'silencedetect=noise=-45dB:d=1.0', '-vn', '-f', 'null', '-']);
@@ -184,7 +268,7 @@ if (au) {
     const I = Number(d.input_i), TP = Number(d.input_tp), LRA = Number(d.input_lra);
     report.metrics.loudness = { lufs: I, truePeak: TP, lra: LRA };
     add('loudness', Math.abs(I + 14) <= 1 ? 'PASS' : 'WARN', `${I} LUFS (target -14 ±1)`);
-    add('true peak', TP <= -0.5 ? 'PASS' : 'WARN', `${TP} dBTP (target ≤ -1.0)`);
+    add('true peak', TP <= -1.0 ? 'PASS' : 'WARN', `${TP} dBTP (target ≤ -1.0)`);
     add('loudness range', LRA <= 14 ? 'PASS' : 'WARN', `${LRA} LU`);
   } else {
     add('loudness', 'WARN', 'could not parse loudnorm output');

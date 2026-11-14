@@ -230,5 +230,4 @@ test('resolveAssets 对补算后的 spec 再次校验通过且不重复更新', 
 
 const total = passed + failed;
 console.log(`\nRan ${total} tests: ${passed} passed, ${failed} failed`);
-console.log(`${passed} passed`);
 if (failed) process.exit(1);

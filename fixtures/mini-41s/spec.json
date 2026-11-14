@@ -32,8 +32,8 @@
     "ending": 6,
     "moreCard": 1,
     "flash": {
-      "count": 8,
-      "each": 0.25
+      "count": 4,
+      "each": 0.5
     }
   },
   "opening": {

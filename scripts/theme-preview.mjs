@@ -3,7 +3,7 @@
  * theme-preview.mjs — 为 code-video-showcase 的主题系统生成静态预览图。
  *
  * 产物（默认写到 <skill>/assets/theme-previews/）：
- *   01-coral-noir.jpg … 13-pop-acid.jpg          1920×1080 主题海报 + 规格板
+ *   01-coral-noir.jpg … 17-sand-linen.jpg        1920×1080 主题海报 + 规格板
  *   theme-contact-sheet.jpg                      全部主题联系表（自适应网格，1920×1080）
  *   theme-three-up.jpg                           原版 / 橙光白 / 水蓝白 三拼（1920×1080）
  *

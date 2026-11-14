@@ -1,9 +1,9 @@
 {
   "_meta": {
     "schemaVersion": 1,
-    "description": "13 themes × 12 styles 兼容矩阵。值只能是 recommended | ok | avoid；avoid 组合在 wizard 中不可选。",
+    "description": "17 themes × 20 styles 兼容矩阵。recommended/ok/avoid 三档；preset 组合必须 recommended。",
     "generatedBy": "C1 rules (deterministic, no network)",
-    "sourceOfTruth": "themes ids + mode come from templates/themes.js; style ids are the 12 style vocabulary of C1.",
+    "sourceOfTruth": "themes ids + mode + names come from templates/themes.js; style ids are the 20 style vocabulary (v2.5).",
     "rules": [
       "主题明暗取自 themes.js 的 mode 字段（dark/light），不手写第二份。",
       "风格分四族：neon=赛博像素/赛博故障/8-bit；paper=水墨国风/国风/白板；tech=3D/数据可视化/录屏；neutral=扁平/极简/竖屏。",
@@ -26,7 +26,11 @@
         "paper-journal": "light",
         "dark-gold-cinema": "dark",
         "ice-minimal": "light",
-        "pop-acid": "dark"
+        "pop-acid": "dark",
+        "terminal-phosphor": "dark",
+        "solar-dusk": "light",
+        "abyss-teal": "dark",
+        "sand-linen": "light"
       },
       "styleFamily": {
         "cyber-pixel": "neon",
@@ -40,7 +44,15 @@
         "screencast": "tech",
         "flat": "neutral",
         "minimal": "neutral",
-        "vertical": "neutral"
+        "vertical": "neutral",
+        "great-wall": "tech",
+        "kinetic": "neutral",
+        "swiss": "paper",
+        "editorial": "paper",
+        "brutalist": "neutral",
+        "vaporwave": "neon",
+        "blueprint": "tech",
+        "risograph": "paper"
       }
     },
     "themeNames": {
@@ -56,7 +68,11 @@
       "paper-journal": "纸质手账",
       "dark-gold-cinema": "暗金电影",
       "ice-minimal": "冰蓝极简",
-      "pop-acid": "波普酸色"
+      "pop-acid": "波普酸色",
+      "terminal-phosphor": "终端磷光",
+      "solar-dusk": "落日暖丘",
+      "abyss-teal": "深海青",
+      "sand-linen": "亚麻宣纸"
     },
     "styleNames": {
       "cyber-pixel": "赛博像素",
@@ -70,14 +86,22 @@
       "screencast": "代码录屏",
       "flat": "扁平插画",
       "minimal": "极简大字",
-      "vertical": "竖屏卡片"
+      "vertical": "竖屏卡片",
+      "great-wall": "长城",
+      "kinetic": "动态字体",
+      "swiss": "瑞士网格",
+      "editorial": "报纸编辑",
+      "brutalist": "新粗野主义",
+      "vaporwave": "蒸汽波",
+      "blueprint": "工程蓝图",
+      "risograph": "孔版印刷"
     },
     "counts": {
-      "recommended": 87,
-      "ok": 46,
-      "avoid": 23
+      "recommended": 159,
+      "ok": 144,
+      "avoid": 37
     },
-    "coverage": "13×12=156",
+    "coverage": "17×20=340",
     "accentFix": {
       "aqua-morandi": {
         "accent": "#6e9fae",
@@ -114,7 +138,15 @@
       "screencast": "recommended",
       "flat": "recommended",
       "minimal": "recommended",
-      "vertical": "ok"
+      "vertical": "ok",
+      "great-wall": "recommended",
+      "kinetic": "recommended",
+      "swiss": "ok",
+      "editorial": "ok",
+      "brutalist": "ok",
+      "vaporwave": "recommended",
+      "blueprint": "recommended",
+      "risograph": "ok"
     },
     "claude-light": {
       "cyber-pixel": "avoid",
@@ -128,7 +160,15 @@
       "screencast": "ok",
       "flat": "ok",
       "minimal": "ok",
-      "vertical": "ok"
+      "vertical": "ok",
+      "great-wall": "ok",
+      "kinetic": "ok",
+      "swiss": "recommended",
+      "editorial": "recommended",
+      "brutalist": "ok",
+      "vaporwave": "avoid",
+      "blueprint": "ok",
+      "risograph": "recommended"
     },
     "aqua-morandi": {
       "cyber-pixel": "avoid",
@@ -142,7 +182,15 @@
       "screencast": "ok",
       "flat": "recommended",
       "minimal": "ok",
-      "vertical": "recommended"
+      "vertical": "recommended",
+      "great-wall": "ok",
+      "kinetic": "ok",
+      "swiss": "recommended",
+      "editorial": "recommended",
+      "brutalist": "ok",
+      "vaporwave": "avoid",
+      "blueprint": "ok",
+      "risograph": "recommended"
     },
     "amber-noir": {
       "cyber-pixel": "recommended",
@@ -156,7 +204,15 @@
       "screencast": "recommended",
       "flat": "ok",
       "minimal": "recommended",
-      "vertical": "ok"
+      "vertical": "ok",
+      "great-wall": "recommended",
+      "kinetic": "ok",
+      "swiss": "ok",
+      "editorial": "ok",
+      "brutalist": "ok",
+      "vaporwave": "recommended",
+      "blueprint": "recommended",
+      "risograph": "ok"
     },
     "blueprint-stone": {
       "cyber-pixel": "avoid",
@@ -170,7 +226,15 @@
       "screencast": "recommended",
       "flat": "ok",
       "minimal": "ok",
-      "vertical": "ok"
+      "vertical": "ok",
+      "great-wall": "ok",
+      "kinetic": "ok",
+      "swiss": "recommended",
+      "editorial": "recommended",
+      "brutalist": "ok",
+      "vaporwave": "avoid",
+      "blueprint": "ok",
+      "risograph": "recommended"
     },
     "graphite-signal": {
       "cyber-pixel": "recommended",
@@ -184,7 +248,15 @@
       "screencast": "recommended",
       "flat": "ok",
       "minimal": "recommended",
-      "vertical": "ok"
+      "vertical": "ok",
+      "great-wall": "recommended",
+      "kinetic": "ok",
+      "swiss": "ok",
+      "editorial": "ok",
+      "brutalist": "ok",
+      "vaporwave": "recommended",
+      "blueprint": "recommended",
+      "risograph": "ok"
     },
     "celadon-paper": {
       "cyber-pixel": "avoid",
@@ -198,7 +270,15 @@
       "screencast": "ok",
       "flat": "recommended",
       "minimal": "ok",
-      "vertical": "recommended"
+      "vertical": "recommended",
+      "great-wall": "ok",
+      "kinetic": "ok",
+      "swiss": "recommended",
+      "editorial": "recommended",
+      "brutalist": "ok",
+      "vaporwave": "avoid",
+      "blueprint": "ok",
+      "risograph": "recommended"
     },
     "crimson-theater": {
       "cyber-pixel": "recommended",
@@ -212,7 +292,15 @@
       "screencast": "recommended",
       "flat": "ok",
       "minimal": "ok",
-      "vertical": "recommended"
+      "vertical": "recommended",
+      "great-wall": "recommended",
+      "kinetic": "ok",
+      "swiss": "ok",
+      "editorial": "ok",
+      "brutalist": "ok",
+      "vaporwave": "recommended",
+      "blueprint": "recommended",
+      "risograph": "ok"
     },
     "cyber-neon": {
       "cyber-pixel": "recommended",
@@ -226,7 +314,15 @@
       "screencast": "recommended",
       "flat": "ok",
       "minimal": "ok",
-      "vertical": "ok"
+      "vertical": "ok",
+      "great-wall": "recommended",
+      "kinetic": "ok",
+      "swiss": "ok",
+      "editorial": "ok",
+      "brutalist": "ok",
+      "vaporwave": "recommended",
+      "blueprint": "recommended",
+      "risograph": "ok"
     },
     "paper-journal": {
       "cyber-pixel": "avoid",
@@ -240,7 +336,15 @@
       "screencast": "ok",
       "flat": "recommended",
       "minimal": "ok",
-      "vertical": "ok"
+      "vertical": "ok",
+      "great-wall": "ok",
+      "kinetic": "ok",
+      "swiss": "recommended",
+      "editorial": "recommended",
+      "brutalist": "ok",
+      "vaporwave": "avoid",
+      "blueprint": "ok",
+      "risograph": "recommended"
     },
     "dark-gold-cinema": {
       "cyber-pixel": "recommended",
@@ -254,7 +358,15 @@
       "screencast": "recommended",
       "flat": "ok",
       "minimal": "recommended",
-      "vertical": "ok"
+      "vertical": "ok",
+      "great-wall": "recommended",
+      "kinetic": "ok",
+      "swiss": "ok",
+      "editorial": "ok",
+      "brutalist": "ok",
+      "vaporwave": "recommended",
+      "blueprint": "recommended",
+      "risograph": "ok"
     },
     "ice-minimal": {
       "cyber-pixel": "avoid",
@@ -268,7 +380,15 @@
       "screencast": "ok",
       "flat": "recommended",
       "minimal": "recommended",
-      "vertical": "ok"
+      "vertical": "ok",
+      "great-wall": "ok",
+      "kinetic": "ok",
+      "swiss": "recommended",
+      "editorial": "recommended",
+      "brutalist": "ok",
+      "vaporwave": "avoid",
+      "blueprint": "ok",
+      "risograph": "recommended"
     },
     "pop-acid": {
       "cyber-pixel": "recommended",
@@ -282,7 +402,103 @@
       "screencast": "recommended",
       "flat": "ok",
       "minimal": "ok",
-      "vertical": "recommended"
+      "vertical": "recommended",
+      "great-wall": "recommended",
+      "kinetic": "ok",
+      "swiss": "ok",
+      "editorial": "ok",
+      "brutalist": "recommended",
+      "vaporwave": "recommended",
+      "blueprint": "recommended",
+      "risograph": "ok"
+    },
+    "terminal-phosphor": {
+      "cyber-pixel": "recommended",
+      "cyber-glitch": "recommended",
+      "pixel-8bit": "recommended",
+      "ink-wash": "ok",
+      "guofeng": "ok",
+      "great-wall": "recommended",
+      "whiteboard": "ok",
+      "three-d": "recommended",
+      "data-viz": "recommended",
+      "screencast": "recommended",
+      "flat": "ok",
+      "minimal": "ok",
+      "vertical": "ok",
+      "kinetic": "ok",
+      "swiss": "ok",
+      "editorial": "ok",
+      "brutalist": "ok",
+      "vaporwave": "recommended",
+      "blueprint": "recommended",
+      "risograph": "ok"
+    },
+    "solar-dusk": {
+      "cyber-pixel": "avoid",
+      "cyber-glitch": "avoid",
+      "pixel-8bit": "avoid",
+      "ink-wash": "recommended",
+      "guofeng": "recommended",
+      "great-wall": "ok",
+      "whiteboard": "recommended",
+      "three-d": "ok",
+      "data-viz": "ok",
+      "screencast": "ok",
+      "flat": "recommended",
+      "minimal": "ok",
+      "vertical": "ok",
+      "kinetic": "ok",
+      "swiss": "recommended",
+      "editorial": "recommended",
+      "brutalist": "ok",
+      "vaporwave": "avoid",
+      "blueprint": "ok",
+      "risograph": "recommended"
+    },
+    "abyss-teal": {
+      "cyber-pixel": "recommended",
+      "cyber-glitch": "recommended",
+      "pixel-8bit": "recommended",
+      "ink-wash": "ok",
+      "guofeng": "ok",
+      "great-wall": "recommended",
+      "whiteboard": "ok",
+      "three-d": "recommended",
+      "data-viz": "recommended",
+      "screencast": "recommended",
+      "flat": "ok",
+      "minimal": "ok",
+      "vertical": "ok",
+      "kinetic": "ok",
+      "swiss": "ok",
+      "editorial": "ok",
+      "brutalist": "ok",
+      "vaporwave": "recommended",
+      "blueprint": "recommended",
+      "risograph": "ok"
+    },
+    "sand-linen": {
+      "cyber-pixel": "avoid",
+      "cyber-glitch": "avoid",
+      "pixel-8bit": "avoid",
+      "ink-wash": "recommended",
+      "guofeng": "recommended",
+      "great-wall": "ok",
+      "whiteboard": "recommended",
+      "three-d": "ok",
+      "data-viz": "ok",
+      "screencast": "ok",
+      "flat": "ok",
+      "minimal": "ok",
+      "vertical": "ok",
+      "kinetic": "ok",
+      "swiss": "recommended",
+      "editorial": "recommended",
+      "brutalist": "ok",
+      "vaporwave": "avoid",
+      "blueprint": "ok",
+      "risograph": "recommended"
     }
   }
 }

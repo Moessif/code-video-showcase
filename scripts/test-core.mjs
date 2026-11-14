@@ -8,6 +8,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { THEME_IDS as NL2SPEC_THEME_IDS } from './nl2spec.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(HERE, '..');
@@ -114,20 +115,80 @@ test('timeline rejects a broken structure', () => {
   assert.ok(validateComposition(bad).errors.length > 0);
 });
 
-test('themes: 13 themes, all have 14 colour roles and HUD', () => {
-  assert.equal(themes.THEME_LIST.length, 13);
+test('themes: 17 themes, all have 14 colour roles, HUD and a known material', () => {
+  assert.equal(themes.THEME_LIST.length, 17);
   const roles = ['bg', 'bgDeep', 'surface', 'ink', 'muted', 'accent', 'accentInk', 'accentSoft', 'paper', 'paperInk', 'paperMuted', 'cardDark', 'cardDarkInk', 'flash'];
+  // 8 种原材质 + 4 种 v3 材质；新增材质必须同步在这里登记，避免静默画出空背景。
+  const kinds = new Set(['grain', 'paper', 'glass', 'foil', 'grid', 'matte', 'ink', 'glow', 'scanline', 'dusk', 'caustics', 'linen']);
   for (const t of themes.THEME_LIST) {
     for (const r of roles) assert.match(t.colors[r], /^#[0-9a-f]{6}$/i, `${t.id}.${r}`);
     for (const k of ['capsuleBg', 'capsuleNumber', 'capsuleText', 'hudText', 'countdown']) assert.ok(t.hud[k], `${t.id}.hud.${k}`);
     assert.ok(t.material && t.material.kind, `${t.id}.material`);
+    assert.ok(kinds.has(t.material.kind), `${t.id}.material.kind "${t.material.kind}" unregistered`);
   }
+});
+
+test('static material baking cuts per-frame ops and stays deterministic', () => {
+  // 用 Canvas 2D stub 模拟浏览器离屏画布，验证 linen/dusk/scanline 走烘焙路径。
+  const stub = () => {
+    const calls = [];
+    const rec = (n) => (...a) => { calls.push(n); };
+    const grad = () => ({ addColorStop: rec('stop') });
+    return {
+      calls,
+      save: rec('save'), restore: rec('restore'), fillRect: rec('fillRect'),
+      strokeRect: rec('r'), beginPath: rec('b'), moveTo: rec('m'), lineTo: rec('l'),
+      stroke: rec('s'), fill: rec('f'), clip: rec('c'), rect: rec('r'), translate: rec('t'),
+      clearRect: rec('c'), drawImage: rec('drawImage'), putImageData: rec('put'),
+      createLinearGradient: grad, createRadialGradient: grad,
+      createPattern: () => null, createImageData: (w, h) => ({ data: new Uint8ClampedArray(w * h * 4) }),
+      set fillStyle(v) {}, set strokeStyle(v) {}, set lineWidth(v) {}, set globalAlpha(v) {},
+      set font(v) {}, set textAlign(v) {}, set textBaseline(v) {},
+    };
+  };
+  const bakedKinds = new Set(['linen', 'dusk', 'scanline']);
+  const saved = globalThis.document;
+  try {
+    globalThis.document = { createElement: () => ({ width: 0, height: 0, getContext: () => stub() }) };
+    for (const t of themes.THEME_LIST.filter((x) => bakedKinds.has(x.material.kind))) {
+      const a = stub(), b = stub();
+      themes.drawThemeBackground(a, t.id, 1920, 1080, 0.4);
+      themes.drawThemeBackground(b, t.id, 1920, 1080, 0.4);
+      assert.ok(a.calls.includes('drawImage'), `${t.id}: baked path missing drawImage`);
+      assert.ok(a.calls.length < 40, `${t.id}: baked path still heavy (${a.calls.length} ops)`);
+      assert.deepEqual(a.calls, b.calls, `${t.id}: baked path nondeterministic`);
+    }
+    // 17 套在烘焙模式下都不能抛错。
+    for (const t of themes.THEME_LIST) assert.doesNotThrow(() => themes.drawThemeBackground(stub(), t.id, 1280, 720, 0.4), t.id);
+  } finally {
+    if (saved === undefined) delete globalThis.document; else globalThis.document = saved;
+  }
+  // 无 document（Node）时自动回落逐层路径，仍确定性、无异常。
+  for (const t of themes.THEME_LIST) assert.doesNotThrow(() => themes.drawThemeBackground(stub(), t.id, 1280, 720, 0.4), `${t.id} unbaked`);
+});
+
+test('theme truth tables stay in sync with themes.js', () => {
+  const combos = JSON.parse(fs.readFileSync(path.join(ROOT, 'content/combos.json'), 'utf8'));
+  assert.deepEqual(NL2SPEC_THEME_IDS, themes.THEME_IDS, 'nl2spec.THEME_IDS drifted from themes.js');
+  assert.deepEqual(Object.keys(combos.combos), themes.THEME_IDS, 'combos rows drifted from themes.js');
+  assert.deepEqual(combos._meta.families.themeMode,
+    Object.fromEntries(themes.THEME_LIST.map((t) => [t.id, t.mode])), 'combos themeMode drifted');
+  assert.deepEqual(combos._meta.themeNames,
+    Object.fromEntries(themes.THEME_LIST.map((t) => [t.id, t.name])), 'combos themeNames drifted');
 });
 
 test('theme lookup accepts aliases and falls back', () => {
   assert.equal(themes.getTheme('cyber').id, 'cyber-neon');
   assert.equal(themes.getTheme('冰蓝').id, 'ice-minimal');
   assert.equal(themes.getTheme('nope').id, 'coral-noir');
+  // 歧义别名会让 getTheme() 的线性匹配静默指向先注册的主题（getTheme 不报错）。
+  assert.deepEqual(themes.aliasConflicts(), [], 'duplicate theme aliases');
+  // 每个别名必须真的解析回自己的主题（不只是「不重复」）。
+  for (const t of themes.THEME_LIST) {
+    for (const a of t.aliases || []) assert.equal(themes.getTheme(a).id, t.id, `alias "${a}" misroutes`);
+  }
+  assert.equal(themes.getTheme('teal').id, 'celadon-paper');
+  assert.equal(themes.getTheme('gold').id, 'amber-noir');
 });
 
 test('accentOverride keeps contrast on a brand colour', () => {

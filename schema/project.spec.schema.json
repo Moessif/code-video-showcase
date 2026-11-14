@@ -542,6 +542,69 @@
         "cover": {
           "type": "boolean",
           "description": "同时出一张 card 版式封面（写入 <outDir>/images，deliver 会引用它）"
+        },
+        "transition": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "boolean",
+              "enum": [
+                false
+              ]
+            },
+            {
+              "type": "string",
+              "enum": [
+                "fade",
+                "dissolve",
+                "fadeblack",
+                "fadewhite",
+                "fadegrays",
+                "wipeleft",
+                "wiperight",
+                "wipeup",
+                "wipedown",
+                "slideleft",
+                "slideright",
+                "slideup",
+                "slidedown",
+                "coverleft",
+                "coverright",
+                "revealleft",
+                "revealright",
+                "circleopen",
+                "circleclose",
+                "circlecrop",
+                "rectcrop",
+                "radial",
+                "smoothleft",
+                "smoothright",
+                "zoomin",
+                "pixelize",
+                "hblur",
+                "squeezeh",
+                "squeezev",
+                "diagtl",
+                "diagbr",
+                "hlslice",
+                "hrslice",
+                "vuslice",
+                "vdslice",
+                "none",
+                "cut",
+                ""
+              ]
+            }
+          ],
+          "description": "段间转场（v2.5）。xfade token；null/false/none/cut/空=硬切（默认，逐字节不变）。真值 templates/transitions.mjs。"
+        },
+        "transitionDuration": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "maximum": 2,
+          "description": "转场时长（秒），(0,2]，默认 0.4。必须短于最短段，否则 E_TRANSITION_DURATION。"
         }
       }
     }

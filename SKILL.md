@@ -3,7 +3,7 @@ name: code-video-showcase
 description: |
   用纯代码（HTML/Canvas/SVG/Three.js 逐帧渲染 + Python numpy/scipy 合成配乐 + FFmpeg 合成）制作 30–90 秒卡点风格展示视频的完整技能。
   适用于：复刻/仿制《Opus 5.5 视频风格展示》或 DeepSeek V4.1-Flash 61s 风格样片、多风格切换卡点视频、纯代码视频、程序化视频；要求不使用任何视频/图像/音乐生成模型。
-  包含：需求采集与主题选择、13 套主题 × 8 材质（OKLCH + APCA）、spec.json（IR）/ plan / 增量渲染、并行渲染农场、风格配方、大字卡、120BPM 配乐合成、CDP/Playwright 渲染管线、视频/音频质检、平台交付与封面、可选 AI 素材 lane。详见 references/ 与 SKILL 正文。
+  包含：需求采集与主题选择、17 套主题 × 12 材质（OKLCH + APCA）、spec.json（IR）/ plan / 增量渲染、并行渲染农场、风格配方、大字卡、120BPM 配乐合成、CDP/Playwright 渲染管线、视频/音频质检、平台交付与封面、可选 AI 素材 lane。详见 references/ 与 SKILL 正文。
   当用户提到「卡点视频」「风格展示视频」「纯代码做视频」「类似 Opus 5.5 / DeepSeek 风格展示」「逐帧渲染」「用代码做视频」
   「HTML Canvas 视频」「程序化视频」「30 秒产品宣传片」「竖屏短视频成片」「多平台导出（抖音/B站/小红书）」「封面图」「批量变体」
   「主题配色」「换配色」「配色主题」「卡点时间轴」「并行渲染」「视频质检」时必须触发。
@@ -11,7 +11,7 @@ description: |
 license: MIT
 metadata:
   domain: video-production
-  version: 2.5.1
+  version: 2.6.1
   reference: Opus 5.5 / DeepSeek V4.1-Flash 61s style showcase
 compatibility: Node 22+ (raw CDP needs global WebSocket) / Chrome or Edge (Playwright optional) / FFmpeg (libx264+AAC, libvmaf optional) / Python 3.10+ (numpy, scipy; matplotlib optional) / bash. Windows (Git Bash) and WSL/Linux. No external video/image/music generation models; fonts are open-source, served locally.
 allowed-tools: Bash, Read, Write, Edit, Glob, Grep
@@ -76,14 +76,13 @@ node bin/cvs.mjs build project.spec.json --root . --platform douyin --strict
 - **渲染器恢复**：`--timeout`(120s) 与 `--launch-timeout`(30s) 独立；页面抛错杀 ffmpeg + 浏览器进程树，重启换全新 profile——失败不挂住、不留孤儿。
 - **失败对象**：`logPath` 恒指构建日志；`detailPath` 是阶段诊断产物（render/concat/deliver 各自的清单或日志）。
 - **确定性检测**：`golden` manifest 记 Chrome/Node/字体指纹；环境不一致跳过哈希比对并告警（`--strict-env` 改失败）。跨机可比前提 = 同一镜像 + 同一字体锁。
-- **统一入口**：`node bin/cvs.mjs`（21 个子命令，`cvs --help` 全列）。
+- **统一入口**：`node bin/cvs.mjs`（28 个子命令，`cvs --help` 全列）。
 - **参考图**：`cvs ref poster.jpg --spec project.spec.json` 只提取色板/强调色/密度与 top-3 主题候选（不复制像素），写 `meta.reference`。
 - **动效档位**：`look.motion` 选 `calm|standard|dynamic|maximal`，不写按「类型 × 画风」推导；换档位改变画面并触发重渲染（进段哈希），写 `standard` 与旧成片逐像素一致。
 - **画风 → 页面**：`templates/style-pages.mjs` 是唯一真值（20 画风 → 渲染页）；生成端按表填 `style.page`，未知画风回落通用场景页，新增配方页只加一行。
 - **强调色覆盖**：`look.accentOverride` 展开成段 URL 的 `?accent=/accentInk=/accentSoft=`，进 `segmentHash`（换品牌色必重渲染）；没有覆盖时 URL 不变。
 - **代码生图**：`cvs image --spec project.spec.json` 用同一 spec 出图集（cover/card/poster/story，`--list` 全部；默认画风段 78% 处），产物带 `image-manifest.json`（每张 sha256）。
-- **spec 是不可信输入**：id 匹配 `^[A-Za-z0-9][A-Za-z0-9_-]
-- **spec 是不可信输入**：id 匹配 `^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$`；页面路径禁绝对 URL/路径；`flash.count`≤256、单段≤600s、总帧≤18000；API 默认同源、错误信息抹本机路径。
+- **spec 是不可信输入**：id 匹配 `^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$`；页面路径禁绝对 URL/路径/`..`/编码穿越；`flash.count`≤256、单段≤600s、总帧≤18000；outDir 钉在根内；API 默认同源、错误信息抹本机路径。
 - **界面**：`app/wizard/`(5181)、`app/canvas/`(5182)、`app/script/`(5183)、`app/versions/`(5184)、`app/review/`(5185)、`server/api.mjs`(5190)。
 - **旧项目**：timeline v1 仍完全可用，`spec.mjs` 自动迁移；`render-farm` 默认 batch 模式（一个 worker 一个浏览器跑一个 shard），`--legacy` 回退逐段进程。页面按视口自适应（横/竖/方真重排），16:9 输出位级不变。
 - **质量闸门**：`npm run test:all`（纯 Node）、`npm run test:browser`、`npm run golden`（静帧位级回归）、`npm run brand -- check …`。
@@ -92,7 +91,7 @@ node bin/cvs.mjs build project.spec.json --root . --platform douyin --strict
 - **禁止**：让 LLM 直接生成 HTML/CSS/JS，或绕过 spec 直接改像素。模型只填枚举与文案。
 ## 0. 适用与不适用
 
-**适用**：30–90 s 多美术风格切换的「风格展示 / 产品宣传」短片；120 BPM 强节拍 + 大字卡与风格段交替的卡点结构；同一内容要换品牌气质（13 套主题，见 §5）；明确要求纯代码、可复现、逐帧确定性渲染。
+**适用**：30–90 s 多美术风格切换的「风格展示 / 产品宣传」短片；120 BPM 强节拍 + 大字卡与风格段交替的卡点结构；同一内容要换品牌气质（17 套主题，见 §5）；明确要求纯代码、可复现、逐帧确定性渲染。
 
 **不适用**：写实镜头/真人/复杂叙事长视频；需要调用文生视频/图/音乐模型的场景（本技能明确禁止）。
 
@@ -171,7 +170,7 @@ Three.js 片段：`renderer` 必须 `{ preserveDrawingBuffer: true }`；启动�
 
 ---
 
-## 5. 主题系统（13 套配色 × 8 种材质 + OKLCH/APCA）
+## 5. 主题系统（17 套配色 × 12 种材质 + OKLCH/APCA）
 
 主题 = **角色色板 + 材质 + HUD 规格 + 点缀色**四层一起换。数据唯一来源 `templates/themes.js`；材质画法、token 阈值、推荐矩阵、加主题步骤见 `references/themes.md`。
 
@@ -190,14 +189,19 @@ Three.js 片段：`renderer` 必须 `{ preserveDrawingBuffer: true }`；启动�
 | `dark-gold-cinema` | dark | 近黑 + 旧金，高端/电影感 |
 | `ice-minimal` | light | 冷白 + 钴蓝，SaaS/数据/医疗 |
 | `pop-acid` | dark | 近黑 + 酸性黄绿，潮流/音乐/社交 |
+| `terminal-phosphor` | dark | 墨绿 CRT 扫描线 + 磷光绿，开发者/CLI |
+| `solar-dusk` | light | 奶油暮色 + 陶土落日，旅行/美食/户外 |
+| `abyss-teal` | dark | 深水藏青 + 天蓝焦散，医疗/海洋/深科技 |
+| `sand-linen` | light | 本色亚麻织纹 + 靛蓝，出版/教育/人文 |
 
 不传 `theme` 时行为与旧版逐值一致；页面按 URL 选主题，接受中英文别名（`?theme=aqua-morandi`、`?theme=水蓝白`）。页面 API（`themeFromURL / drawThemeBackground / chrome / cardColors / drawGlassPanel`）见 `references/themes.md`。
 
 **铁律**
 - 浅色主题的胶囊/倒计时/水印必须用 `chrome(theme)`（深墨实体胶囊）；每套主题（含浅色）都有 `cardDark`，大字卡 layout 2/3 仍是深色卡。
 - 大字卡字体固定 Noto Sans SC 900（卡是节拍器）；主题 `type` 字体只用于片头/结尾/风格段。
-- 用户只给品牌色时用 `accentOverride` 改 4 个值并校验对比度，不自创第 14 套主题。
+- 用户只给品牌色时用 `accentOverride` 改 4 个值并校验对比度，不自创第 18 套主题。
 - 改完主题必须 `node scripts/theme-audit.mjs --strict` 全绿；暗底细字用 APCA（正文 ≥60 Lc、小字 ≥75、大字 ≥45）；新增主题优先 `derivePalette({mode, accent})` 生成 14 角色，不手调十几个 hex。
+- 新增主题必须同步 4 处真值：`templates/themes.js`、`scripts/nl2spec.mjs` 的 `THEME_IDS`、`content/combos.json`（`node scripts/build-combos.mjs` 重生成）、`content/presets.json`（如需首屏预设）；`test-core.mjs` 会交叉校验前三者。
 
 调性与禁忌、按内容类型选主题的矩阵见 `references/themes.md`；预览图在 `assets/theme-previews/`。
 
@@ -214,7 +218,7 @@ Three.js 片段：`renderer` 必须 `{ preserveDrawingBuffer: true }`；启动�
 
 ## 7. 风格展示配方（每段 3 s / 6 拍）
 
-20 种风格是「视觉美术 + 技术实现 + 音色」三件套；逐页参数见 `references/style-recipes.md`，配方页映射见 §0.5，完整覆盖矩阵见 `docs/COVERAGE.md`。v2.5 新增 6 风格 + 收编 kinetic（下表后 7 行），音色按领域 mood 合成。
+20 种风格是「视觉美术 + 技术实现 + 音色」三件套；逐页参数见 `references/style-recipes.md`，配方页映射见 §0.5，完整覆盖矩阵见 `docs/COVERAGE.md`。v2.5 新增 6 风格 + 收编 kinetic，音色按领域 mood 合成。
 
 | 风格 | 一句话 | 音色 |
 |---|---|---|
@@ -223,7 +227,9 @@ Three.js 片段：`renderer` 必须 `{ preserveDrawingBuffer: true }`；启动�
 | 极简发布会 | 大字 + Three.js 金属戒指 | 重低音 + 钟声 |
 | 手绘白板 | SVG 描边 + turbulence + 红圈 | 尤克里里 + 笔摩擦 |
 | 赛博故障 | 透视网格 + RGB 分离 | 失真锯齿 16 分 + 四拍底鼓 |
+| 赛博像素 cyber-pixel | 480×270 像素放大 + Bayer 抖动 + CRT 扫描线 | 芯片噪声 + 低频脉冲 |
 | 水墨国风 | fbm 山峦 + 宣纸纹理 + 竖排书法 | 古筝五声 + 太鼓 + 笛 |
+| 长城 great-wall | 关隘山峦 + 烽燧 + 暗金材质 | 按 mood（dynamic） |
 | 数据可视化 | 条形赛跑 + CSS3D 玻璃卡 | 方波琶音 + 滴答 |
 | 8-bit 像素 | 240×135 低分辨率 + pixelated | 芯片音乐 + 跳跃/金币 |
 | 代码录屏 | Canvas 编辑器 + 逐字代码 | lo-fi 电钢 + 黑胶噪声 |
@@ -275,7 +281,7 @@ python scripts/qa-audio.py audio/mix.wav --plan out/plan.json --strict
 node scripts/theme-audit.mjs --strict
 node scripts/determinism-check.mjs --page "segments/01.html?theme=coral-noir" --t 0.5
 ```
-自动覆盖（工具强制，阈值表见 `references/qa.md`）：帧数/尺寸/fps/bt709 四元标签；黑帧、冻结、静音；−14 ±1 LUFS / TP ≤ −1 dBTP / LRA ≤ 14；cue 对齐 ≥80% ±30 ms、BPM 误差 ≤2、网格命中 ≥70%；高频克制 ≥6 dB；13 套主题 WCAG 全绿。
+自动覆盖（工具强制，阈值表见 `references/qa.md`）：帧数/尺寸/fps/bt709 四元标签；黑帧、冻结、静音；−14 ±1 LUFS / TP ≤ −1 dBTP / LRA ≤ 14；cue 对齐 ≥80% ±30 ms、BPM 误差 ≤2、网格命中 ≥70%；高频克制 ≥6 dB；17 套主题 WCAG 全绿。
 
 **人工看片（仍必须）**
 - [ ] 浏览器 console 无错误/404；CJK 字体 `document.fonts.check()` 全 true；

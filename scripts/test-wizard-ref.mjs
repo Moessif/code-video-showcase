@@ -20,7 +20,6 @@ import { launch, evaluate, waitFor, browserCandidates, launchRetry } from '../te
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(HERE, '..');
-const PORT = 5199;
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 let passed = 0;
@@ -34,16 +33,25 @@ async function main() {
   const candidates = browserCandidates();
   if (!candidates.length) { console.error('no Chrome/Edge found; set CHROME_EXE'); process.exit(1); }
 
-  const server = spawn(process.execPath, ['app/wizard/serve.mjs', '--port', String(PORT)], {
+  // 临时端口（--port 0）避免与并行套件/占用冲突；从 stdout 解析实际绑定端口。
+  const server = spawn(process.execPath, ['app/wizard/serve.mjs', '--port', '0'], {
     cwd: ROOT, stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true,
   });
   let serverLog = '';
+  let port = 0;
+  let exited = false;
+  server.on('exit', () => { exited = true; });
   server.stdout.on('data', (d) => { serverLog += String(d); });
   server.stderr.on('data', (d) => { serverLog += String(d); });
-  await new Promise((resolve) => {
-    const t = setTimeout(resolve, 2000);
-    server.stdout.on('data', (d) => { if (String(d).includes('open')) { clearTimeout(t); resolve(); } });
+  await new Promise((resolve, reject) => {
+    const t = setTimeout(() => reject(new Error('wizard server did not start: ' + serverLog.slice(-400))), 15000);
+    server.stdout.on('data', (d) => {
+      const m = String(d).match(/open\s+http:\/\/[\d.]+:(\d+)\//);
+      if (m) { port = Number(m[1]); clearTimeout(t); resolve(); }
+    });
+    server.on('exit', () => { clearTimeout(t); reject(new Error('wizard server exited early: ' + serverLog.slice(-400))); });
   });
+  if (exited || !port) throw new Error('wizard server failed to bind: ' + serverLog.slice(-400));
 
   let browser = null;
   try {
@@ -52,7 +60,7 @@ async function main() {
       width: 1440, height: 900, timeout: 30000,
     });
     const { client, sessionId } = browser;
-    const url = `http://127.0.0.1:${PORT}/app/wizard/`;
+    const url = `http://127.0.0.1:${port}/app/wizard/`;
     console.log(`[wizard] ${url}`);
     await client.send('Page.navigate', { url }, sessionId);
     await sleep(800);

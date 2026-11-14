@@ -74,7 +74,18 @@ if (args.help || !args.plan) {
 const planPath = path.resolve(String(args.plan));
 const plan = JSON.parse(fs.readFileSync(planPath, 'utf8'));
 const root = path.resolve(str('root', plan.meta?.root || path.dirname(planPath)));
-const concurrency = Math.max(1, num('concurrency', Math.min(4, Math.max(1, os.cpus().length - 1))));
+// R2-10（N06-F1）：并发钳制。实测 --concurrency 8 在 16 逻辑核上 8/23 段
+// CDP 超时失败、且比 c1 更慢（负收益）——SwiftShader 软件光栅下每个 worker
+// 都 CPU 饱和，过订只会互相抢核。上限按物理核估算（逻辑核/2 假设 SMT）再 /2，
+// 16 逻辑核 → 4 worker（实测稳定区）。显式超额请求会被钳并告警，不再静默出残片。
+const logicalCores = os.cpus().length;
+const physicalEst = Math.max(1, Math.floor(logicalCores / 2));
+const concurrencyCap = Math.max(2, Math.floor(physicalEst / 2));
+const requestedConcurrency = num('concurrency', Math.min(4, Math.max(1, logicalCores - 1)));
+const concurrency = Math.max(1, Math.min(requestedConcurrency, concurrencyCap));
+if (requestedConcurrency > concurrency) {
+  console.error(`[farm] concurrency ${requestedConcurrency} clamped to ${concurrency} (software raster oversubscribes CPU; cap≈${concurrencyCap} on ${logicalCores} logical cores). Lower --concurrency to silence.`);
+}
 const retries = Math.max(0, num('retries', 2));
 const resume = !!args.resume;
 const dryRun = !!args['dry-run'];
@@ -127,6 +138,10 @@ function probeFrames(file) {
 // ── legacy mode: one process per segment ────────────────────────────────────
 function rendererArgs(s) {
   const a = [RENDERER, ...s.renderArgs, '--root', root];
+  // legacy 模式也要传画幅：renderArgs 只有 --fps，缺 --width/--height 时渲染器
+  // 默认 1920×1080，非 16:9 的 plan 会渲成横屏（batch 模式传了，legacy 漏了）。
+  if (plan.meta?.width) a.push('--width', String(plan.meta.width));
+  if (plan.meta?.height) a.push('--height', String(plan.meta.height));
   if (args.browser) a.push('--browser', String(args.browser));
   if (args.crf !== undefined) a.push('--crf', String(args.crf));
   if (args.preset !== undefined) a.push('--preset', String(args.preset));

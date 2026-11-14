@@ -23,8 +23,14 @@ export function parseSummary(text) {
     // "Ran" 可选：test-spec-security 打的是 "34 tests: 32 passed, 2 failed"。
     { re: /(?:Ran\s+)?(\d+)\s+tests?:\s*(\d+)\s+passed,\s*(\d+)\s+failed/i, kind: 'total' },
     { re: /(\d+)\s+checks?:\s*(\d+)\s+passed,\s*(\d+)\s+failed/i, kind: 'total' },
+    // 中点分隔（test-script）："Ran N tests · X passed · Y failed"。
+    { re: /(?:Ran\s+)?(\d+)\s+tests?\s*[·•]\s*(\d+)\s+passed\s*[·•]\s*(\d+)\s+failed/i, kind: 'total' },
     { re: /(\d+)\s+passed,\s*(\d+)\s+failed/i, kind: 'pair' },
+    // 反序（ingest/test-edl 失败行）："N failed, M passed"。
+    { re: /(\d+)\s+failed,\s*(\d+)\s+passed/i, kind: 'reversed' },
     { re: /(\d+)\s+tests?\s+passed/i, kind: 'all' },
+    // 分数（test-nl2spec 成功行）："✓ 20/20"。锚定行尾，避免误匹配用例名。
+    { re: /^✓?\s*(\d+)\s*\/\s*(\d+)(?:\s+passed)?$/i, kind: 'fraction' },
     { re: /^(\d+)\s+passed$/i, kind: 'all' },
   ];
   // **从后往前**逐行找，而不是在整段尾部文本里取第一个匹配：
@@ -43,6 +49,14 @@ export function parseSummary(text) {
       if (kind === 'pair') {
         const passed = Number(m[1]), failed = Number(m[2]);
         return { total: passed + failed, passed, failed };
+      }
+      if (kind === 'reversed') {
+        const failed = Number(m[1]), passed = Number(m[2]);
+        return { total: passed + failed, passed, failed };
+      }
+      if (kind === 'fraction') {
+        const passed = Number(m[1]), total = Number(m[2]);
+        return { total, passed, failed: Math.max(0, total - passed) };
       }
       const n = Number(m[1]);
       return { total: n, passed: n, failed: 0 };

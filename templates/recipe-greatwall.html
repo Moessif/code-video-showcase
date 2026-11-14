@@ -199,8 +199,12 @@ function buildLayout() {
   const titleY = Math.round(H - subBottom - subSize * 1.6);
   const titleX = portrait ? Math.round(W * 0.5) : Math.round(pad * 1.5);
   const ruleW = Math.round(W * (portrait ? 0.30 : 0.16));
+  // 标题静态 → 字号二分只在启动算一次（旧版每帧重算 128 次 measureText）。
+  const titleFitSize = fitTextSize(ctx, TITLE, {
+    maxWidth: W - pad * 2, family: SERIF, weight: 700, maxSize: titleSize, minSize: 30, spacing: 0.06,
+  });
   return {
-    titleSize, subSize, titleY, titleX, ruleW,
+    titleSize, titleFitSize, subSize, titleY, titleX, ruleW,
     // 强调线放在标题**下方**（标题下划线），不要压在字头上。
     ruleY: titleY + Math.round(subSize * 0.62),
     subY: titleY + Math.round(subSize * 2.05),
@@ -426,9 +430,7 @@ function drawTitle(t) {
   // 否则 textAlign='center' 会和手算的起点叠加成双重居中（竖屏整体偏左）。
   ctx.textAlign = 'left';
   ctx.textBaseline = 'alphabetic';
-  const size = fitTextSize(ctx, TITLE, {
-    maxWidth: W - pad * 2, family: SERIF, weight: 700, maxSize: L.titleSize, minSize: 30, spacing: 0.06,
-  });
+  const size = L.titleFitSize;
   const tracking = size * 0.10;
   const total = chars.length * size + (chars.length - 1) * tracking;
   const x = L.align === 'center' ? W / 2 - total / 2 : L.titleX;

@@ -106,7 +106,7 @@ function drawScene(t) {
     ctx.clip();
     ctx.fillStyle = hexToRgba(INK, 0.06);
     ctx.fillRect(L.figX, L.figY, L.figW, L.figH);
-    drawHalftone(ctx, { W, H, cell: 9, color: hexToRgba(INK, 0.7), alpha: 0.85, t });
+    drawHalftone(ctx, { W, H, cell: 9, color: hexToRgba(INK, 0.7), alpha: 0.85, t, region: { x0: L.figX, y0: L.figY, x1: L.figX + L.figW, y1: L.figY + L.figH } });
     ctx.strokeStyle = RULE;
     ctx.strokeRect(L.figX + 0.5, L.figY + 0.5, L.figW, L.figH);
     ctx.restore();

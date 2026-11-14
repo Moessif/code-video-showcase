@@ -493,22 +493,26 @@ function drawSpecPanel() {
 function drawRail() {
   const gap = 12;
   const n = THEME_IDS.length;
-  const w = (RIGHT - LEFT - gap * (n - 1)) / n;
-  const h = 60;
-  const y = 934;
+  // 17 套时单行每格只剩 ~90px，中文名会挤成一团：折成两行（9 + 8）。
+  const rows = n <= 14 ? 1 : 2;
+  const cols = Math.ceil(n / rows);
+  const w = (RIGHT - LEFT - gap * (cols - 1)) / cols;
+  const h = rows === 1 ? 60 : 34;
+  const rowGap = 8;
+  const y0 = rows === 1 ? 934 : 906;
+  const fontSize = rows === 1 ? 16 : 14;
   THEME_IDS.forEach((id, i) => {
     const th = THEMES[id];
-    const x = LEFT + i * (w + gap);
+    const col = i % cols;
+    const row = (i / cols) | 0;
+    const x = LEFT + col * (w + gap);
+    const y = y0 + row * (h + rowGap);
     const active = id === theme.id;
-    rr(x, y, w, h, 10);
+    rr(x, y, w, h, rows === 1 ? 10 : 8);
     ctx.fillStyle = active ? c.accent : hexToRgba(c.surface, 0.85);
     ctx.fill();
-    if (active) {
-      ctx.fillStyle = c.accentInk;
-    } else {
-      ctx.fillStyle = c.muted;
-    }
-    setFont(active ? 600 : 500, 16, SANS);
+    ctx.fillStyle = active ? c.accentInk : c.muted;
+    setFont(active ? 600 : 500, fontSize, SANS);
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     ctx.fillText(th.name, x + w / 2, y + h / 2 + 1);
@@ -518,7 +522,7 @@ function drawRail() {
 /* ---------- 9. footer ---------- */
 function drawFooter() {
   const y = 1036;
-  drawSpaced('CODE-VIDEO-SHOWCASE / THEME SYSTEM v2', LEFT, y, { size: 13, spacing: 2, color: c.muted });
+  drawSpaced('CODE-VIDEO-SHOWCASE / THEME SYSTEM v3', LEFT, y, { size: 13, spacing: 2, color: c.muted });
   drawSpaced(`1920 × 1080 · STATIC PREVIEW · ${NUM}/${TOTAL}`, RIGHT, y, { size: 13, spacing: 2, color: c.muted, align: 'right' });
 }
 

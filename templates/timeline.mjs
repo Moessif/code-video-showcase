@@ -43,8 +43,21 @@ const DEFAULT_STRUCTURE = {
   card: 1,
   ending: 6,
   moreCard: 1,
-  flash: { count: 8, each: 0.25 },
+  // R2-04（N08-F1）：旧默认 8×0.25s = 3.75Hz 全画面白闪，违反 WCAG 2.3.1
+  // （>3 次/秒）。改 4×0.5s = 2Hz（120BPM 下一整拍），总时长仍 2s。
+  flash: { count: 4, each: 0.5 },
 };
+
+// R2-25（N07-F2）：flash 间距默认由**拍**派生（一整拍 = 60/bpm），保证任意
+// BPM 下闪段都落在拍网格上——旧版固定 0.25s 与 BPM 无关，90BPM 下 beat grid
+// 崩到 31.4%。显式 structure.flash.each 优先（用户意图），否则取一整拍。
+function resolveFlashEach(spec) {
+  const explicit = spec.structure?.flash?.each;
+  if (explicit != null && Number(explicit) > 0) return Number(explicit);
+  const bpm = Number(spec.audio?.bpm) || 120;
+  return 60 / bpm;
+}
+export { resolveFlashEach };
 
 const DEFAULT_PAGES = {
   opening: 'segments/00-opening.html',
@@ -104,6 +117,10 @@ export function validateComposition(spec) {
   else {
     rounds.forEach((r, i) => {
       const id = r.id || `r${String(i + 1).padStart(2, '0')}`;
+      // round.id 会变成段文件名并进 concat 清单；与 spec 路径同规则（SAFE_ID_RE）。
+      if (r.id !== undefined && !/^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/.test(String(r.id))) {
+        err(`rounds[${i}].id "${r.id}" must be a safe filename (letters/digits/dash/underscore, <=64 chars)`);
+      }
       if (!r.style || !r.style.page) err(`rounds[${i}] (${id}) missing style.page`);
       if (!r.card) warn(`rounds[${i}] (${id}) has no card; a default card page will be used`);
       if (r.card && r.card.color && !isHex(r.card.color)) warn(`rounds[${i}].card.color "${r.card.color}" is not #rrggbb`);
@@ -134,7 +151,7 @@ export function validateComposition(spec) {
 export function totalDuration(spec) {
   const st = { ...DEFAULT_STRUCTURE, ...(spec.structure || {}), flash: { ...DEFAULT_STRUCTURE.flash, ...(spec.structure?.flash || {}) } };
   const n = Array.isArray(spec.rounds) ? spec.rounds.length : Number(spec.structure?.styles ?? 0);
-  return Number(st.opening) + n * Number(st.round) + Number(st.moreCard) + Number(st.flash.count) * Number(st.flash.each) + Number(st.ending);
+  return Number(st.opening) + n * Number(st.round) + Number(st.moreCard) + Number(st.flash.count) * resolveFlashEach(spec) + Number(st.ending);
 }
 
 // ── plan builder ────────────────────────────────────────────────────────────
@@ -218,7 +235,9 @@ export function buildPlan(spec, { root = process.cwd(), outDir } = {}) {
       total: card.total ?? totalRounds,
       first: card.first ?? '想做',
       keyword: card.keyword ?? r.name ?? '风格？',
-      color: card.color ?? '#ffcf5c',
+      // R2-05：不再硬编 #ffcf5c 黄底——未指定 color 时省略该参数，让 big-card
+      // 用主题 accent + inkFor 极性择色（旧默认黄底配浅色主题 accentInk = 白字白底）。
+      ...(card.color ? { color: card.color } : {}),
       brand: meta.brand,
       seconds: Number(st.card),
       ...(card.params || {}),
@@ -266,7 +285,7 @@ export function buildPlan(spec, { root = process.cwd(), outDir } = {}) {
       total: totalRounds + 1,
       first: more.first ?? '还有',
       keyword: more.keyword ?? '更多？',
-      color: more.color ?? '#ffcf5c',
+      ...(more.color ? { color: more.color } : {}),
       brand: meta.brand,
       seconds: Number(st.moreCard),
     }),
@@ -276,7 +295,8 @@ export function buildPlan(spec, { root = process.cwd(), outDir } = {}) {
   const flashCount = Number(st.flash.count);
   if (flashCount > 0) {
     const flash = spec.flash || {};
-    const flashTotal = Number(st.flash.count) * Number(st.flash.each);
+    const flashEach = resolveFlashEach(spec);
+    const flashTotal = Number(st.flash.count) * flashEach;
     for (let i = 0; i < flashCount; i++) {
       nominal.push({
         id: `f${String(i + 1).padStart(2, '0')}`, kind: 'flash', index: i, label: `flash ${i + 1}/${flashCount}`,
@@ -288,7 +308,7 @@ export function buildPlan(spec, { root = process.cwd(), outDir } = {}) {
           count: flashCount,
           ...(flash.params || {}),
         }),
-        duration: Number(st.flash.each),
+        duration: flashEach,
         flashTotal,
       });
     }
@@ -336,6 +356,16 @@ export function buildPlan(spec, { root = process.cwd(), outDir } = {}) {
   if (transition && segments.length >= 2) {
     const tf = Math.round(transition.duration * fps);
     const shortest = segments.reduce((m, s) => Math.min(m, s.frames), Infinity);
+    // 亚帧转场（round(t*fps)=0）：shiftSegments 会原样返回，但 concat 仍收到
+    // 非零 duration 的 xfade → 帧数失配。至少要有 1 帧重叠。
+    if (tf < 1) {
+      const e = new Error(
+        `[E_TRANSITION_DURATION] render.transition: transition ${transition.duration}s rounds to 0 frames ` +
+        `at ${fps}fps; use at least ${(1 / fps).toFixed(4)}s (1 frame)`,
+      );
+      e.code = 'E_TRANSITION_DURATION';
+      throw e;
+    }
     if (tf >= shortest) {
       const e = new Error(
         `[E_TRANSITION_DURATION] render.transition: transition ${transition.duration}s (${tf}f) must be shorter ` +
@@ -413,6 +443,8 @@ export function concatList(plan, { absolute = true, baseDir = null } = {}) {
       return `file '${rel}'`;
     }
     const f = absolute ? path.resolve(root, s.out).replace(/\\/g, '/') : s.out;
+    // 绝对模式也要挡换行：否则 s.out 里的 \n 会往 concat 清单注入额外行。
+    if (/[\n\r]/.test(f)) throw new Error(`concatList: segment path contains a newline: ${s.id}`);
     return `file '${f.replace(/'/g, "'\\''")}'`;
   }).join('\n') + '\n';
 }

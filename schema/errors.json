@@ -24,6 +24,18 @@
       "meaning": "未知子命令",
       "action": "运行 `cvs --help`"
     },
+    "E_UNKNOWN_FLAG": {
+      "phase": "usage",
+      "exit": 2,
+      "meaning": "未知命令行 flag（拼错的 --strict 等不再被静默忽略）",
+      "action": "按报错里的 did-you-mean 修正；`cvs <cmd> --help` 看全表"
+    },
+    "E_PLAN_MISSING": {
+      "phase": "usage",
+      "exit": 2,
+      "meaning": "qa-audio 的 --plan 指向不存在的文件（旧行为静默丢掉 cue/HF 门禁假绿）",
+      "action": "先跑 `cvs plan` 生成 plan.json，或修正 --plan 路径"
+    },
     "E_READ": {
       "phase": "spec",
       "exit": 10,
@@ -166,7 +178,7 @@
       "phase": "spec",
       "exit": 10,
       "meaning": "主题 id 不存在",
-      "action": "从报错列出的 13 个 id 中选"
+      "action": "从报错列出的主题 id 中选（当前 17 个）"
     },
     "E_APCA": {
       "phase": "spec",
@@ -226,7 +238,7 @@
       "phase": "spec",
       "exit": 10,
       "meaning": "页面文件不存在",
-      "action": "检查 --root 与 page 路径；报错里会回显 root"
+      "action": "检查 --root 与 page 路径；报错回显解析用的 root 绝对路径"
     },
     "E_PAGE_REMOTE": {
       "phase": "spec",
@@ -239,6 +251,18 @@
       "exit": 10,
       "meaning": "页面用了绝对路径",
       "action": "改成相对项目根的路径"
+    },
+    "E_PAGE_TRAVERSAL": {
+      "phase": "spec",
+      "exit": 10,
+      "meaning": "页面路径含 .. 段，越出项目根（文件存在性 oracle / 越界读）",
+      "action": "改成不含 .. 的项目根内相对路径"
+    },
+    "E_PAGE_EXT": {
+      "phase": "spec",
+      "exit": 10,
+      "meaning": "页面不是 .html/.htm 文件，渲染器无法打开",
+      "action": "page 必须指向 HTML 文档；模板/依赖文件不要填进 page"
     },
     "E_BRAND_MISSING": {
       "phase": "spec",

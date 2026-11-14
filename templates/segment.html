@@ -119,7 +119,10 @@ function drawBrandLogo() {
 const BRAND_LABEL = PARAM_BRAND || '';
 const TITLE = PARAM_TITLE || BRAND_LABEL;
 const SUB = PARAM_SUB || '';
-const CAPSULE = PARAM_CAPSULE || TITLE.slice(0, 12) || '预览';
+// R2-29（N02-F2）：胶囊（左上 eyebrow）兜底用**品牌**而非标题——旧版
+// `TITLE.slice(0,12)` 让仅传 ?title= 的官方命令形态把标题复读两遍（中央大字
+// + 左上胶囊），品牌/分类信息位失去意义。无品牌时才落通用词。
+const CAPSULE = PARAM_CAPSULE || BRAND_LABEL || '预览';
 const IS_GLASS = HAS_THEME && !!(THEME.material && THEME.material.glass);
 const TC = HAS_THEME ? THEME.colors : null;
 

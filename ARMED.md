@@ -22,7 +22,7 @@
 | 拼接出片 | concat → 混音 → CRF17 + 两遍 loudnorm → bt709/faststart | ok |
 | 时间轴 | `timeline.mjs`：11 轮示例 → 33 段 / 1830 帧 / 61.000 s | ok |
 | 质检 | `qa-video.mjs` 13 PASS / `qa-audio.py` 3 PASS（demo） | ok |
-| 主题审计 | `theme-audit.mjs --strict` 13 套主题 WCAG 全 PASS | ok |
+| 主题审计 | `theme-audit.mjs --strict` 17 套主题 WCAG 全 PASS | ok |
 
 实测性能（v2，canvas 取帧）：30 帧（1s 段）渲染约 **4.3 s**（≈7 fps），进程收尾约 3 s；90 帧（3s 段）约 **27 s**。`render-farm --concurrency 4` 渲染 61 s 成片约 **3–5 分钟**。
 
@@ -47,7 +47,7 @@ node templates/render-segment.mjs --page templates/segment.html \
 # 整段渲染（3s = 90 帧）
 node templates/render-segment.mjs --page templates/segment.html --out out/01.mp4 --duration 3
 
-# 换主题（v2.0.0）：13 套 id 见 templates/themes.js
+# 换主题（v2.0.0）：17 套 id 见 templates/themes.js
 node templates/render-segment.mjs --page "templates/big-card.html?theme=amber-noir" --out out/01b.mp4 --duration 3
 
 # 时间轴 → 计划 → 并行渲染（v2）
@@ -107,7 +107,7 @@ templates/
   big-card.html        大字卡模板（4 版式）
   theme-board.html     单主题预览板
   theme-sheet.html     主题全集
-  themes.js            13 套主题唯一数据源
+  themes.js            17 套主题唯一数据源
   synth_audio.py       numpy/scipy 配乐工具包 + 8s demo
   concat-and-encode.sh 拼接 + 混音 + 2-pass【已修 CRLF】
 scripts/

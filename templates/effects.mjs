@@ -306,14 +306,25 @@ export function drawVignette(ctx, { W = 1920, H = 1080, strength = 0.5, color = 
   ctx.restore();
 }
 
-/** 半调网点：按格子采样亮度画点（近似，用固定灰度梯度演示）。 */
-export function drawHalftone(ctx, { W = 1920, H = 1080, cell = 10, color = '#000000', alpha = 0.5, t = 0 } = {}) {
+/**
+ * 半调网点：按格子采样亮度画点（近似，用固定灰度梯度演示）。
+ * region {x0,y0,x1,y1} 限定迭代范围（默认全幅）。调用方已 clip 到小块时传入该块，
+ * 避免为被裁掉的区域白跑上万次 arc()。亮度仍按全幅坐标 (x/W,y/H) 计算，
+ * 所以传 region 与不传在可见区域内逐像素一致——只是更快。
+ */
+export function drawHalftone(ctx, { W = 1920, H = 1080, cell = 10, color = '#000000', alpha = 0.5, t = 0, region = null } = {}) {
   if (typeof document === 'undefined') return;
+  const x0 = region ? Math.max(0, region.x0) : 0;
+  const y0 = region ? Math.max(0, region.y0) : 0;
+  const x1 = region ? Math.min(W, region.x1) : W;
+  const y1 = region ? Math.min(H, region.y1) : H;
+  // 起点对齐到全幅网格 cell/2 + k*cell，保证与不传 region 时可见区域逐像素一致。
+  const snap = (v) => cell / 2 + Math.max(0, Math.ceil((v - cell / 2) / cell)) * cell;
   ctx.save();
   ctx.globalAlpha = clamp(alpha);
   ctx.fillStyle = color;
-  for (let y = cell / 2; y < H; y += cell) {
-    for (let x = cell / 2; x < W; x += cell) {
+  for (let y = snap(y0); y < y1; y += cell) {
+    for (let x = snap(x0); x < x1; x += cell) {
       const luma = 0.5 + 0.5 * Math.sin((x / W) * 3 + t * 0.3) * Math.cos((y / H) * 3);
       const r = halftoneRadius(luma, cell);
       if (r <= 0.3) continue;
@@ -325,19 +336,29 @@ export function drawHalftone(ctx, { W = 1920, H = 1080, cell = 10, color = '#000
   ctx.restore();
 }
 
-/** 点阵背景：规则圆点网格。 */
+/** 点阵背景：规则圆点网格。100% 静态 → 烘一次离屏画布，逐帧只 drawImage。 */
+const _dotGridCache = new Map();
 export function drawDotGrid(ctx, { W = 1920, H = 1080, step = 36, r = 1.6, color = 'rgba(255,255,255,0.10)' } = {}) {
   if (typeof document === 'undefined') return;
-  ctx.save();
-  ctx.fillStyle = color;
-  for (let y = step / 2; y < H; y += step) {
-    for (let x = step / 2; x < W; x += step) {
-      ctx.beginPath();
-      ctx.arc(x, y, r, 0, TAU);
-      ctx.fill();
+  const key = `${W}x${H}:${step}:${r}:${color}`;
+  let cv = _dotGridCache.get(key);
+  if (!cv) {
+    cv = document.createElement('canvas');
+    cv.width = W; cv.height = H;
+    const g = cv.getContext('2d');
+    g.fillStyle = color;
+    for (let y = step / 2; y < H; y += step) {
+      for (let x = step / 2; x < W; x += step) {
+        g.beginPath();
+        g.arc(x, y, r, 0, TAU);
+        g.fill();
+      }
     }
+    // 缓存上限：画幅/参数组合有限，防极端情况下无限增长。
+    if (_dotGridCache.size > 32) _dotGridCache.clear();
+    _dotGridCache.set(key, cv);
   }
-  ctx.restore();
+  ctx.drawImage(cv, 0, 0);
 }
 
 /** 粒子：调用纯核 particleField 再逐个画。 */

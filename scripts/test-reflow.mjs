@@ -182,5 +182,4 @@ test('全流程后原 fixture 仍然未被修改', () => {
 
 const total = passed + failed;
 console.log(`\nRan ${total} tests: ${passed} passed, ${failed} failed`);
-console.log(`${passed} passed`);
 if (failed) process.exit(1);

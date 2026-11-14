@@ -231,5 +231,4 @@ test('expandVariants 不修改原 spec', () => {
 
 const total = passed + failed;
 console.log(`\nRan ${total} tests: ${passed} passed, ${failed} failed`);
-console.log(`${passed} passed`);
 if (failed) process.exit(1);

@@ -2,9 +2,9 @@
 """
 qa-audio.py — objective audio gate for the code-rendered film.
 
-Checks, with numpy/scipy only (matplotlib optional for the spectrogram):
+Checks, with numpy/scipy only (spectrogram is a pure-numpy PNG, v2.5.1):
 
-  • peak / RMS / crest / clipping
+  • sample peak + **true peak (8× oversampled dBTP)** / RMS / crest / clipping
   • integrated loudness (ITU-R BS.1770 K-weighting + gating, approximated)
   • tempo estimate and beat-grid phase (autocorrelation on a spectral-flux envelope)
   • cue alignment against out/plan.json (default tolerance ±30 ms)
@@ -14,7 +14,8 @@ Checks, with numpy/scipy only (matplotlib optional for the spectrogram):
     python scripts/qa-audio.py audio/mix.wav --plan out/plan.json \
         --out qa/qa-audio.json --spectrogram qa/spectrogram.png --strict
 
-No model, no network, deterministic.
+No model, no network, deterministic. --plan given but missing is a hard error
+(exit 2): silently dropping the cue/HF gates is a false green.
 """
 from __future__ import annotations
 
@@ -44,9 +45,17 @@ def _read_wav_any(src: str):
         elif x.dtype == np.int16:
             x = x.astype(np.float64) / 32768.0
         elif x.dtype == np.int32:
-            peak = float(np.max(np.abs(x))) if x.size else 0.0
-            # 24-bit WAVs are returned as int32 but scaled to 2^23.
-            x = x.astype(np.float64) / (2147483648.0 if peak > 8388608.0 else 8388608.0)
+            # v2.5.2 R2-03：24-bit WAV 被 scipy 返回成 int32（满幅 2^23），
+            # 真 32-bit 是 2^31。旧实现拿样本峰 >2^23 猜——低电平 32-bit 素材
+            # 被按 2^23 除，全表读数错 18 dB。改为读文件头的实际位宽。
+            divisor = 2147483648.0
+            try:
+                with wave.open(src, "rb") as w:
+                    if w.getsampwidth() == 3:
+                        divisor = 8388608.0
+            except Exception:
+                pass  # extensible/非规范头：维持 int32 满幅假设
+            x = x.astype(np.float64) / divisor
         elif x.dtype.kind == "f":
             x = x.astype(np.float64)
         else:
@@ -137,13 +146,18 @@ def integrated_lufs(stereo: np.ndarray, sr: int) -> float:
 
 # ── onset / tempo ──────────────────────────────────────────────────────────
 def onset_envelope(mono: np.ndarray, sr: int, hop: int = 512, n_fft: int = 2048):
-    f, t, z = signal.stft(mono, fs=sr, nperseg=n_fft, noverlap=n_fft - hop, boundary=None, padded=False)
+    # 前置 n_fft 个静音样本：boundary=None 时 t=0 的 onset 没有「前一帧」，flux[0]
+    # 恒 0，开场重音永远测不到（fail 级 cue alignment 漏掉最重要的同步点）。
+    # 垫一段静音让 t=0 有上升沿，再把峰值时间减去 pad 偏移还原。
+    pad = n_fft
+    padded = np.concatenate([np.zeros(pad, dtype=mono.dtype), mono])
+    f, t, z = signal.stft(padded, fs=sr, nperseg=n_fft, noverlap=n_fft - hop, boundary=None, padded=False)
     mag = np.abs(z)
     flux = np.maximum(0.0, np.diff(mag, axis=1)).sum(axis=0)
     flux = np.concatenate([[0.0], flux])
     if flux.max() > 0:
         flux = flux / flux.max()
-    return flux, hop / sr, f
+    return flux, hop / sr, f, pad / sr
 
 
 def pick_peaks(env: np.ndarray, frame_dt: float, min_gap: float = 0.08):
@@ -159,7 +173,8 @@ def pick_peaks(env: np.ndarray, frame_dt: float, min_gap: float = 0.08):
     return peaks
 
 
-def estimate_tempo(env: np.ndarray, frame_dt: float, lo: float = 60, hi: float = 200):
+def estimate_tempo(env: np.ndarray, frame_dt: float, lo: float = 60, hi: float = 200,
+                   expected: float | None = None):
     if len(env) < 8:
         return None, None
     # Resample envelope to 100 Hz for a stable lag grid.
@@ -185,27 +200,50 @@ def estimate_tempo(env: np.ndarray, frame_dt: float, lo: float = 60, hi: float =
     else:
         frac = 0.0
     lag = (best + frac) * 0.01
-    return 60.0 / lag, float(seg.max() / (ac0 + EPS))
+    bpm_raw = 60.0 / lag
+    conf = float(seg.max() / (ac0 + EPS))
+    # R2-26（N07-F4）：无节奏素材（纯正弦/静音）的 onset 包络近乎平坦，
+    # 自相关没有真峰——旧版照样报一个 BPM 还判 PASS。置信度地板拦掉。
+    if conf < 0.05:
+        return None, conf
+    # 自相关天生八度歧义（90 BPM 的真周期 0.667s 与 0.333s/1.333s 都有峰）。
+    # 有 plan 的目标 BPM 时，把检出值折叠到最接近目标的八度——这是交付场景
+    # 的正确做法（曲谱告诉我们意图）；无 plan 时保留原始估计（仅 advisory）。
+    if expected:
+        best_bpm = bpm_raw
+        for k in (-2, -1, 0, 1, 2):
+            cand = bpm_raw * (2 ** k)
+            if abs(cand - expected) < abs(best_bpm - expected):
+                best_bpm = cand
+        return best_bpm, conf
+    return bpm_raw, conf
 
 
-def grid_phase(peaks, bpm: float, subdiv: int = 1):
+def grid_phase(peaks, bpm: float, subdiv: int = 1, fixed_off: float | None = None):
     """Phase on a **declared** beat grid (default: every beat).
 
     v2.3.5: 以前会在 1/2/4 细分里挑命中率最高的那个再断言 ≥0.7——
-    等于用「最合身的尺子」量自己。现在细分由 --subdiv 显式声明，报告里如实写。
+    等于用「最合身的尺子」量自己。现在细分由 --subdiv 或 plan 显式声明。
+    v2.5.2 R2-24: 传入 fixed_off（plan 的 cue 网格锚点）时**不再自由搜索**——
+    自由选 offset 等于把挑尺子的自由度从细分挪到了相位（实测 220 ms 的
+    offset 照样报「PASS 76.7%」）。fixed 模式下 offset 就是与曲谱对齐的网格，
+    音乐偏离它就是偏离，报告如实写。
     """
     beat = 60.0 / bpm
     step = beat / max(1, int(subdiv))
-    best_off, best_score = 0.0, -1.0
-    for off in np.arange(0.0, step, 0.005):
-        score = 0.0
-        for t, a in peaks:
-            ph = (t - off) % step
-            d = min(ph, step - ph)
-            if d <= 0.03:
-                score += a
-        if score > best_score:
-            best_off, best_score = float(off), score
+    if fixed_off is not None:
+        best_off = float(fixed_off) % step
+    else:
+        best_off, best_score = 0.0, -1.0
+        for off in np.arange(0.0, step, 0.005):
+            score = 0.0
+            for t, a in peaks:
+                ph = (t - off) % step
+                d = min(ph, step - ph)
+                if d <= 0.03:
+                    score += a
+            if score > best_score:
+                best_off, best_score = float(off), score
     hit = 0
     for t, _ in peaks:
         ph = (t - best_off) % step
@@ -285,6 +323,19 @@ def _magma(v: np.ndarray) -> np.ndarray:
     return (stops[lo] * (1 - frac) + stops[hi] * frac).astype(np.uint8)
 
 
+def true_peak_dbtp(x: np.ndarray, sr: int, oversample: int = 8) -> float:
+    """ITU-R BS.1770 / AES17 真峰值（inter-sample peak），8× 多相过采样。
+
+    R2-01：采样峰值量的是错的物理量——本仓库实测「采样峰 −1.5 dBFS 判 PASS」
+    的同一素材，8× 重建波形的 TP 是 −0.94 dBTP，过 AAC 后到 +2.7 dBTP。
+    交付门限必须按 DAC 真正重放出来的波形判。
+    """
+    if x.size == 0:
+        return float("-inf")
+    y = signal.resample_poly(x, oversample, 1, axis=0)
+    return float(20 * np.log10(float(np.max(np.abs(y))) + EPS))
+
+
 def save_spectrogram(mono: np.ndarray, sr: int, path: str, width: int = 1600, height: int = 480):
     """对数频率轴频谱图，纯 numpy + stdlib PNG（无 matplotlib）。
 
@@ -330,7 +381,14 @@ def main():
     ap.add_argument("--subdiv", type=int, default=1, help="declared beat subdivision for the grid check (default 1 = every beat)")
     args = ap.parse_args()
 
-    plan = json.load(open(args.plan, encoding="utf-8")) if args.plan and os.path.exists(args.plan) else None
+    # R2-02（N07-F5）：--plan 给了却不存在 → 硬错误。旧行为静默把 8 项门禁
+    # 缩成 6 项还打全绿——路径打一个错字就能假绿交付。
+    if args.plan and not os.path.exists(args.plan):
+        print(f"[error] [E_PLAN_MISSING] --plan {args.plan} not found. "
+              "Without a plan the cue/HF/tempo gates silently drop — refusing to fake-green.",
+              file=sys.stderr)
+        sys.exit(2)
+    plan = json.load(open(args.plan, encoding="utf-8")) if args.plan else None
     expected_bpm = float(plan["audio"]["bpm"]) if plan else None
     cues = plan["audio"]["cues"] if plan else []
 
@@ -339,30 +397,39 @@ def main():
     peak = float(np.max(np.abs(stereo))) if len(stereo) else 0.0
     rms = float(np.sqrt(np.mean(mono ** 2) + EPS))
     clip = int(np.sum(np.abs(stereo) >= 0.999))
+    # R2-01（N03+N07 交叉实证）：采样峰不是交付门限，inter-sample 峰才是。
+    tp_dbtp = true_peak_dbtp(stereo, sr)
 
-    env, frame_dt, _ = onset_envelope(mono, sr)
-    peaks = pick_peaks(env, frame_dt)
-    tempo, tempo_conf = estimate_tempo(env, frame_dt)
+    env, frame_dt, _, pad_s = onset_envelope(mono, sr)
+    # 减去前置静音偏移还原真实 onset 时间。STFT 窗中心会让峰时偏 ~n_fft/2，
+    # t=0 的峰可能落在略负处——允许到 -pad_s 并钳到 0（垫的是静音，不会有假峰）。
+    peaks = [(max(0.0, t - pad_s), e) for (t, e) in pick_peaks(env, frame_dt) if t - pad_s >= -pad_s]
+    tempo, tempo_conf = estimate_tempo(env, frame_dt, expected=expected_bpm)
     bpm = expected_bpm or tempo
-    # 拍网格细分从 plan 的 cue 间距推断：flash 段每半拍一条 cue（8 连闪），
-    # 用 1/1 网格去量等于拿错尺子。仍属**声明式**语义——细分写进报告，
-    # 不是在多个细分里挑命中率最高的那个（那是 v2.3.5 之前的老毛病）。
+    # R2-24（N07-F3）：细分与相位都**锚定在 plan 自己的 cue 网格上**——
+    # ① subdiv 取「能解释最多 cue 间距的**最粗** 1/2^k」而不是最小间距；
+    # ② offset 不再全区间自由搜索（220 ms 的 offset 照样报 PASS，等于把挑尺子
+    #    的自由度从细分挪到了相位）。锚不住 plan 网格时如实走低分。
     subdiv = args.subdiv
-    if bpm and subdiv == 1 and len(cues) >= 3:
+    grid_off = None
+    if bpm and len(cues) >= 3 and args.subdiv == 1:
         beat = 60.0 / bpm
-        gaps = []
-        for a, b in zip(cues, cues[1:]):
-            g = float(b["t"]) - float(a["t"])
-            if g > 1e-3:
-                gaps.append(g)
-        if gaps:
-            # 最小间距落在哪个 1/2^k 拍上（±10% 容差）？
-            g0 = min(gaps)
-            for k in (1, 2, 4):
-                if abs(g0 - beat / k) <= beat / k * 0.1:
-                    subdiv = k
+        for k in (1, 2, 4):
+            step_try = beat / k
+            tol = step_try * 0.12
+            t0 = float(cues[0]["t"])
+            ok_all = True
+            for c in cues[1:]:
+                g = float(c["t"]) - t0
+                m = g / step_try
+                if abs(m - round(m)) * step_try > max(tol, 0.02):
+                    ok_all = False
                     break
-    offset, hit_rate, grid_subdiv = grid_phase(peaks, bpm, subdiv) if bpm else (None, None, None)
+            if ok_all:
+                subdiv = k
+                grid_off = t0 % step_try
+                break
+    offset, hit_rate, grid_subdiv = grid_phase(peaks, bpm, subdiv, fixed_off=grid_off) if bpm else (None, None, None)
 
     cue_rows = []
     matched = 0
@@ -388,7 +455,11 @@ def main():
     align_rate = matched / max(1, len(cues))
     coverage = near / max(1, len(cues))
 
-    key_times = [c["t"] for c in cues if c.get("kind") in ("card", "start")]
+    # R2-05 配套（N08-F3）：关键窗口不只是 card——片头揭示与片尾 impact 同样是
+    # 「点缀该亮」的位置；只有 opening 的短 plan 也必须产出 HF 行（N07-F5）。
+    # 'start' 从不是真实 cue kind（timeline 发 opening/card/style/more/flash/ending）；
+    # 点缀实际落在 card/opening/ending/more，key 窗须与 synth 一致。
+    key_times = [c["t"] for c in cues if c.get("kind") in ("card", "opening", "ending", "more")]
     hf = hf_contrast(mono, sr, key_times, dur)
     silences = silence_spans(mono, sr)
 
@@ -404,7 +475,9 @@ def main():
         status = "PASS" if ok else {"fail": "FAIL", "contract": "WARN", "advisory": "ADVISORY"}[level]
         checks.append({"name": name, "status": status, "level": level, "detail": detail})
 
-    chk("peak", peak <= 0.891, f"{20*np.log10(peak+EPS):.2f} dBFS (≤ -1 dBFS)", level="contract")
+    # R2-01：峰值门禁以 dBTP 为准（采峰值一并报告，便于定位差异来源）。
+    chk("peak (true, 8x)", tp_dbtp <= -1.0,
+        f"{tp_dbtp:.2f} dBTP true-peak (≤ -1 dBTP) · sample {20*np.log10(peak+EPS):.2f} dBFS", level="contract")
     chk("clipping", clip == 0, f"{clip} samples ≥ 0.999")
     chk("integrated loudness", abs(integrated_lufs(stereo, sr) + 14) <= 1.0,
         f"{integrated_lufs(stereo, sr):.2f} LUFS (target -14 ±1)", level="contract")
@@ -421,6 +494,21 @@ def main():
     chk("silence", len(silences) == 0, f"{len(silences)} spans ≥1 s below -45 dB", level="contract")
     if hf:
         chk("HF restraint", hf["contrast_db"] >= 6.0, f"8–16 kHz key vs rest: {hf['contrast_db']:+.2f} dB (target ≥ +6)", level="advisory")
+    else:
+        # 无点缀 key 窗（如纯 flash plan）时 HF 对比不可测——仍要产出这一行，
+        # 否则 R2-02「checks complete」会把「少一项」判成 FAIL。advisory 不阻塞。
+        chk("HF restraint", True, "no key/rest window split (no ornament cues); HF contrast not measurable", level="advisory")
+
+    # R2-02 补完：有 plan 时门禁必须齐全——任何一项被静默吞掉本身就是 FAIL，
+    # 而不是「少一项也全绿」。
+    if plan is not None:
+        present = {c["name"] for c in checks}
+        needed = ["peak (true, 8x)", "clipping", "integrated loudness",
+                  "cue alignment", "beat grid", "silence", "HF restraint"]
+        absent = [n for n in needed if n not in present]
+        if absent:
+            checks.append({"name": "checks complete", "status": "FAIL", "level": "fail",
+                           "detail": "gates silently dropped: " + ", ".join(absent)})
 
     report = {
         "file": os.path.abspath(args.audio),
@@ -437,6 +525,8 @@ def main():
         "rmsDbfs": round(20 * np.log10(rms + EPS), 3),
         "crestDb": round(20 * np.log10(peak / (rms + EPS) + EPS), 3),
         "clippingSamples": clip,
+        "peakDbfs": round(20 * np.log10(peak + EPS), 3),
+        "truePeakDbtp": round(tp_dbtp, 3),
         "integratedLufs": round(integrated_lufs(stereo, sr), 3),
         "hf": hf,
         "silence": silences,

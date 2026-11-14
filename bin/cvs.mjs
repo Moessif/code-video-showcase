@@ -35,6 +35,20 @@ const specArgs = (args) => {
   return args;
 };
 
+// R2-35（N01-F5）：`cvs wizard --help` 以前不打印帮助反而起服务占住 5181。
+// surface 命令统一：--help/-h 只打一行用法+URL 就退出，端口绝不进入 LISTENING。
+const SURFACES = { wizard: 5181, canvas: 5182, script: 5183, versions: 5184, review: 5185 };
+function surface(name, port, args) {
+  if (args.includes('--help') || args.includes('-h')) {
+    console.log(`cvs ${name} — start the ${name} dev surface (static server, port ${port})
+usage: cvs ${name} [--port <n>]
+  URL: http://127.0.0.1:${port}/app/${name}/
+  Ctrl+C stops the server. This command does not build a film; use \`cvs build\` for that.`);
+    process.exit(0);
+  }
+  return node(`app/${name}/serve.mjs`, args);
+}
+
 const commands = {
   new:      (a) => node('scripts/nl2spec.mjs', a),
   ref:      (a) => node('scripts/from-reference.mjs', a.length && !a[0].startsWith('--') ? ['--img', ...a] : a),
@@ -58,11 +72,11 @@ const commands = {
   image:    (a) => node('scripts/image.mjs', a),
   motion:   (a) => node('scripts/motion.mjs', a),
   api:      (a) => node('server/api.mjs', a),
-  wizard:   () => node('app/wizard/serve.mjs', []),
-  canvas:   () => node('app/canvas/serve.mjs', []),
-  script:   () => node('app/script/serve.mjs', []),
-  versions: () => node('app/versions/serve.mjs', []),
-  review:   () => node('app/review/serve.mjs', []),
+  wizard:   (a) => surface('wizard', SURFACES.wizard, a),
+  canvas:   (a) => surface('canvas', SURFACES.canvas, a),
+  script:   (a) => surface('script', SURFACES.script, a),
+  versions: (a) => surface('versions', SURFACES.versions, a),
+  review:   (a) => surface('review', SURFACES.review, a),
   test:     (a) => node('scripts/test-all.mjs', a),
 };
 
@@ -76,7 +90,8 @@ usage: cvs <command> [args]
   lint <spec> [--root .] [--strict]      pages / theme / APCA / placeholder gates
   plan <spec> [--print]                  spec -> plan.json with per-segment hashes
   build <spec> [--audio f|--no-audio] [--platform douyin] [--strict] [--burn-subtitles] [--cover]
-                                         validate -> plan -> incremental render -> concat -> qa
+               [--transition fade|wipeleft|circleopen|...] [--transition-duration 0.4]
+                                         validate -> plan -> incremental render -> concat(xfade) -> qa
   again [--set k=v] [--no-build]         edit last spec + rebuild only dirty segments
   deliver [--spec f] [--json] [--cover img]  delivery.json + master.srt/.vtt + cover
   snapshot [--spec f] [--label name]     version snapshot of master/spec/plan/qa (+ review.json)
@@ -111,7 +126,7 @@ if (!cmd || cmd === 'help' || cmd === '--help' || cmd === '-h') {
 
 if (!commands[cmd]) {
   console.error(`[error] [E_UNKNOWN_COMMAND] ${cmd}`);
-  console.error(`run "cvs --help" to see the 20 supported commands`);
+  console.error(`run "cvs --help" to see the ${Object.keys(commands).length} supported commands`);
   process.exit(2);
 }
 

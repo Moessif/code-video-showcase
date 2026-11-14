@@ -118,7 +118,7 @@ const rounds = Array.from({ length: STYLES }, (_, i) => {
 const timeline = {
   version: 1,
   meta: { title: NAME, brand: BRAND, theme: THEME, bpm: BPM, fps: FPS, width: 1920, height: 1080, outDir: 'out' },
-  structure: { opening: 8, round: 4, card: 1, ending: 6, moreCard: 1, flash: { count: 8, each: 0.25 } },
+  structure: { opening: 8, round: 4, card: 1, ending: 6, moreCard: 1, flash: { count: 4, each: 0.5 } },
   opening: { page: 'segments/00-opening.html' },
   rounds,
   moreCard: { page: 'segments/big-card.html', layout: 3, first: '还有', keyword: '更多？', color: '#ffcf5c' },
@@ -138,7 +138,7 @@ fs.writeFileSync(path.join(OUT, 'package.json'), JSON.stringify({
     render: 'node templates/render-farm.mjs --plan out/plan.json --resume',
     concat: 'bash templates/concat-and-encode.sh out/segments.txt audio/mix.wav out/final.mp4',
     qa: 'node scripts/qa-video.mjs out/final.mp4 --plan out/plan.json',
-    'qa:audio': 'python scripts/qa-audio.py audio/mix.wav --plan out/plan.json',
+    'qa:audio': 'python scripts/qa-audio.py out/final.mp4 --plan out/plan.json',
     doctor: 'node scripts/doctor.mjs',
     determinism: 'node scripts/determinism-check.mjs --page "segments/01.html" --t 0.5',
     'theme:audit': 'node scripts/theme-audit.mjs --strict',

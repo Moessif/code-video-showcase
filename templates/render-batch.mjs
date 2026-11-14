@@ -151,6 +151,14 @@ manifest.version = 1;
 
 function saveManifest() {
   manifest.updated = new Date().toISOString();
+  // R2-17（N04-F4）：段键按 plan 时间轴顺序排——旧版键序=worker 完成顺序，
+  // 冷跑/缓存跑各一套，对 manifest 做哈希/幂等比较的流水线每轮误判「产物变了」。
+  const order = new Map(segments.map((s, i) => [s.id, i]));
+  const sorted = {};
+  for (const id of Object.keys(manifest.segments).sort((a, b) => (order.get(a) ?? 1e9) - (order.get(b) ?? 1e9))) {
+    sorted[id] = manifest.segments[id];
+  }
+  manifest.segments = sorted;
   fs.mkdirSync(path.dirname(manifestPath), { recursive: true });
   fs.writeFileSync(manifestPath, JSON.stringify(manifest, null, 2));
 }
@@ -210,7 +218,10 @@ async function main() {
     const outAbs = segmentOut(s);
     const hit = tryCache(s, outAbs);
     if (hit !== null) {
-      manifest.segments[s.id] = { status: 'cached', frames: hit, hash: s.hash, out: path.relative(root, outAbs).split(path.sep).join('/') };
+      // R2-17（N04-F4）：cached 条目也带 expected/framesVerified——完成定义④
+      // 「frames===expected」在增量构建下才可执行（旧版 cached 缺 expected，
+      // 校验退化成 frames===undefined）。
+      manifest.segments[s.id] = { status: 'cached', frames: hit, expected: s.frames, framesVerified: hit === s.frames, hash: s.hash, out: path.relative(root, outAbs).split(path.sep).join('/') };
       if (!quiet) console.log(`[${s.id}] cache hit ${s.hash}`);
       saveManifest();
       results.push({ id: s.id, ok: true, cached: true });

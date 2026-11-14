@@ -1,6 +1,6 @@
 {
   "name": "code-video-showcase",
-  "version": "2.5.1",
+  "version": "2.6.1",
   "description": "Pure-code, beat-synced showcase video skill: deterministic HTML/Canvas frames, synthesized score, FFmpeg assembly.",
   "type": "module",
   "license": "MIT",
@@ -62,6 +62,7 @@
     "qa:audio": "python scripts/qa-audio.py audio/mix.wav --plan out/plan.json",
     "theme:audit": "node scripts/theme-audit.mjs --strict",
     "theme:preview": "node scripts/theme-preview.mjs",
+    "theme:preview:offline": "node scripts/theme-preview-offline.mjs",
     "ai:init": "node scripts/ai-lane.mjs init",
     "ai:validate": "node scripts/ai-lane.mjs validate --plan out/plan.json",
     "new": "node scripts/new-project.mjs",

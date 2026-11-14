@@ -342,7 +342,10 @@ export function createJobServer(opts = {}) {
     try { e = JSON.parse(fs.readFileSync(path.join(job.dir, 'error.json'), 'utf8')); } catch { /* 旧 job / 非 compile 失败 */ }
     if (!e || typeof e !== 'object') {
       if (!job.error) return null;
-      return { code: 'E_JOB', phase: null, message: scrubMessage(job.error), failedSegment: null, failedSegments: [], logPath: null, detailPath: null, errorPath: null };
+      // 无 error.json（spawn 失败/硬杀）也要给出 logPath——build.log 通常仍在。
+      const logPath = fs.existsSync(path.join(job.dir, 'build.log'))
+        ? path.relative(root, path.join(job.dir, 'build.log')).split(path.sep).join('/') : null;
+      return { code: 'E_JOB', phase: null, message: scrubMessage(job.error), failedSegment: null, failedSegments: [], logPath, detailPath: null, errorPath: null };
     }
     const rel = (p) => (typeof p === 'string' && p ? path.relative(root, p).split(path.sep).join('/') : null);
     return {
@@ -372,7 +375,8 @@ export function createJobServer(opts = {}) {
       finishedAt: job.finishedAt || null,
       stats: readStats(job),
       logTail: scrubMessage(readLogTail(path.join(job.dir, 'build.log'))),
-      error: job.error || null,
+      // job.error 可能是绝对路径/完整堆栈（failJob），与 logTail/message 一样要 scrub。
+      error: scrubMessage(job.error || '') || null,
       // 失败契约：CI 可以只看这几个字段分流，不必 grep 日志正文。
       errorCode: failure ? failure.code : null,
       phase: failure ? failure.phase : null,
@@ -383,6 +387,10 @@ export function createJobServer(opts = {}) {
       errorPath: failure ? failure.errorPath : null,
       artifactPath: job.status === 'done' && fs.existsSync(path.join(job.dir, 'master.mp4'))
         ? path.relative(root, path.join(job.dir, 'master.mp4')).split(path.sep).join('/')
+        : null,
+      // spec 路径不再让前端猜（--outdir/--root 变体会猜错）；存在才投影。
+      specPath: fs.existsSync(path.join(job.dir, 'project.spec.json'))
+        ? path.relative(root, path.join(job.dir, 'project.spec.json')).split(path.sep).join('/')
         : null,
     };
   }
@@ -472,13 +480,20 @@ export function createJobServer(opts = {}) {
 
       const relSpec = path.relative(root, path.join(job.dir, 'project.spec.json')).split(path.sep).join('/');
       const relOut = path.relative(root, job.dir).split(path.sep).join('/');
+      // R2-19（N04-F6）：尊重 spec.render.concurrency，不再硬编 2。
+      // render-farm 侧的 CPU 钳制（R2-10）会兜底防过订。
+      let specConc = 2;
+      try {
+        const sj = JSON.parse(fs.readFileSync(path.join(job.dir, 'project.spec.json'), 'utf8'));
+        specConc = Math.max(1, Number(sj.render?.concurrency) || 2);
+      } catch { /* 读不到就用默认 */ }
       const args = [
         'scripts/compile.mjs',
         '--spec', relSpec,
         '--root', root,
         '--outdir', relOut,
         '--no-qa',
-        '--concurrency', '2',
+        '--concurrency', String(specConc),
       ];
       job.command = `${process.execPath} ${args.join(' ')}`;
 
@@ -635,6 +650,11 @@ export function createJobServer(opts = {}) {
     for (const j of finished) {
       if (excess <= 0) break;
       jobs.delete(j.id);
+      // R2-19（N04-F6）：同步清磁盘——旧版只删内存 Map，job 目录无限堆积，
+      // 长跑服务撑爆 outDir，且被裁掉的 job 仍在盘上但 GET 返回 404（不一致）。
+      try {
+        if (j.dir && isInside(jobsDir, j.dir)) fs.rmSync(j.dir, { recursive: true, force: true });
+      } catch { /* 清理失败不影响淘汰 */ }
       excess--;
     }
   }

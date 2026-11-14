@@ -222,8 +222,10 @@ server.on('error', (e) => {
 });
 
 server.listen(PORT, HOST, () => {
+  // --port 0 时 OS 分配临时端口；打印实际绑定端口，测试据此连接（避免固定端口冲突）。
+  const actual = server.address().port;
   console.log(`[wizard] root   ${ROOT}`);
-  console.log(`[wizard] open   http://${HOST}:${PORT}/app/wizard/`);
+  console.log(`[wizard] open   http://${HOST}:${actual}/app/wizard/`);
   console.log('[wizard] note   /templates/timeline.mjs is served browser-safe (node: imports stripped, disk file untouched)');
 });
 

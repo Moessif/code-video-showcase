@@ -148,4 +148,4 @@ t=1.00  硬切到风格段（风格段第 1 帧即卡点冲击）
 - **明暗节奏不能丢**：浅色主题（`claude-light` / `aqua-morandi` / `celadon-paper` / `blueprint-stone`）的 layout 2/3 仍用 `cardDark` 深色卡，保持「强调底 → 纸底 → 深底 → 深底」的循环，否则整片会发飘。
 - **字体固定**：中文关键词永远 Noto Sans SC 900（第一行 700），不随主题换字体；字号、砸入、回声字规则仍按本文件第 1–4 节。
 - 速度线、径向光晕、关键词下划线、`STYLE 0X / 11` 都从 `keyword` / `sub` / `accent` 派生，不要写死 `#d97757`。
-- 主题数据的唯一来源是 `templates/themes.js`；13 套主题的完整说明见 `references/themes.md`（§7「大字卡：主题怎么落到 4 个版式上」、§9「覆盖主色」）。
+- 主题数据的唯一来源是 `templates/themes.js`；17 套主题的完整说明见 `references/themes.md`（§7「大字卡：主题怎么落到 4 个版式上」、§9「覆盖主色」）。

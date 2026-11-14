@@ -25,7 +25,7 @@
 |---|---|---|---|
 | 逐帧确定性渲染 | `templates/render-segment.mjs`、`motion.js` | 生产可用 | 无 spec，参数散在页面里 |
 | 时间轴 | `templates/timeline.mjs`、`timeline.example.json` | 可用 | 只支持示例结构，无 schema/校验/增量 |
-| 主题系统 | `templates/themes.js`（13 套） | 生产可用 | 无 combos 兼容矩阵 |
+| 主题系统 | `templates/themes.js`（17 套） | 生产可用 | 无 combos 兼容矩阵 |
 | 风格配方 | `references/style-recipes.md`（11 种） | 文档级 | 无单风格整片模式 |
 | 渲染调度 | `templates/render-farm.mjs` | 可用（并发+续渲） | 无内容寻址缓存、无分布式 |
 | 质检 | `qa-video.mjs` / `qa-audio.py` / `theme-audit.mjs` | 可用 | 未进 CI，无黄金样本回归 |
@@ -210,7 +210,7 @@ window.__patch  = (id, props) => diff;                // 改 spec → 重画当�
 | C6-01 | 赛博像素配方 | `references/style-recipes.md` 第 12 条 | 量化/抖动/扫描线/色差/CRT 全为 `t` 的纯函数 | 2d | — |
 | C6-02 | 新增 8 套配方 | 同上 | 每套 1 段 3s 样片 + 1 张接触表 | 8d | C6-01 |
 | C6-03 | 单风格长片编排规则 | `references/long-form.md` | 41s 单风格不单薄：三幕/节奏/景别变化 | 3d | C6-02 |
-| C6-04 | 组合兼容矩阵 | `content/combos.json` | recommended/ok/avoid 三档，覆盖 13×12 | 2d | C1-02 |
+| C6-04 | 组合兼容矩阵 | `content/combos.json` | recommended/ok/avoid 三档，覆盖 17×20 | 2d | C1-02 |
 | C6-05 | 12 条案例片 | `content/cases/` | 每条附 spec + 源码，可一键复现 | 6d | C6-03 |
 
 ### C7 交付与运营（18d，W11–W16）

@@ -58,7 +58,7 @@ function buildLayout() {
   const colW = (W - pad * 2) / cols;
   // 主标题：越大越轻（weight 300），占 8 列宽。
   const titleMaxW = colW * (portrait ? cols : 8);
-  const size = fitTextSize(ctx, TITLE, { maxWidth: titleMaxW, family: SANS, weight: 300, maxSize: typeSize('title', W, H) * 1.25, minSize: 48, spacing: 0.01 });
+  const size = fitTextSize(ctx, TITLE, { maxWidth: titleMaxW, family: SANS, weight: 300, maxSize: typeSize('title', W, H), minSize: 48, spacing: 0.01 });
   probe('title', size, safe(W, H));
   const titleX = pad;
   const titleY = Math.round(H * (portrait ? 0.40 : 0.46));

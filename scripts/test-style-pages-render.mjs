@@ -124,13 +124,15 @@ for (const p of PAGES) {
     const a1 = render({ ...p, width: 1920, height: 1080, outdir: path.join(OUT, p.id, 'a1') });
     const a2 = render({ ...p, width: 1920, height: 1080, outdir: path.join(OUT, p.id, 'a2') });
     const b1 = render({ ...p, width: 1080, height: 1920, outdir: path.join(OUT, p.id, 'b1') });
+    const b2 = render({ ...p, width: 1080, height: 1920, outdir: path.join(OUT, p.id, 'b2') });
 
     check(`${p.id}: 16:9 renders`, a1.bytes > MIN_BYTES, `${a1.bytes} bytes`);
     check(`${p.id}: 9:16 renders`, b1.bytes > MIN_BYTES, `${b1.bytes} bytes`);
     check(`${p.id}: deterministic at 16:9`, a1.hash === a2.hash, `${a1.hash.slice(0, 12)} vs ${a2.hash.slice(0, 12)}`);
+    check(`${p.id}: deterministic at 9:16`, b1.hash === b2.hash, `${b1.hash.slice(0, 12)} vs ${b2.hash.slice(0, 12)}`);
     check(`${p.id}: 9:16 is a real reflow (hash differs)`, a1.hash !== b1.hash);
   } catch (e) {
-    failed += 4;
+    failed += 5;
     console.error(`FAIL  ${p.id}: ${String(e.message || e).split('\n')[0]}`);
   }
 }

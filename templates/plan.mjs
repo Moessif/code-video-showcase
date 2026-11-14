@@ -59,6 +59,17 @@ export function pageContentHash(root, pagePath, seen = new Set(), depth = 0) {
   if (depth >= 4) return own.slice(0, 16);
 
   const deps = [];
+  // 字体字形在 woff2 里，fonts.css 只是索引；localRefs 不抽 url()（1187 个二进制
+  // 子集递归读太慢）。用 fonts.lock.json 指纹代替：换字体/重生成子集 → lock 变 →
+  // 段缓存失效。修「字体换了但缓存命中出旧字形」的假绿。
+  const normRel = path.relative(root, abs).split(path.sep).join('/');
+  if (normRel === 'shared/fonts.css') {
+    const lockAbs = path.join(root, 'shared', 'fonts.lock.json');
+    if (fs.existsSync(lockAbs)) {
+      const lh = crypto.createHash('sha256').update(fs.readFileSync(lockAbs)).digest('hex').slice(0, 16);
+      deps.push(`shared/fonts.lock.json:${lh}`);
+    }
+  }
   for (const ref of localRefs(text)) {
     if (!ref || isAbsoluteUrl(ref) || ref.startsWith('data:')) continue;
     if (!(ref.startsWith('.') || ref.startsWith('/') || ref.startsWith('templates/') || ref.startsWith('shared/'))) continue;
@@ -90,6 +101,11 @@ export function segmentHash(segment, meta, spec, opts = {}) {
     pageHash: opts.root ? pageContentHash(opts.root, segment.page) : '',
     startFrame: segment.startFrame,
     frames: segment.frames,
+    // 分辨率/帧率直接决定像素（竖屏重排、t=i/fps 采样）。缺了它们，换画幅/帧率
+    // 而帧数不变时缓存命中 → 横屏帧被拷进「竖屏」成片，build 还报成功（假绿）。
+    fps: meta.fps,
+    width: meta.width,
+    height: meta.height,
     t0: segment.t0 ?? null,
     speed: segment.speed ?? null,
     motion: segment.motion || meta.motion || '',
@@ -116,7 +132,11 @@ function assertPages(spec, root) {
   for (const [label, page] of pages) {
     if (!page || isAbsoluteUrl(page)) continue;
     const p = String(page).split('?')[0];
-    if (!fs.existsSync(path.resolve(root, p))) missing.push({ code: 'E_PAGE_MISSING', path: label, message: `page not found: ${p}`, level: 'error' });
+    // R2-34：ERRORS.md 承诺「报错里会回显 root」——--root 指错是新手 #1 错法，
+    // 不回显就等于让用户以为仓库缺文件。
+    if (!fs.existsSync(path.resolve(root, p))) {
+      missing.push({ code: 'E_PAGE_MISSING', path: label, message: `page not found: ${p} (resolved from --root "${root}"; run from the project root or pass --root <dir> containing ${p})`, level: 'error' });
+    }
   }
   // 素材存在性：路径约束由 validateSpec 负责，这里补磁盘检查（Node 侧）。
   for (const [i, a] of (spec.assets || []).entries()) {
@@ -199,7 +219,10 @@ function parseArgs(argv) {
 
 function main() {
   const args = parseArgs(process.argv.slice(2));
-  if (args.help || !args.spec) {
+  // R2-15（N04-F3）：SKILL §0.0 的退出码表只有 0/2/10/11/12/13/14。
+  // 此前 spec 错误一律 exit 1——agent 路由表没有这一支，用户写错 spec
+  // 会被上报成"编译器坏了"。usage→2、spec 类错误→10、崩溃才是 1。
+  if (args.help) {
     console.log(`Usage: node templates/plan.mjs --spec <project.spec.json> [options]
   --out <plan.json>       default <outDir>/plan.json
   --concat <segments.txt> default <outDir>/segments.txt
@@ -207,20 +230,30 @@ function main() {
   --outdir <dir>          override outDir
   --check                 validate only
   --print                 print segment table
-  --json                  print plan JSON`);
-    process.exit(args.help ? 0 : 1);
+  --json                  print plan JSON (only JSON on stdout; progress → stderr)`);
+    process.exit(0);
+  }
+  if (!args.spec) {
+    console.error('usage: node templates/plan.mjs --spec <project.spec.json> [options]  (see --help)');
+    process.exit(2);
   }
 
   const specPath = path.resolve(String(args.spec));
-  const raw = JSON.parse(fs.readFileSync(specPath, 'utf8'));
+  let raw;
+  try {
+    raw = JSON.parse(fs.readFileSync(specPath, 'utf8'));
+  } catch (e) {
+    console.error(`[error] [E_READ] cannot read/parse spec ${specPath}: ${e.message}`);
+    process.exit(10);
+  }
   const root = path.resolve(String(args.root || process.cwd()));
 
   if (args.check) {
     const spec = normalizeSpec(raw);
     const issues = [...validateSpec(spec), ...assertPages(spec, root)];
-    for (const i of issues) console.log(`[${i.level}] [${i.code}] ${i.path}: ${i.message}`);
+    for (const i of issues) console.error(`[${i.level}] [${i.code}] ${i.path}: ${i.message}`);
     const errors = issues.filter((i) => i.level === 'error');
-    if (errors.length) process.exit(1);
+    if (errors.length) process.exit(10);
     console.log(`✓ spec valid: ${spec.rounds.length} rounds, ${specDuration(spec)}s @ ${spec.format.fps}fps, ${spec.look.theme}`);
     return;
   }
@@ -230,7 +263,10 @@ function main() {
     built = buildPlanFromSpec(raw, { root, outDir: args.outdir ? String(args.outdir) : undefined });
   } catch (e) {
     console.error(String(e.message || e));
-    process.exit(1);
+    // R2-15：spec 校验失败（buildPlanFromSpec 抛 SPEC_INVALID，或 E_* 码）→ 10；
+    // 真正的意外崩溃才用 1。旧版一律 1，agent 路由表无法区分「用户 spec 错」与「编译器坏」。
+    const code = e && e.code ? String(e.code) : '';
+    process.exit(code === 'SPEC_INVALID' || code.startsWith('E_') ? 10 : 1);
   }
   const { plan, spec } = built;
   for (const w of plan.warnings) console.error(`[warn] [${w.code}] ${w.path}: ${w.message}`);
@@ -243,12 +279,15 @@ function main() {
   fs.writeFileSync(planPath, JSON.stringify(plan, null, 2));
   fs.writeFileSync(concatPath, concatList(plan));
 
-  if (args.print) console.log(formatPlan(plan));
-  if (args.json) console.log(JSON.stringify(plan, null, 2));
-  console.log(`[spec]   ${specPath}`);
-  console.log(`[plan]   ${planPath}`);
-  console.log(`[concat] ${concatPath}`);
-  console.log(`[stats]  ${plan.stats.duration.toFixed(3)}s / ${plan.stats.frames} frames / ${plan.stats.segments} segments / every segment hashed`);
+  // R2-14（N04-F2）：--json 时 stdout 只有一行 JSON，进度行退到 stderr——
+  // 此前 JSON 后面还挂着 4 行 [spec]/[plan]/…，parse 必炸。
+  if (args.json) process.stdout.write(JSON.stringify(plan) + '\n');
+  if (args.print && !args.json) console.log(formatPlan(plan));
+  const say = args.json ? (...a) => console.error(...a) : (...a) => console.log(...a);
+  say(`[spec]   ${specPath}`);
+  say(`[plan]   ${planPath}`);
+  say(`[concat] ${concatPath}`);
+  say(`[stats]  ${plan.stats.duration.toFixed(3)}s / ${plan.stats.frames} frames / ${plan.stats.segments} segments / every segment hashed`);
 }
 
 const invokedDirectly = process.argv[1] && path.basename(process.argv[1]) === 'plan.mjs';

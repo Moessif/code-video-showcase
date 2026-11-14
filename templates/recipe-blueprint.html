@@ -57,7 +57,7 @@ function buildLayout() {
   const cx = Math.round(W * (portrait ? 0.5 : 0.42));
   const cy = Math.round(H * (portrait ? 0.36 : 0.46));
   const R = Math.round(Math.min(W, H) * (portrait ? 0.22 : 0.26));
-  const titleSize = fitTextSize(ctx, TITLE, { maxWidth: W * 0.4, family: SANS, weight: 700, maxSize: typeSize('title', W, H) * 0.8, minSize: 34, spacing: 0.02 });
+  const titleSize = fitTextSize(ctx, TITLE, { maxWidth: W * 0.4, family: SANS, weight: 700, maxSize: typeSize('title', W, H), minSize: 34, spacing: 0.02 });
   probe('title', titleSize, safe(W, H));
   return {
     cx, cy, R, titleSize,

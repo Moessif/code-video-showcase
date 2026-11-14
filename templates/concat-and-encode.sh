@@ -244,30 +244,47 @@ fi
 # ── video encode ────────────────────────────────────────────────────────────
 VF="scale=${W}:${H}:force_original_aspect_ratio=decrease:flags=lanczos,pad=${W}:${H}:(ow-iw)/2:(oh-ih)/2:color=black,setsar=1,format=yuv420p"
 COLOR_TAGS=(-colorspace bt709 -color_primaries bt709 -color_trc bt709 -color_range tv)
-X264_PARAMS=(-x264-params "aq-mode=3:deblock=-1,-1:psy-rd=1.0,0.15")
-AF=""
-[ -n "$LOUD_ARGS" ] && AF="loudnorm=I=${LUFS}:TP=${TP}:LRA=11${LOUD_ARGS}:linear=true"
-AF_ARGS=()
-[ -n "$AF" ] && AF_ARGS=(-af "$AF")
+# R2-21（N03-F3）：GOP ≤ 2s——旧版无 keyint 控制，成片最大 GOP 242 帧(8s)，
+# 平台必判"需重转"。R2-22（N03-F4）：固定 level，不再让 x264 按 CPB 反推出
+# master 5.0 / douyin 4.0 互相打架（1080p→4.1，更大画幅→5.0）。
+GOP=$((FPS * 2)); KEYMIN=$((FPS / 2)); [ "$KEYMIN" -lt 1 ] && KEYMIN=1
+LEVEL="4.1"; [ $((W * H)) -gt 2211840 ] && LEVEL="5.0"
+LEVEL_ARGS=(-profile:v high -level:v "$LEVEL")
+# R2-11（N04-F1）：固定线程数 + bitexact → 同 spec 同环境逐字节可复现。
+# 旧版 auto 线程数随调度漂移，两次全缓存构建的 master.mp4 sha256 不同，
+# 与 SKILL「确定性」卖点直接矛盾。threads=2 与 xfade 中间层一致。
+X264_PARAMS=(-x264-params "aq-mode=3:deblock=-1,-1:psy-rd=1.0,0.15:keyint=${GOP}:min-keyint=${KEYMIN}:scenecut=40:threads=2:lookahead_threads=1")
+BITEXACT=(-fflags +bitexact -flags +bitexact)
+# R2-01（N03+N07 交叉实证）：loudnorm 之后接**真峰限幅**——4× 过采样让 alimiter
+# 看见 inter-sample 峰。limit=0.562(-5dBFS)：AAC 重建过冲随码率降低而增大
+# （master 320k ~+1.6dB，平台 192k ~+3dB）；-5dBFS 广播级保守天花板留足余量
+# → 全件 post-AAC ≤ -1dBTP（实测 master -2 / douyin -1.5）。响度仍守 -14±1 LUFS。
+LIMITER="aresample=192000,alimiter=limit=0.562:attack=1:release=50:level=false,aresample=48000"
+AF="$LIMITER"
+[ -n "$LOUD_ARGS" ] && AF="loudnorm=I=${LUFS}:TP=${TP}:LRA=11${LOUD_ARGS}:linear=true,${LIMITER}"
+AF_ARGS=(-af "$AF")
 TUNE_ARGS=()
 [ -n "$TUNE" ] && TUNE_ARGS=(-tune "$TUNE")
 
-echo "[3/5] video encode (${W}x${H} @${FPS}fps, ${PLATFORM})"
+echo "[3/5] video encode (${W}x${H} @${FPS}fps, ${PLATFORM}, level ${LEVEL}, GOP ${GOP})"
 if [ "$TWO_PASS" = "1" ]; then
   echo "      two-pass ${BITRATE}"
+  # R2-23（N03-F5）：pass1 必须与 pass2 共用同一套 x264/色彩参数——
+  # 旧版 pass1 缺 X264_PARAMS，AQ/cutree 统计自始错误，率控预测失真。
   "$FFMPEG" -y -hide_banner -loglevel error -i "$CONCAT" \
     -vf "$VF" -r "$FPS" -fps_mode cfr -c:v libx264 -preset "$PRESET" -b:v "$BITRATE" \
+    "${X264_PARAMS[@]}" "${COLOR_TAGS[@]}" "${LEVEL_ARGS[@]}" "${BITEXACT[@]}" \
     -pass 1 -passlogfile "$TMP/passlog" -an -f null -
   "$FFMPEG" -y -hide_banner -loglevel error -i "$CONCAT" -i "$AUDIO" \
     -vf "$VF" -r "$FPS" -fps_mode cfr -c:v libx264 -preset "$PRESET" -b:v "$BITRATE" \
-    -pass 2 -passlogfile "$TMP/passlog" "${X264_PARAMS[@]}" "${COLOR_TAGS[@]}" \
+    -pass 2 -passlogfile "$TMP/passlog" "${X264_PARAMS[@]}" "${COLOR_TAGS[@]}" "${LEVEL_ARGS[@]}" "${BITEXACT[@]}" \
     -c:a aac -b:a "$ABR" -ar 48000 -ac 2 "${AF_ARGS[@]}" \
     -shortest -t "$DURATION" -movflags +faststart "$OUT"
 else
   "$FFMPEG" -y -hide_banner -loglevel error -i "$CONCAT" -i "$AUDIO" \
     -vf "$VF" -r "$FPS" -fps_mode cfr -c:v libx264 -preset "$PRESET" -crf "$CRF" \
     -maxrate "$MAXRATE" -bufsize "$BUF" \
-    "${TUNE_ARGS[@]}" "${X264_PARAMS[@]}" "${COLOR_TAGS[@]}" \
+    "${TUNE_ARGS[@]}" "${X264_PARAMS[@]}" "${COLOR_TAGS[@]}" "${LEVEL_ARGS[@]}" "${BITEXACT[@]}" \
     -c:a aac -b:a "$ABR" -ar 48000 -ac 2 "${AF_ARGS[@]}" \
     -shortest -t "$DURATION" -movflags +faststart "$OUT"
 fi

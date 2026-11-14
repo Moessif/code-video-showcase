@@ -13,11 +13,16 @@
  * 退出码 0/1。零依赖。
  */
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import {
   TRANSITIONS, TRANSITION_IDS, isTransition, normalizeTransition,
   shiftSegments, totalFrames, xfadeOffsets, xfadeFilterGraph,
 } from '../templates/transitions.mjs';
 import { buildPlanFromSpec } from '../templates/plan.mjs';
+
+const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
 let passed = 0;
 let failed = 0;
@@ -185,6 +190,51 @@ test('转场长于最短段 → plan 阶段报 E_TRANSITION_DURATION（xfade 约
   );
   // 0.4s（12f）< 15f → 合法。
   assert.doesNotThrow(() => buildPlanFromSpec(spec({ transition: 'fade', transitionDuration: 0.4 }), { root: process.cwd(), checkPages: false }));
+});
+
+test('亚帧转场（round(t*fps)=0）报 E_TRANSITION_DURATION', () => {
+  // 0.01s @30fps → round(0.3)=0 帧：shiftSegments 原样返回但 concat 仍收 xfade → 失配。
+  assert.throws(
+    () => buildPlanFromSpec(spec({ transition: 'fade', transitionDuration: 0.01 }), { root: process.cwd(), checkPages: false }),
+    /E_TRANSITION_DURATION/,
+  );
+  // 恰好 1 帧（1/30≈0.0333s）合法（短于最短段 0.5s）。
+  assert.doesNotThrow(() => buildPlanFromSpec(spec({ transition: 'fade', transitionDuration: 1 / 30 }), { root: process.cwd(), checkPages: false }));
+});
+
+test('schema 的 transition 枚举与注册表同步（防漂移）', () => {
+  const schema = JSON.parse(fs.readFileSync(path.join(ROOT, 'schema/project.spec.schema.json'), 'utf8'));
+  const tr = schema.properties.render.properties.transition;
+  assert.ok(tr, 'schema render.transition missing');
+  const strEnum = tr.oneOf.find((b) => b.type === 'string').enum;
+  const expected = [...TRANSITION_IDS, 'none', 'cut', ''].sort();
+  assert.deepEqual([...strEnum].sort(), expected, 'schema transition enum != TRANSITION_IDS + off spellings');
+  const td = schema.properties.render.properties.transitionDuration;
+  assert.ok(td && td.exclusiveMinimum === 0 && td.maximum === 2, 'schema transitionDuration bounds wrong');
+});
+
+test('xfade 内存上限两条拼接路径都在（防 OOM 回归）', () => {
+  // 删掉这些旗标会让 N 路 xfade 在 Windows 耗尽 commit（x264 malloc failed）。
+  const sh = fs.readFileSync(path.join(ROOT, 'templates/concat-and-encode.sh'), 'utf8');
+  const cp = fs.readFileSync(path.join(ROOT, 'scripts/compile.mjs'), 'utf8');
+  for (const [name, src] of [['concat-and-encode.sh', sh], ['compile.mjs', cp]]) {
+    assert.ok(src.includes('-filter_complex_threads'), `${name} 缺 filter_complex_threads`);
+    assert.ok(/-threads['"]?,?\s*['"]?2/.test(src) || src.includes('-threads 2') || src.includes("'-threads', '2'"), `${name} 缺解码线程上限`);
+    assert.ok(src.includes('rc-lookahead=8') && src.includes('sync-lookahead=0'), `${name} 缺 x264 lookahead 上限`);
+  }
+});
+
+test('最短段边界：tf==shortest 拒绝，tf==shortest-1 通过', () => {
+  const plan = buildPlanFromSpec(spec(), { root: process.cwd(), checkPages: false }).plan;
+  const fps = plan.stats.fps;
+  const shortest = Math.min(...plan.segments.map((s) => s.frames));
+  // 恰好等于最短段 → 该段被两侧重叠吃光 → 拒绝。
+  assert.throws(
+    () => buildPlanFromSpec(spec({ transition: 'fade', transitionDuration: shortest / fps }), { root: process.cwd(), checkPages: false }),
+    /E_TRANSITION_DURATION/,
+  );
+  // 比最短段少 1 帧 → 合法。
+  assert.doesNotThrow(() => buildPlanFromSpec(spec({ transition: 'fade', transitionDuration: (shortest - 1) / fps }), { root: process.cwd(), checkPages: false }));
 });
 
 console.log(`\n${passed + failed} tests: ${passed} passed, ${failed} failed`);

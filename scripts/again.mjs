@@ -22,7 +22,9 @@ function usage() {
   --project <dir>     project dir containing project.spec.json (default cwd)
   --spec <file>       explicit spec path (default <project>/project.spec.json)
   --set k=v           override a field; repeatable; dotted path, numeric indices allowed
+                      values stay STRINGS unless true/false/null or explicit --set-json
                       e.g. --set look.theme=amber-noir --set rounds.0.card.first=上新
+  --set-json k=<json> same path syntax, JSON-typed value (numbers, arrays, objects)
   --out <file>        write the edited spec here (default: same file)
   --no-build          only write the spec; do not compile
   --print             print the resulting spec to stdout
@@ -49,24 +51,39 @@ function parse(argv) {
     else if (a === '--strict') out.strict = true;
     else if (a === '--no-build') out.noBuild = true;
     else if (a === '--print') out.print = true;
-    else if (a === '--set') out.sets.push(argv[++i]);
+    else if (a === '--set') out.sets.push([argv[++i], false]);
+    else if (a === '--set-json') out.sets.push([argv[++i], true]);
     else throw new Error(`unknown option: ${a}`);
   }
   return out;
 }
 
-function parseValue(raw) {
-  if (raw === 'true') return true;
+// R2-16（N04-F8）：--set 的默认语义是**字符串**。旧实现把 `2024`、`007`、`1.10`
+// 静默转成 Number —— 品牌名变数字、零编号文案被改写，spec 里还看不出被改过。
+// 要 JSON 类型请显式用 --set-json k=<literal>。
+function parseValue(raw, jsonMode = false) {
+  if (jsonMode) {
+    try { return JSON.parse(raw); } catch { throw new Error(`--set-json: value is not valid JSON: ${raw}`); }
+  }
+  if (raw === 'true') return true;   // 布尔开关字段（format.vertical 等）保持顺手
   if (raw === 'false') return false;
   if (raw === 'null') return null;
-  if (/^-?\d+(?:\.\d+)?$/.test(raw)) return Number(raw);
   if ((raw.startsWith('{') && raw.endsWith('}')) || (raw.startsWith('[') && raw.endsWith(']'))) {
-    try { return JSON.parse(raw); } catch { /* 当字符串 */ }
+    try { return JSON.parse(raw); } catch { return raw; }  // 像是字面量但坏了 → 原样字符串
   }
-  return raw;
+  return raw;  // 数字样式的值一律按字符串存
 }
 
+const SPEC_TOP_KEYS = new Set(['specVersion', 'meta', 'format', 'look', 'audio', 'structure',
+  'opening', 'rounds', 'moreCard', 'flash', 'ending', 'assets', 'patches', 'render']);
+
 function setPath(obj, dotted, value) {
+  // R2-16：顶层键必须存在拼写检查——`--set roounds.0...` 这种错别字以前会凭空
+  // 造出一个新键、lint 也不报（E_UNKNOWN_FIELD 只认已声明的 schema 节点）。
+  const head = dotted.split('.')[0];
+  if (!SPEC_TOP_KEYS.has(head)) {
+    throw new Error(`--set ${dotted}: unknown top-level key "${head}" (spec keys: ${[...SPEC_TOP_KEYS].join(', ')})`);
+  }
   if (!dotted.includes('.')) { obj[dotted] = value; return; }
   const keys = dotted.split('.');
   let cur = obj;
@@ -107,10 +124,15 @@ function main() {
   catch (e) { console.error(`[error] [E_JSON] ${specPath}: ${e.message}`); process.exit(10); }
 
   const before = JSON.stringify(spec);
-  for (const assignment of args.sets) {
+  for (const [assignment, jsonMode] of args.sets) {
     const eq = assignment.indexOf('=');
     if (eq <= 0) { console.error(`[error] [E_USAGE] --set expects key=value, got "${assignment}"`); process.exit(2); }
-    setPath(spec, assignment.slice(0, eq).trim(), parseValue(assignment.slice(eq + 1)));
+    try {
+      setPath(spec, assignment.slice(0, eq).trim(), parseValue(assignment.slice(eq + 1), jsonMode));
+    } catch (e) {
+      console.error(`[error] [E_USAGE] ${e.message}`);
+      process.exit(2);
+    }
   }
   const changed = JSON.stringify(spec) !== before;
 

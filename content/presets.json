@@ -1,6 +1,6 @@
 {
   "version": 2,
-  "note": "16 组首屏推荐预设（8 原有 + 8 个 v2.5 新增垂直领域）。其余枚举通过「我自己调」展开。每条都可直接生成合法 spec v1。",
+  "note": "20 组首屏推荐预设（16 组原有 + 4 组 v3 新皮肤）。其余枚举通过「我自己调」展开。每条都可直接生成合法 spec v1。",
   "presets": [
     {
       "id": "promo-cyber-pixel",
@@ -177,6 +177,50 @@
       "aspect": "9:16",
       "mood": "electronic",
       "description": "霓虹落日与透视网格的复古未来感，20 秒竖屏新歌预存片，适合单曲与专辑发行。"
+    },
+    {
+      "id": "devops-terminal",
+      "name": "开发者工具 · 终端磷光",
+      "kind": "launch",
+      "style": "screencast",
+      "theme": "terminal-phosphor",
+      "duration": 30,
+      "aspect": "16:9",
+      "mood": "electronic",
+      "description": "墨绿 CRT 扫描线 + 磷光绿，CLI 录屏与开源发布的命令行气质，适合 DevTools 与版本发布。"
+    },
+    {
+      "id": "travel-solar-dusk",
+      "name": "旅行公路 · 落日暖丘",
+      "kind": "travel",
+      "style": "flat",
+      "theme": "solar-dusk",
+      "duration": 30,
+      "aspect": "9:16",
+      "mood": "upbeat",
+      "description": "奶油暮色与陶土落日色带，30 秒竖屏公路日记，适合目的地种草与民宿短片。"
+    },
+    {
+      "id": "healthcare-abyss-teal",
+      "name": "医疗科技 · 深海青",
+      "kind": "healthcare",
+      "style": "data-viz",
+      "theme": "abyss-teal",
+      "duration": 41,
+      "aspect": "16:9",
+      "mood": "restrained",
+      "description": "深水藏青与天蓝焦散，克制高级的仪器读数感，适合临床数据、影像与生命科学发布。"
+    },
+    {
+      "id": "course-sand-linen",
+      "name": "人文课程 · 亚麻宣纸",
+      "kind": "course",
+      "style": "editorial",
+      "theme": "sand-linen",
+      "duration": 45,
+      "aspect": "16:9",
+      "mood": "restrained",
+      "description": "本色亚麻织纹 + 靛蓝标题，讲义与编辑部气质，适合公开课、读书会与播客切片。"
     }
   ]
 }

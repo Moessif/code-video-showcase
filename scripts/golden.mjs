@@ -28,6 +28,7 @@ import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { buildPlanFromSpec } from '../templates/plan.mjs';
 import { ENGINE_VERSION } from '../templates/spec.mjs';
+import { browserCandidates } from '../templates/cdp.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const REPO = path.resolve(HERE, '..');
@@ -142,7 +143,14 @@ function fontSetHash() {
 
 function currentEnv() {
   return {
-    chrome: process.env.CHROME_EXE ? toolVersion(process.env.CHROME_EXE, ['--version'], ROOT) : null,
+    // R2-12：探测与渲染器同源（browserCandidates = CHROME_EXE→PATH→标准安装位），
+    // 不再只认 CHROME_EXE 一个环境变量——否则不显式设它时 probe 恒为 null。
+    chrome: (() => {
+      try {
+        const exe = browserCandidates()[0];
+        return exe ? toolVersion(exe, ['--version'], ROOT) : null;
+      } catch { return null; }
+    })(),
     node: process.version,
     platform: process.platform,
     arch: process.arch,
@@ -359,12 +367,17 @@ function doCheck() {
     chrome: {
       expected: manifest.chrome ?? null,
       actual: env.chrome ?? null,
-      match: !manifest.chrome || !env.chrome || manifest.chrome === env.chrome,
+      // R2-12（N09-F2）：旧逻辑 `!env.chrome → match:true` 让探测失败变假绿灯。
+      // manifest 记了版本而本机探不到 = 环境**未知**，必须按不匹配处理
+      // （非 strict 下打 W_ENV_MISMATCH 并跳过哈希比对，而不是拿它当相符）。
+      match: !manifest.chrome || (env.chrome != null && manifest.chrome === env.chrome),
+      reason: !manifest.chrome ? 'not-recorded' : (env.chrome == null ? 'probe-failed' : (manifest.chrome === env.chrome ? 'equal' : 'differs')),
     },
     fonts: {
       expected: manifest.fonts ?? null,
       actual: env.fonts ?? null,
-      match: !manifest.fonts || !env.fonts || manifest.fonts === env.fonts,
+      match: !manifest.fonts || (env.fonts != null && manifest.fonts === env.fonts),
+      reason: !manifest.fonts ? 'not-recorded' : (env.fonts == null ? 'probe-failed' : (manifest.fonts === env.fonts ? 'equal' : 'differs')),
     },
     node: { expected: manifest.node ?? null, actual: env.node },
     platform: { expected: manifest.platform ?? null, actual: env.platform },

@@ -4,7 +4,7 @@
 
 An Agent Skill for producing 30–90 s "style showcase" films: an 8 s opening, eleven style segments with 1 s big cards between them, an eight-flash montage, and a cinematic ending — all reproducible frame by frame.
 
-> **中文简介**：这是一个「用代码做视频」的 Agent Skill：画面用 HTML/Canvas/SVG/Three.js 逐帧渲染，配乐用 Python（numpy/scipy）合成，最后由 FFmpeg 合成 30–90 秒的卡点风格展示片，全程不调用任何视频、图像或音乐生成模型。仓库里包含剪辑结构公式、13 套主题、11 种风格配方、大字卡系统、120 BPM 配乐方案、零依赖 CDP/Playwright 渲染管线、视频/音频质检和可运行模板。完整中文说明见 [中文](#中文)。
+> **中文简介**：这是一个「用代码做视频」的 Agent Skill：画面用 HTML/Canvas/SVG/Three.js 逐帧渲染，配乐用 Python（numpy/scipy）合成，最后由 FFmpeg 合成 30–90 秒的卡点风格展示片，全程不调用任何视频、图像或音乐生成模型。仓库里包含剪辑结构公式、17 套主题、20 种风格配方、24 个垂直领域、26 个确定性效果、35 种段间转场、大字卡系统、120 BPM 配乐方案、零依赖 CDP/Playwright 渲染管线、视频/音频质检和可运行模板。完整覆盖矩阵见 `docs/COVERAGE.md`，完整中文说明见 [中文](#中文)。
 
 > **一键安装 / Install in one sentence**
 >
@@ -49,22 +49,24 @@ node bin/cvs.mjs motion matrix      # motion profile table
 node bin/cvs.mjs image --spec project.spec.json   # same spec -> image set (cover/card/poster/story)
 ```
 
-**v2.3.5 delivery contract** — `cvs build` now runs the same deep validation as `cvs lint`
-(pages / theme / APCA / placeholder brand / missing title), synthesises the soundtrack from
-`spec.audio` (pass `--no-audio` for a deliberate silent film), writes a platform copy when
-`render.preset` or `--platform` asks for one, and fails with a phase-specific exit code
-(`10` spec · `11` render · `12` concat · `13` qa · `14` env) plus `<outDir>/error.json`.
-A build is only "done" when `master.mp4` has an audio stream, both `qa/*.json` report
-`fail == 0`, and the render manifest has no failed segment. Error codes live in
-`schema/errors.json` and are documented in [`docs/ERRORS.md`](docs/ERRORS.md);
-air-gapped installs are covered in [`docs/OFFLINE.md`](docs/OFFLINE.md).
+**Delivery contract (since v2.3.5, hardened in v2.5.2)** — `cvs build` runs the same deep
+validation as `cvs lint` (pages / theme / APCA / placeholder brand / missing title),
+synthesises the soundtrack from `spec.audio` (pass `--no-audio` for a deliberate silent
+film), writes a platform copy when `render.preset` or `--platform` asks for one, and fails
+with a phase-specific exit code (`10` spec · `11` render · `12` concat · `13` qa · `14` env)
+plus `<outDir>/error.json`. A build is only "done" when `master.mp4` has an audio stream,
+**every delivered file** (master + platform copies) passes `qa/*.json` with `fail == 0`
+(including 8×-oversampled true-peak ≤ −1 dBTP), and the render manifest has no failed
+segment. Error codes live in `schema/errors.json` and are documented in
+[`docs/ERRORS.md`](docs/ERRORS.md); air-gapped installs are covered in
+[`docs/OFFLINE.md`](docs/OFFLINE.md).
 
 
 `cvs ref` extracts a palette / accent / density from a reference image (deterministic 96×96 OKLab k-means, APCA-gated, top-3 theme candidates) and writes it into `look.theme` + `look.accentOverride` — it extracts statistics, never copies pixels. The same core (`scripts/ref-core.mjs`) runs in the browser, so the wizard accepts a dragged image directly and records `meta.reference`.
 
 **Motion profiles** (`templates/motion-profile.mjs`) — `look.motion` picks one of `calm` / `standard` / `dynamic` / `maximal`; omit it and the compiler derives one from *video type × art style* (cyber-pixel → `maximal`, launch/minimal/ink-wash → `calm`, knowledge → `standard`). The level travels to every page as `?mp=<level>` and scales the transition, easing, stagger, impact, shake, flash, push and the grain/scanline/paper texture layers. `standard` reproduces the pre-v2.3 output **byte for byte**, so existing projects are unchanged.
 
-**Style → page** (`templates/style-pages.mjs`) — the single source of truth for "which page renders this art style". Each of the 13 styles maps to a real page (`cyber-pixel` → `templates/cyber-pixel.html`, `guofeng` → `templates/recipe-guofeng.html`, …); `?recipe=` is now only an in-page hint, not what selects the page. Generators (`scripts/nl2spec.mjs`, `app/wizard/`) read this table, and an unknown style falls back to the generic scene page rather than the placeholder skeleton. Before v2.3.1 every style silently rendered the placeholder (audit finding F1).
+**Style → page** (`templates/style-pages.mjs`) — the single source of truth for "which page renders this art style". Each of the 20 styles maps to a real page (`cyber-pixel` → `templates/cyber-pixel.html`, `guofeng` → `templates/recipe-guofeng.html`, …); `?recipe=` is now only an in-page hint, not what selects the page. Generators (`scripts/nl2spec.mjs`, `app/wizard/`) read this table, and an unknown style falls back to the generic scene page rather than the placeholder skeleton. Before v2.3.1 every style silently rendered the placeholder (audit finding F1).
 
 **Accent override** — `look.accentOverride` (brand colour from `cvs brand apply`, or the contrast-safe colour from `content/combos.json` `_meta.accentFix`) is expanded by the plan into `?accent=/#…&accentInk=/#…&accentSoft=/#…` on **every** segment URL, and `themeFromURL()` applies it via `accentOverride()`. Without an override no parameter is added, so existing films are byte-identical. Before v2.3.1 no page ever received the override: brand colours never appeared in the video, and `accentFix` only silenced the linter (audit finding F3). It is part of `segmentHash`, so changing a brand colour always re-renders.
 
@@ -89,7 +91,7 @@ air-gapped installs are covered in [`docs/OFFLINE.md`](docs/OFFLINE.md).
 
 | Surface | Port | Purpose |
 |---|---|---|
-| `app/wizard/` | 5181 | 8 presets + 7 cards + reference-image upload → valid `spec.json` |
+| `app/wizard/` | 5181 | 16 presets + 7 cards + reference-image upload → valid `spec.json` |
 | `app/canvas/` | 5182 | scrub + click-to-inspect + Shift-drag marquee + live patch |
 | `app/script/` | 5183 | storyboard table editing with overflow checks |
 | `app/versions/` | 5184 | localStorage version tree + side-by-side diff |
@@ -147,11 +149,11 @@ Before the batch worker (one process + one browser per segment) the same cold co
 
 *`templates/big-card.html` rendered through `templates/render-segment.mjs` at 1920×1080: dark layout, "想开 / 产品发布会?" card, `STYLE 03 / 11`. Placeholder content — replace the copy, keep the timing.*
 
-Theme previews are in [Themes](#themes): `assets/theme-previews/theme-three-up.jpg`, `theme-contact-sheet.jpg`, and per-theme stills `01-coral-noir.jpg` – `08-crimson-theater.jpg` (generated by `scripts/theme-preview.mjs`).
+Theme previews are in [Themes](#themes): `assets/theme-previews/theme-three-up.jpg`, `theme-contact-sheet.jpg`, and per-theme stills `01-coral-noir.jpg` – `17-sand-linen.jpg` (regenerate with `npm run theme:preview:offline`, or the CDP-based `scripts/theme-preview.mjs`).
 
 ## What it is
 
-The skill is a production recipe, not a model. It packages the structure measured off a real 61 s showcase: a declarative timeline + plan, a big-card system, thirteen theme palettes (OKLCH-derived, APCA-audited), eleven art-direction/technical/sound recipes, a 120 BPM synthesized score, a deterministic zero-dependency CDP / Playwright → FFmpeg pipeline, parallel rendering with resume, video + audio QA gates, an optional gated AI lane, and runnable templates. Because every frame is a pure function of `t`, renders are deterministic: the same second always produces the same frame, on any machine.
+The skill is a production recipe, not a model. It packages the structure measured off a real 61 s showcase: a declarative timeline + plan, a big-card system, seventeen theme palettes (OKLCH-derived, APCA-audited), eleven art-direction/technical/sound recipes, a 120 BPM synthesized score, a deterministic zero-dependency CDP / Playwright → FFmpeg pipeline, parallel rendering with resume, video + audio QA gates, an optional gated AI lane, and runnable templates. Because every frame is a pure function of `t`, renders are deterministic: the same second always produces the same frame, on any machine.
 
 **v2 adds** — `timeline.json → plan.json` (single source of truth, exact frame snapping), `color.js` (OKLCH/OKLab + APCA), `motion.js` (closed-form springs, CJK kinsoku layout, kinetic type, grain/RGB-split/bloom), a zero-dependency Chrome DevTools Protocol driver, `render-farm.mjs` (parallel + retries + resume), platform delivery presets, `qa-video.mjs` + `qa-audio.py`, `doctor.mjs`, `new-project.mjs`, and `ai-lane.mjs` (disabled by default).
 
@@ -274,7 +276,7 @@ A theme is not three swapped colours: it is a role palette (14 tokens), one back
 
 ![Theme contact sheet](assets/theme-previews/theme-contact-sheet.jpg)
 
-*Contact sheet of all thirteen themes. Per-theme stills: `assets/theme-previews/01-coral-noir.jpg` … `13-pop-acid.jpg`.*
+*Contact sheet of all seventeen themes. Per-theme stills: `assets/theme-previews/01-coral-noir.jpg` … `17-sand-linen.jpg`.*
 
 ![Default theme still](assets/theme-previews/01-coral-noir.jpg)
 
@@ -290,7 +292,7 @@ node render-segment.mjs --page /segments/01.html?theme=aqua-morandi --out out/01
 node render-segment.mjs --page /big-card.html?theme=graphite-signal --still 0.5,1.0 --outdir out/stills
 ```
 
-Theme choice is an intake decision, not a rendering tweak: collect the brief with `references/intake.md` (at most two rounds, lock the theme, write `brief.json`), then read the full spec in `references/themes.md`. Audit every palette change with `node scripts/theme-audit.mjs --strict` — all thirteen themes pass WCAG today (APCA flags a few dark-theme muted greys). For a real brand colour use `accentOverride(themeRef, input)` in `themes.js` and store the returned `override` in `brief.json`; do not invent a fourteenth theme.
+Theme choice is an intake decision, not a rendering tweak: collect the brief with `references/intake.md` (at most two rounds, lock the theme, write `brief.json`), then read the full spec in `references/themes.md`. Audit every palette change with `node scripts/theme-audit.mjs --strict` — all seventeen themes pass WCAG today. For a real brand colour use `accentOverride(themeRef, input)` in `themes.js` and store the returned `override` in `brief.json`; do not invent an eighteenth theme.
 
 ## Quick start (v2.4)
 
@@ -404,8 +406,8 @@ code-video-showcase/
 │  ├─ intake.md                      # pre-flight brief intake + theme lock (brief.json)
 │  ├─ original-brief.txt             # the original 61 s brief — copy and rebrand
 │  ├─ reference-film-analysis.md     # measured breakdown of the reference (cuts/frames/audio)
-│  ├─ style-recipes.md               # 11 styles: art direction + technique + sound
-│  ├─ themes.md                      # 13 themes: palettes, materials, HUD, cardColors, QA
+│  ├─ style-recipes.md               # 20 styles: art direction + technique + sound
+│  ├─ themes.md                      # 17 themes: palettes, materials, HUD, cardColors, QA
 │  ├─ big-card-and-typography.md     # 4 card layouts, type scale, slam parameters
 │  ├─ audio-recipes.md               # 120 BPM arrangement, synthesis formulas, mix chain
 │  └─ render-pipeline.md             # browser/CDP / FFmpeg / cross-platform setup and commands
@@ -413,7 +415,7 @@ code-video-showcase/
 │  ├─ color.js                       # v2: OKLCH/OKLab, APCA, palette derivation
 │  ├─ motion.js                      # v2: springs, easing, CJK kinsoku, kinetic type, textures
 │  ├─ common.js                      # easing, seeded random, noise/fbm, segment mode, re-exports
-│  ├─ themes.js                      # 13 themes: palettes, materials, HUD, cardColors/chrome
+│  ├─ themes.js                      # 17 themes: palettes, materials, HUD, cardColors/chrome
 │  ├─ timeline.mjs                   # v2: validate timeline → plan.json + segments.txt
 │  ├─ tokens.mjs                     # v2.4: 4-level type scale, single safe area, __typeProbe
 │  ├─ timeline.example.json          # 61 s / 11 rounds example
@@ -440,7 +442,8 @@ code-video-showcase/
 │  ├─ ai-lane.mjs                    # v2: AI asset validation / overlay commands
 │  ├─ test-core.mjs                  # v2: pure-module regression tests
 │  ├─ determinism-check.mjs          # v2: same t twice, byte-identical check
-│  ├─ theme-preview.mjs              # render all theme previews, contact sheet and three-up
+│  ├─ theme-preview.mjs              # CDP-based theme previews + contact sheet + three-up
+│  ├─ theme-preview-offline.mjs      # headless-Chrome direct screenshots (no CDP/Playwright)
 │  ├─ theme-audit.mjs                # WCAG + APCA audit (--strict for CI)
 │  ├─ analyze-reference.sh           # any reference MP4 -> contact sheet/cuts/spectrogram
 │  └─ qa-check.sh                    # legacy per-segment check (still works)
@@ -452,7 +455,7 @@ code-video-showcase/
    └─ audio-analysis.json / scene-cuts.txt / colors-per-second.json
 ```
 
-## The 11 styles
+## The styles (original 11 below; full 20-style catalog in `docs/COVERAGE.md`)
 
 | # | Style | Core technique | Key elements | Signature sound |
 |---|---|---|---|---|
@@ -515,8 +518,8 @@ This README is bilingual: English first, Chinese below. `SKILL.md` itself is wri
 - **十阶段工作流**：从需求定稿、剪辑表、环境准备，到逐段实现、配乐、合成与质检（见 `SKILL.md`）。
 - **时间结构公式**：总时长 = `O + N·R + 1 + 2 + E`；每段帧数 `round(duration × 30)`，全片合计必须为 1830。
 - **大字卡系统**：强调色底 / 米白底 / 黑底居中 / 黑底左对齐 4 套版式；砸入缩放 1.7→1、模糊 16→0 px、0.11 秒 `outExpo`；速度线、径向光晕、6/12 px 抖动、600 px 描边回声字。
-- **13 套主题配色**：珊瑚暗夜（默认，与原版逐值一致）、橙光白、水蓝白·莫兰迪、琥珀黑金、蓝图纸、石墨信号、青瓷白、绯墨剧场、赛博霓虹、纸质手账、暗金电影、冰蓝极简、波普酸色。一套主题 = 角色色板 + 材质 + HUD 规格 + 点缀色；后 5 套由 OKLCH 派生并过 WCAG + APCA 审计。数据源 `templates/themes.js`，规范见 `references/themes.md`。
-- **11 种风格配方**：每种都给出调色板、构图、6 拍动效表、技术实现要点和专属音色。
+- **17 套主题配色**：珊瑚暗夜（默认，与原版逐值一致）、橙光白、水蓝白·莫兰迪、琥珀黑金、蓝图纸、石墨信号、青瓷白、绯墨剧场、赛博霓虹、纸质手账、暗金电影、冰蓝极简、波普酸色。一套主题 = 角色色板 + 材质 + HUD 规格 + 点缀色；后 5 套由 OKLCH 派生并过 WCAG + APCA 审计。数据源 `templates/themes.js`，规范见 `references/themes.md`。
+- **20 种风格配方**：每种都给出调色板、构图、6 拍动效表、技术实现要点和专属音色（完整清单见 `docs/COVERAGE.md`）。
 - **120 BPM 配乐方案**：A 小调、纯 numpy/scipy 合成；大字卡音乐压到 6% 形成 drop-out，风格段第一帧是六层叠加的「啪」；侧链 55%、2.2 秒混响、`tanh` 软削波、归一化到 −0.6 dBFS。
 - **渲染管线与质检**：`timeline.mjs` 生成 plan → Playwright 或系统 Chrome/Edge 原生 CDP →（单 canvas 页用 `toDataURL`，否则 CDP 截图）→ `image2pipe` → libx264 CRF12 中间片（bt709）→ 并行 `render-farm`（重试/续渲）→ concat + 平台预设 CRF + 两遍 loudnorm −14 LUFS → `qa-video` / `qa-audio`（帧数、黑帧、冻结、静音、VMAF、BPM、cue ±30 ms、高频克制、频谱图）。
 - **参考样片拆解与原始任务书**：`references/reference-film-analysis.md` 记录实测切点、画面与音频数据；`references/original-brief.txt` 是可改品牌直接复用的完整任务书。
@@ -529,7 +532,7 @@ This README is bilingual: English first, Chinese below. `SKILL.md` itself is wri
 
 ### 主题配色
 
-主题不是「换三个颜色」，而是**角色色板（14 个 token）+ 材质 + HUD 规格 + 点缀色**四层一起换。`templates/themes.js` 内置 13 套主题（后 5 套由 OKLCH 派生、WCAG + APCA 审计）；**不传 `?theme=` 时渲染原版 `coral-noir` 画面，逐像素一致**。
+主题不是「换三个颜色」，而是**角色色板（14 个 token）+ 材质 + HUD 规格 + 点缀色**四层一起换。`templates/themes.js` 内置 17 套主题（后 5 套由 OKLCH 派生、WCAG + APCA 审计）；**不传 `?theme=` 时渲染原版 `coral-noir` 画面，逐像素一致**。
 
 | # | id | 名称 | 明暗 | 主材质 | 适合内容 |
 |---|---|---|---|---|---|
@@ -553,7 +556,7 @@ This README is bilingual: English first, Chinese below. `SKILL.md` itself is wri
 
 ![主题联系表](assets/theme-previews/theme-contact-sheet.jpg)
 
-*13 套主题联系表。单主题大图：`assets/theme-previews/01-coral-noir.jpg` … `13-pop-acid.jpg`；可用 `node scripts/theme-preview.mjs --root <project>` 重新生成。*
+*17 套主题联系表。单主题大图：`assets/theme-previews/01-coral-noir.jpg` … `17-sand-linen.jpg`；可用 `npm run theme:preview:offline` 重新生成（默认不覆盖已有单图，保护测试基准；`--force` 才覆盖）。*
 
 ![默认主题静帧](assets/theme-previews/01-coral-noir.jpg)
 
@@ -569,7 +572,7 @@ node render-segment.mjs --page /segments/01.html?theme=aqua-morandi --out out/01
 node render-segment.mjs --page /big-card.html?theme=graphite-signal --still 0.5,1.0 --outdir out/stills
 ```
 
-主题选择属于「信息采集」，不是渲染参数：先按 `references/intake.md` 收信息（最多 2 轮）、锁定主题、写 `brief.json`，完整规范见 `references/themes.md`。任何配色改动都跑 `node scripts/theme-audit.mjs --strict`——当前 13 套 WCAG 全部通过。用户有真实品牌色时用 `themes.js` 的 `accentOverride(themeRef, input)`，把返回的 `override` 写进 `brief.json`，不要自创第 14 套主题。
+主题选择属于「信息采集」，不是渲染参数：先按 `references/intake.md` 收信息（最多 2 轮）、锁定主题、写 `brief.json`，完整规范见 `references/themes.md`。任何配色改动都跑 `node scripts/theme-audit.mjs --strict`——当前 17 套 WCAG 全部通过。用户有真实品牌色时用 `themes.js` 的 `accentOverride(themeRef, input)`，把返回的 `override` 写进 `brief.json`，不要自创第 18 套主题。
 
 ### 快速开始
 
@@ -643,7 +646,7 @@ bash templates/concat-and-encode.sh --platform master out/segments.txt audio/mix
 
 平台要点：Windows 下渲染器先试 Playwright（若装），再走系统 Chrome/Edge 原生 CDP；`CHROME_EXE` / `--browser` 可指定版本。Chrome 的 stderr 写入临时日志、profile 由 detached 进程清理，避免每段进程拖尾。WSL/Linux 下若 Playwright 浏览器下载慢，可直接用 Chrome for Testing + `--browser`（原生 CDP 路径不需要 npm 包）；缺 `libnss3/libnspr4/libasound2` 时可用 `apt-get download` + `dpkg-deb -x` 解到用户目录并设 `LD_LIBRARY_PATH`。`node_modules`、venv、浏览器缓存和临时帧建议放 Linux 文件系统：实测 `/mnt/e` 写 2000 个小文件约 4.9 秒，ext4 约 0.05 秒；逐帧渲染直接管道给 ffmpeg，不落盘。整个过程在本地 CPU 完成，不调用云端服务。
 
-### 11 种风格速查
+### 风格速查（原 11 种；完整 20 种见 `docs/COVERAGE.md`）
 
 | # | 风格 | 核心手法 | 关键元素 | 专属音色 |
 |---|---|---|---|---|

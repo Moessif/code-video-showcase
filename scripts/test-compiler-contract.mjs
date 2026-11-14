@@ -241,7 +241,9 @@ test('qa-audio 三档：每次 check 带 level，summary 带 advisory 计数', (
   const rep = readJson(out);
   for (const c of rep.checks) assert.ok(['fail', 'contract', 'advisory'].includes(c.level), `check ${c.name} 缺 level`);
   assert.equal(typeof rep.summary.advisory, 'number');
-  assert.ok(rep.checks.some((c) => c.status === 'ADVISORY'), '应至少有一条 ADVISORY（HF 克制）');
+  // 验证 advisory 档存在（按 level 判，而非要求某条恰好 not-met——纯音 fixture
+  // 的 HF/拍网格可能全 PASS，那仍是 advisory 档）。
+  assert.ok(rep.checks.some((c) => c.level === 'advisory'), '应至少有一条 advisory 档检查（HF 克制/拍网格）');
 });
 
 test('qa-audio 三档：只有 ADVISORY 时 --strict 仍然 EXIT=0（红门禁不再永远红）', () => {
@@ -285,10 +287,13 @@ test('qa-audio 拍网格细分从 cue 间距推断（半拍 flash → 1/2 网格
   const sr = 48000;
   const n = Math.round(4 * sr);
   const data = Buffer.alloc(n * 2);
+  // 种子 LCG 代替 Math.random：近零随机幅度可能让 onset 漏检 → 细分推断 flaky。
+  let lcg = 12345;
+  const rnd = () => { lcg = (lcg * 1664525 + 1013904223) >>> 0; return lcg / 4294967296; };
   for (let i = 0; i < n; i++) {
     const t = i / sr;
     const ph = t % 0.25;
-    const v = ph < 0.02 ? (Math.random() * 2 - 1) * 0.5 : 0;
+    const v = ph < 0.02 ? (0.3 + rnd() * 0.7) * (rnd() < 0.5 ? -1 : 1) * 0.5 : 0;
     data.writeInt16LE(Math.round(v * 32767), i * 2);
   }
   const head = Buffer.alloc(44);
@@ -432,6 +437,72 @@ test('test-all 汇总计数自洽：total === passed + failed（"N tests:" 无 R
   assert.ok(s, 'no suite row');
   assert.equal(s.total, s.passed + s.failed, `total=${s.total} passed=${s.passed} failed=${s.failed}`);
   assert.ok(s.total >= 34, `expected the full spec-security suite, got total=${s.total}`);
+});
+
+// ── 第二轮 9 视角集群回归（R2-xx） ─────────────────────────────────────────
+
+test('R2-14：build --dry-run --json 的 stdout 是单行可解析 JSON（进度退 stderr）', () => {
+  const dir = tmp();
+  const r = run([BIN, 'build', FIXTURE, '--root', ROOT, '--dry-run', '--json', '--outdir', path.join(dir, 'o')]);
+  assert.equal(r.status, 0, r.stderr);
+  const lines = r.stdout.trim().split('\n');
+  assert.equal(lines.length, 1, `stdout 应只有一行 JSON，实际 ${lines.length} 行`);
+  const j = JSON.parse(r.stdout);
+  assert.equal(j.ok, true);
+  assert.equal(j.phase, 'dry-run');
+  assert.ok(j.segments > 0 && j.frames > 0);
+});
+
+test('R2-15：plan 对坏 spec 退 10（不是 1），缺 --spec 退 2', () => {
+  const dir = tmp();
+  const bad = path.join(dir, 'bad.json');
+  const spec = readJson(FIXTURE);
+  spec.format.duration = 999; // 与 structure 总和不符 → E_DURATION
+  writeJson(bad, spec);
+  const r = run([path.join(ROOT, 'templates', 'plan.mjs'), '--spec', bad, '--root', ROOT]);
+  assert.equal(r.status, 10, `坏 spec 应退 10，实际 ${r.status}`);
+  const noSpec = run([path.join(ROOT, 'templates', 'plan.mjs')]);
+  assert.equal(noSpec.status, 2, `缺 --spec 应退 2，实际 ${noSpec.status}`);
+});
+
+test('R2-16：未知 flag 退 2 + did-you-mean（--strik 不再静默吞 strict）', () => {
+  const r = run([BIN, 'build', FIXTURE, '--root', ROOT, '--strik', '--dry-run']);
+  assert.equal(r.status, 2, `未知 flag 应退 2，实际 ${r.status}`);
+  assert.match(r.stderr, /E_UNKNOWN_FLAG/);
+});
+
+test('R2-16：again --set 数字样文案保持字符串（2024/007 不被强转）', () => {
+  const dir = tmp();
+  const specPath = path.join(dir, 'project.spec.json');
+  const spec = readJson(FIXTURE);
+  writeJson(specPath, spec);
+  const r = run([path.join(ROOT, 'scripts', 'again.mjs'), '--spec', specPath,
+    '--set', 'meta.brand=2024', '--set', 'meta.title=007', '--no-build']);
+  assert.equal(r.status, 0, r.stderr);
+  const out = readJson(specPath);
+  assert.equal(out.meta.brand, '2024', 'brand 应为字符串 "2024"');
+  assert.equal(out.meta.title, '007', 'title 应为字符串 "007"');
+  // --set-json 显式转型
+  const r2 = run([path.join(ROOT, 'scripts', 'again.mjs'), '--spec', specPath,
+    '--set-json', 'format.fps=60', '--no-build']);
+  assert.equal(r2.status, 0, r2.stderr);
+  assert.equal(readJson(specPath).format.fps, 60);
+});
+
+test('R2-07：page 含 .. 穿越被拒（E_PAGE_TRAVERSAL），非 HTML 被拒（E_PAGE_EXT）', () => {
+  const dir = tmp();
+  const spec = readJson(FIXTURE);
+  spec.rounds[0].style.page = '../../etc/passwd';
+  const p1 = path.join(dir, 'trav.json'); writeJson(p1, spec);
+  const r1 = run([BIN, 'lint', p1, '--root', ROOT]);
+  assert.equal(r1.status, 10);
+  assert.match(r1.stdout + r1.stderr, /E_PAGE_TRAVERSAL/);
+  const spec2 = readJson(FIXTURE);
+  spec2.rounds[0].style.page = 'templates/tokens.mjs';
+  const p2 = path.join(dir, 'ext.json'); writeJson(p2, spec2);
+  const r2 = run([BIN, 'lint', p2, '--root', ROOT]);
+  assert.equal(r2.status, 10);
+  assert.match(r2.stdout + r2.stderr, /E_PAGE_EXT/);
 });
 
 console.log(`\n${passed} passed, ${failed} failed`);

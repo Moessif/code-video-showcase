@@ -65,7 +65,7 @@ window.renderFrame = (u) => {
   ctx.beginPath();
   ctx.rect(pad, pad, W * 0.22, H * 0.22);
   ctx.clip();
-  drawHalftone(ctx, { W, H, cell: 12, color: hexToRgba(TC.accent, 0.5), alpha: 0.5, t });
+  drawHalftone(ctx, { W, H, cell: 12, color: hexToRgba(TC.accent, 0.5), alpha: 0.5, t, region: { x0: pad, y0: pad, x1: pad + W * 0.22, y1: pad + H * 0.22 } });
   ctx.restore();
 
   // 乱码解码标题（p 随 t 推进）

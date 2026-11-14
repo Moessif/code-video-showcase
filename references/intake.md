@@ -11,7 +11,7 @@
 1. **不要直接开做。** 先收信息 → 锁定主题配色 → 落 `brief.json`，才允许写剪辑表、渲染任何一帧。
 2. **最多 2 轮对话。** 第 1 轮给默认方案 + 问必问项；第 2 轮锁定主题并确认。用户不答的项用默认值，在 `brief.notes` 里标 `default`，不要追问第 3 轮。
 3. **主题先锁定。** 主题决定整片骨架色、材质与 HUD；没锁定主题就渲染 = 全片返工。
-4. **只从 13 套主题里选。** 不要自创第 14 套，也不要为单支片改 `templates/themes.js` 的公共色值；用户想改主色只记录 `theme.accentOverride`。
+4. **只从 17 套主题里选。** 不要自创第 18 套，也不要为单支片改 `templates/themes.js` 的公共色值；用户想改主色只记录 `theme.accentOverride`。
 
 ---
 
@@ -26,7 +26,7 @@
 **第 2 轮**：
 
 - 复述已确认项 + 默认项，锁定主题 id，说清主题中文名；
-- 用户对主题犹豫时只推荐 2 套（带图 + 一句理由），不要报菜名式列 13 套；
+- 用户对主题犹豫时只推荐 2 套（带图 + 一句理由），不要报菜名式列 17 套；
 - 输出 `brief.json`（第 5 节）写到项目根，宣布「主题锁定：<中文名>（<id>），后续渲染都用它」。
 
 **可跳过第 2 轮**：用户第 1 轮就说清主题 id/名称、渠道/画幅与 CTA，直接落 brief 并宣布锁定。
@@ -67,7 +67,7 @@
 
 ### 3.1 怎么给用户看
 
-- 先发 `assets/theme-previews/theme-three-up.jpg`（3 套并排，最快建立印象），再发 `assets/theme-previews/theme-contact-sheet.jpg`（13 套总览）；
+- 先发 `assets/theme-previews/theme-three-up.jpg`（3 套并排，最快建立印象），再发 `assets/theme-previews/theme-contact-sheet.jpg`（17 套总览）；
 - 用户点名想看某套时发单主题图：`assets/theme-previews/01-coral-noir.jpg` … `08-crimson-theater.jpg`；
 - 每套配一句话说调性（下表），不要只发图不解释，也不要一次摊 8 张细节图；
 - 预览图是「主题板」：看色、看材质、看气质，**不是**成片构图参考。
@@ -106,8 +106,8 @@
 ### 3.4 改主色的边界
 
 - 只允许改「强调色」：调 `templates/themes.js` 的 `accentOverride(themeRef, input)`（字符串 = 只换 `accent`，或 `{ accent, accentInk, accentSoft }`），它会自动挑对比度 ≥ 4.5 的 `accentInk`、算 `accentSoft`、同步材质光晕与 HUD 编号；把返回对象里的 `override` 原样写进 `brief.theme.accentOverride`，整片统一替换一处，不要逐段改；
-- 换底色/换材质/换字体不属于主题系统：要么在 13 套里换一套，要么明确告诉用户超出「换主题」范围、需要额外工期；
-- 不要自创第 14 套主题，也不要改 `templates/themes.js` 的公共色值。
+- 换底色/换材质/换字体不属于主题系统：要么在 17 套里换一套，要么明确告诉用户超出「换主题」范围、需要额外工期；
+- 不要自创第 18 套主题，也不要改 `templates/themes.js` 的公共色值。
 
 ---
 
@@ -195,7 +195,7 @@ Agent：锁定主题 coral-noir（珊瑚暗夜）。brief.json 已落盘：61s /
 
 - **落盘位置**：`brief.json` 放项目根（与项目 README、剪辑表同级），不要塞进脚本常量。
 - **下游怎么读**：剪辑表、`templates/segment.html`、`templates/big-card.html` 只读 `brief.theme.id` 拼页面 URL `?theme=<id>`（别名由 `themes.js` 解析）；不传 theme = `coral-noir`，与旧视觉一致。
-- **覆盖值的消费**：若 `brief.theme.accentOverride` 非空，下游先 `accentOverride(getTheme(brief.theme.id), brief.theme.accentOverride)` 得到最终主题对象，再传给 `chrome()` / `cardColors()` / `drawThemeBackground()`；不要把它当成第 14 套主题。
+- **覆盖值的消费**：若 `brief.theme.accentOverride` 非空，下游先 `accentOverride(getTheme(brief.theme.id), brief.theme.accentOverride)` 得到最终主题对象，再传给 `chrome()` / `cardColors()` / `drawThemeBackground()`；不要把它当成第 18 套主题。
 - **锁定后写一行**：在项目 README 或项目笔记里写 `本项目主题：<中文名>（<id>）` + `brief.json` 路径，方便交接和改片。
 - **改主题的成本**：剪辑表/文案/音轨都不动，重渲片头 + 12 张大字卡 + 11 个风格段 + 八连闪 + 结尾（等于全片重渲，但不用重做结构）。
 - **与主题绑定**：背景材质、大字卡四版式的 bg/ink/echo/grid、胶囊/倒计时/水印、风格段的换色与染色、结尾大色场、闪白颜色。
@@ -208,7 +208,7 @@ Agent：锁定主题 coral-noir（珊瑚暗夜）。brief.json 已落盘：61s /
 1. **一次问 8 个问题** → 用户流失。先给默认方案，只问关键 4 项。
 2. **没锁主题就渲染** → 全片返工。主题必须先落进 `brief.json`。
 3. **一支片混用多套主题**（每轮换一个）→ 变成调色板演示，不是风格片。一支片只用一个主题，风格差异靠分段配方 + `theme.accents`。
-4. **自创第 14 套主题 / 把单支片色值改进 `themes.js`** → 污染公共资产。只记 `theme.accentOverride`。
+4. **自创第 18 套主题 / 把单支片色值改进 `themes.js`** → 污染公共资产。只记 `theme.accentOverride`。
 5. **把预览图当构图参考** → 预览是主题板；构图按 `references/big-card-and-typography.md` 与 `references/style-recipes.md`。
 6. **竖屏直接套横屏坐标** → 胶囊、大字卡、倒计时全错位。
 7. **用户说「随便」还反复追问** → 直接用默认值，并在 `notes` 标 `default`。

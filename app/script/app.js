@@ -117,7 +117,8 @@ function render() {
       if (editable) {
         td.classList.add('editable');
         td.dataset.field = col.field;
-        td.title = `双击编辑 ${col.field}（${row.role} 行）`;
+        td.tabIndex = 0; // 键盘可达：Tab 聚焦，Enter/F2 编辑
+        td.title = `双击或 Enter 编辑 ${col.field}（${row.role} 行）`;
       }
 
       const raw = col.value(row);
@@ -286,15 +287,28 @@ els.tbody.addEventListener('dblclick', (e) => {
   const td = e.target.closest('td[data-field]');
   if (td) beginEdit(td);
 });
+// 键盘编辑：聚焦的单元格按 Enter/F2 进入编辑（与双击等价）。
+els.tbody.addEventListener('keydown', (e) => {
+  if (e.key !== 'Enter' && e.key !== 'F2') return;
+  const td = e.target.closest('td[data-field]');
+  if (td) { e.preventDefault(); beginEdit(td); }
+});
 
-els.issues.addEventListener('click', (e) => {
-  const li = e.target.closest('li[data-row-id]');
-  if (!li) return;
+function jumpToRow(li) {
   const tr = els.tbody.querySelector(`tr[data-row-id="${CSS.escape(li.dataset.rowId)}"]`);
   if (!tr) return;
   tr.scrollIntoView({ block: 'center', behavior: 'smooth' });
   tr.classList.add('flash');
   setTimeout(() => tr.classList.remove('flash'), 900);
+}
+els.issues.addEventListener('click', (e) => {
+  const li = e.target.closest('li[data-row-id]');
+  if (li) jumpToRow(li);
+});
+els.issues.addEventListener('keydown', (e) => {
+  if (e.key !== 'Enter' && e.key !== ' ') return;
+  const li = e.target.closest('li[data-row-id]');
+  if (li) { e.preventDefault(); jumpToRow(li); }
 });
 
 $('btn-download').addEventListener('click', downloadJson);

@@ -10,7 +10,9 @@
  * 零外部资源。
  */
 
-const DEFAULT_API = 'http://127.0.0.1:5190';
+// 默认同源：评审服务器把 /jobs/* 与 /health 反代到 API（CORS 默认关闭，
+// 跨源直 fetch 会被拦）。?api=http://… 仍可显式直连 API（需其开启 CORS）。
+const DEFAULT_API = '';
 const POLL_MS = 2000;
 const TERMINAL = new Set(['done', 'failed', 'cancelled']);
 
@@ -32,6 +34,7 @@ const el = {
   statFrames: $('statFrames'),
   statSegments: $('statSegments'),
   jobError: $('jobError'),
+  jobErrorLinks: $('jobErrorLinks'),
   log: $('log'),
   spec: $('spec'),
   specState: $('specState'),
@@ -52,6 +55,7 @@ const api = normalizeApi(params.get('api') || DEFAULT_API);
 let comments = [];
 let pollTimer = null;
 let specLoaded = false;
+let lastSpecPath = null;
 
 // ── helpers ─────────────────────────────────────────────────────────────────
 
@@ -272,15 +276,30 @@ function renderJob(info) {
   el.statFrames.textContent = Number.isFinite(Number(st.frames)) ? String(st.frames) : '—';
   el.statSegments.textContent = Number.isFinite(Number(st.segments)) ? String(st.segments) : '—';
 
-  if (info.error) {
+  if (info.error || info.errorCode) {
     el.jobError.hidden = false;
-    el.jobError.textContent = info.error;
+    // 机器可读失败契约：错误码/阶段/失败段，比裸错误串更利于分流。
+    const head = [info.errorCode, info.phase ? `phase=${info.phase}` : null].filter(Boolean).join(' · ');
+    const segs = Array.isArray(info.failedSegments) && info.failedSegments.length
+      ? `\n失败段：${info.failedSegments.join(', ')}` : '';
+    el.jobError.textContent = `${head ? head + '\n' : ''}${info.error || ''}${segs}`;
+    // 诊断产物链接（同源静态路径）：完整日志 / 阶段诊断 / error.json。
+    el.jobErrorLinks.replaceChildren();
+    for (const [label, p] of [['构建日志', info.logPath], ['阶段诊断', info.detailPath], ['error.json', info.errorPath]]) {
+      if (!p) continue;
+      const a = document.createElement('a');
+      a.href = `/${p}`; a.target = '_blank'; a.rel = 'noopener';
+      a.textContent = label;
+      el.jobErrorLinks.append(a, ' ');
+    }
   } else {
     el.jobError.hidden = true;
     el.jobError.textContent = '';
+    el.jobErrorLinks.replaceChildren();
   }
 
   el.log.textContent = info.logTail ? info.logTail : '（暂无日志）';
+  if (info.specPath) lastSpecPath = info.specPath;
 
   if (status === 'done') {
     setVideo(info.id || job);
@@ -333,12 +352,14 @@ async function loadSpec() {
   if (!job || specLoaded) return;
   specLoaded = true;
   el.specState.textContent = '加载中…';
+  // 优先用 API 投影的 specPath（--outdir/--root 变体下猜路径会错）；兜底默认路径。
+  const specUrl = lastSpecPath ? `/${lastSpecPath}` : `/out/api/${encodeURIComponent(job)}/project.spec.json`;
   try {
-    const res = await fetch(`/out/api/${encodeURIComponent(job)}/project.spec.json`, { cache: 'no-store' });
+    const res = await fetch(specUrl, { cache: 'no-store' });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const spec = await res.json();
     el.spec.textContent = JSON.stringify(spec, null, 2);
-    el.specState.textContent = `out/api/${job}/project.spec.json`;
+    el.specState.textContent = lastSpecPath || `out/api/${job}/project.spec.json`;
   } catch (e) {
     el.specState.textContent = `spec 不可用：${e.message || e}`;
     el.spec.textContent = '—';

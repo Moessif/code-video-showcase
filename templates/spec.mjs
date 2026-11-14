@@ -10,9 +10,10 @@
  * 用法：
  *   import { normalizeSpec, validateSpec, specToTimeline, specDuration } from './spec.mjs';
  */
-import { query } from './timeline.mjs';
+import { query, resolveFlashEach } from './timeline.mjs';
 import { MOTION_LEVELS, deriveMotionProfile, motionQuery } from './motion-profile.mjs';
 import { isTransition, isTransitionOff, normalizeTransition } from './transitions.mjs';
+import { THEMES } from './themes.js';
 
 export const SPEC_VERSION = 1;
 /**
@@ -99,6 +100,8 @@ function deepMerge(base, over) {
   if (over === null || typeof over !== 'object' || Array.isArray(over)) return clone(over);
   const out = Array.isArray(base) ? [...base] : { ...(base || {}) };
   for (const [k, v] of Object.entries(over)) {
+    // 不可信输入的原型污染闸门：__proto__/constructor/prototype 一律丢弃。
+    if (k === '__proto__' || k === 'constructor' || k === 'prototype') continue;
     out[k] = v && typeof v === 'object' && !Array.isArray(v) ? deepMerge(base?.[k] ?? {}, v) : clone(v);
   }
   return out;
@@ -244,7 +247,10 @@ export function normalizeSpec(input) {
   else if (input.format || input.look) raw = clone(input); // 宽松：按 spec 处理，交给 validate
   else throw new Error(`unsupported spec: expected specVersion=${SPEC_VERSION} or timeline version=1`);
 
-  const spec = deepMerge(DEFAULTS, raw);
+  // 深拷贝 DEFAULTS 再合并：浅 spread 会让缺省块（如 raw 未给 format 时的
+  // spec.format）与模块级 DEFAULTS 共享引用，随后写 spec.format.duration 会
+  // 污染 DEFAULTS，导致同进程内后续 spec 串时长（API 服务器拒收合法 job）。
+  const spec = deepMerge(clone(DEFAULTS), raw);
 
   // script → rounds（仅当没有显式 rounds）
   if ((!spec.rounds || spec.rounds.length === 0) && Array.isArray(spec.script) && spec.script.length) {
@@ -302,7 +308,9 @@ export function normalizeSpec(input) {
 export function specDuration(spec) {
   const st = spec.structure || DEFAULT_STRUCTURE;
   const n = Array.isArray(spec.rounds) ? spec.rounds.length : Number(st.rounds || 0);
-  const flash = Number(st.flash?.count ?? 0) * Number(st.flash?.each ?? 0);
+  // R2-25：flash.each 与 plan 同源（未显式指定时由拍派生），否则 duration 校验
+  // 用默认 0.5 而 plan 用 60/bpm，非 120 BPM 必报 E_DURATION 假错。
+  const flash = Number(st.flash?.count ?? 0) * resolveFlashEach(spec);
   return Number(st.opening) + n * Number(st.round) + Number(st.moreCard) + flash + Number(st.ending);
 }
 
@@ -333,7 +341,15 @@ export function validateSpec(spec) {
   }
   if (!(Number(st.card) < Number(st.round))) err('E_CARD_GE_ROUND', 'structure.card', `card (${st.card}) must be smaller than round (${st.round})`);
   if (!(Number(st.flash.count) >= 0)) err('E_FLASH', 'structure.flash.count', 'flash.count must be >= 0');
+  if (!Number.isInteger(Number(st.flash.count))) err('E_FLASH', 'structure.flash.count', `flash.count must be an integer, got ${st.flash.count}`);
   if (Number(st.flash.count) > 0 && !(Number(st.flash.each) > 0)) err('E_FLASH', 'structure.flash.each', 'flash.each must be > 0');
+  // flash.each 上限：否则 count=256 × each=1e308 → duration=Infinity，绕过所有
+  // 资源闸门，plan.json 写 frames:null，渲染帧循环死循环。
+  if (Number(st.flash.each) > MAX_SEGMENT_SECONDS) err('E_STRUCTURE_MAX', 'structure.flash.each', `flash.each must be <= ${MAX_SEGMENT_SECONDS}s, got ${st.flash.each}`);
+  // 亚帧段：round(each*fps)=0 的 flash 段会在渲染期才失败，这里提前到 spec 阶段。
+  if (Number(st.flash.count) > 0 && Number(st.flash.each) > 0 && Math.round(Number(st.flash.each) * Number(fps)) < 1) {
+    err('E_FLASH', 'structure.flash.each', `flash.each ${st.flash.each}s rounds to 0 frames at ${fps}fps; use >= ${(1 / Number(fps)).toFixed(4)}s`);
+  }
   if (Number(st.flash.count) > 16) warn('W_FLASH_MAX', 'structure.flash', 'more than 16 flashes is visually noisy');
 
   // 资源上限：structure 直接决定段数与帧数。
@@ -347,8 +363,11 @@ export function validateSpec(spec) {
       err('E_STRUCTURE_MAX', `structure.${k}`, `${k} must be <= ${MAX_SEGMENT_SECONDS}s, got ${st[k]}`);
     }
   }
-  // 总帧数上限（30 fps 下约 10 分钟成片）
-  if (Number.isFinite(Number(duration)) && Number(duration) * Number(fps) > MAX_TOTAL_FRAMES) {
+  // 总帧数上限（30 fps 下约 10 分钟成片）。非有限 duration 直接拒绝——
+  // 旧版 isFinite 跳过守卫会让 Infinity 绕过上限检查。
+  if (!Number.isFinite(Number(duration))) {
+    err('E_DURATION', 'format.duration', `duration must be a finite number, got ${duration}`);
+  } else if (Number(duration) * Number(fps) > MAX_TOTAL_FRAMES) {
     err('E_DURATION_MAX', 'format.duration',
       `duration ${duration}s @ ${fps}fps exceeds the ${MAX_TOTAL_FRAMES}-frame limit (~${Math.round(MAX_TOTAL_FRAMES / Number(fps))}s)`);
   }
@@ -370,6 +389,7 @@ export function validateSpec(spec) {
     }
     if (!r.style?.page && !r.style?.recipe) err('E_STYLE_PAGE', `${at}.style`, 'style.page or style.recipe is required');
     if (r.style?.speed !== undefined && !(Number(r.style.speed) > 0)) err('E_SPEED', `${at}.style.speed`, 'speed must be > 0');
+    if (r.style?.t0 !== undefined && !Number.isFinite(Number(r.style.t0))) err('E_SPEED', `${at}.style.t0`, 't0 must be a finite number (scene offset)');
     for (const k of Object.keys(r.style || {})) {
       if (!STYLE_KEYS.has(k)) {
         err('E_UNKNOWN_FIELD', `${at}.style.${k}`,
@@ -401,7 +421,9 @@ export function validateSpec(spec) {
   });
 
   const computed = specDuration(spec);
-  if (Number.isFinite(Number(duration)) && Math.abs(Number(duration) - computed) > 0.5 / Number(fps)) {
+  if (!Number.isFinite(computed)) {
+    err('E_STRUCTURE', 'structure', `structure total is not finite (overflow): ${computed}`);
+  } else if (Number.isFinite(Number(duration)) && Math.abs(Number(duration) - computed) > 0.5 / Number(fps)) {
     err('E_DURATION', 'format.duration', `duration ${duration}s != structure total ${computed}s (opening + N×round + more + flashes + ending)`);
   }
 
@@ -430,10 +452,31 @@ export function validateSpec(spec) {
       continue;
     }
     // 绝对文件系统路径：path.resolve(root, p) 会忽略 root
-    const bare = raw.split('?')[0].split('#')[0];
-    if (ABS_PATH_RE.test(bare)) {
+    let bare = raw.split('?')[0].split('#')[0];
+    // 百分号编码可藏 `..`/分隔符（..%2f..%2f）；先解码再查（纵深防御，静态服务器
+    // 也 decode-then-contain）。解码失败按原样查。
+    try { bare = decodeURIComponent(bare); } catch { /* keep raw */ }
+    // 单反斜杠开头（\Windows\…）在 Windows 上是当前盘根绝对路径，ABS_PATH_RE 只挡
+    // 双反斜杠 UNC，会漏。
+    if (ABS_PATH_RE.test(bare) || /^\\/.test(bare)) {
       err('E_PAGE_ABS', label,
         `absolute page path "${bare}" escapes the project root; use a path relative to the project root`);
+      continue;
+    }
+    // R2-07（N05-F1）：`..` 段同样逃逸——page 会被 existsSync/readFileSync
+    // （pageContentHash）消费，绝对路径拦了却放行相对穿越 = 给不可信 spec
+    // 一个服务端文件存在性 oracle。assets/outDir 都查了 `..`，page 必须同规则。
+    const segs = bare.split(/[\\/]+/);
+    if (segs.includes('..')) {
+      err('E_PAGE_TRAVERSAL', label,
+        `page path "${bare}" contains ".." segments and escapes the project root; use a path relative to the project root`);
+      continue;
+    }
+    // R2-18（N04-F5）：只查存在性会放行 `templates/tokens.mjs` 这类非页面文件——
+    // lint 全绿、渲染烧 373 s 才失败。HTML 白名单把坏页面拦在 lint 阶段（exit 10）。
+    if (!/\.(html|htm)$/i.test(segs[segs.length - 1])) {
+      err('E_PAGE_EXT', label,
+        `page "${bare}" is not an .html/.htm file; the renderer cannot open it (pages must be HTML documents inside the project)`);
     }
   }
 
@@ -462,6 +505,11 @@ export function validateSpec(spec) {
   });
 
   if (!spec.look?.theme) err('E_THEME', 'look.theme', 'theme id is required');
+  else if (!Object.prototype.hasOwnProperty.call(THEMES, spec.look.theme)) {
+    // 存在性以前只在 deepValidate（compile/lint）查；cvs plan → render-farm 路径
+    // 绕过它，未知主题静默回落 coral-noir 出错误主题的片。提到 validateSpec 统一挡。
+    err('E_THEME_UNKNOWN', 'look.theme', `unknown theme "${spec.look.theme}"; known: ${Object.keys(THEMES).join(', ')}`);
+  }
   if (spec.look?.motion != null && !MOTION_LEVELS.includes(spec.look.motion)) {
     err('E_MOTION', 'look.motion', `motion must be one of ${MOTION_LEVELS.join('|')}, got ${spec.look.motion}`);
   }
@@ -473,8 +521,9 @@ export function validateSpec(spec) {
   if (!(Number(spec.audio?.bpm) > 0)) err('E_BPM', 'audio.bpm', 'bpm must be > 0');
   if (spec.audio?.mood && !MOODS.includes(spec.audio.mood)) err('E_MOOD', 'audio.mood', `mood must be one of ${MOODS.join('|')}`);
   if (spec.render?.preset && !PRESETS.includes(spec.render.preset)) err('E_PRESET', 'render.preset', `preset must be one of ${PRESETS.join('|')}`);
-  if (spec.render?.concurrency !== undefined && !(Number(spec.render.concurrency) >= 1 && Number(spec.render.concurrency) <= 16)) {
-    err('E_CONCURRENCY', 'render.concurrency', 'concurrency must be 1..16');
+  if (spec.render?.concurrency !== undefined && !(Number.isInteger(Number(spec.render.concurrency)) && Number(spec.render.concurrency) >= 1 && Number(spec.render.concurrency) <= 16)) {
+    // 非整数（如 2.5）会让 farm 分片 k % workers 漏掉段；NaN 会让 worker 数为 0。
+    err('E_CONCURRENCY', 'render.concurrency', 'concurrency must be an integer 1..16');
   }
   // 转场（v2.5）：名字与时长都要闸门，非法值不能静默变成硬切或抛裸异常。
   if (!isTransitionOff(spec.render?.transition) && !isTransition(spec.render.transition)) {
@@ -489,9 +538,13 @@ export function validateSpec(spec) {
   if (spec.render?.outDir !== undefined) {
     const rawOut = String(spec.render.outDir);
     const segments = rawOut.split(/[\\/]+/);
-    if (ABS_PATH_RE.test(rawOut) || segments.includes('..')) {
+    // 单反斜杠开头（\escape）在 Windows 上是「当前盘根」绝对路径，ABS_PATH_RE
+    // 只挡双反斜杠 UNC 会漏；控制字符（NUL 等）会让 mkdirSync 抛裸异常。
+    const driveRelative = /^\\/.test(rawOut);
+    const control = /[\x00-\x1f]/.test(rawOut);
+    if (ABS_PATH_RE.test(rawOut) || driveRelative || segments.includes('..') || control) {
       err('E_OUTDIR', 'render.outDir',
-        `outDir "${rawOut}" escapes the project root; use a relative path without ".."`);
+        `outDir "${rawOut}" escapes the project root or is invalid; use a relative path without "..", a leading separator, or control characters`);
     }
   }
 
@@ -518,6 +571,12 @@ export function validateSpec(spec) {
   } else if (brand === '{{BRAND}}') {
     err('E_BRAND_PLACEHOLDER', 'meta.brand',
       'brand is still the {{BRAND}} placeholder; set meta.brand (or meta.name) before building');
+  } else if (brand === String(spec.meta?.title ?? '').trim() || brand === String(spec.meta?.name ?? '').trim()) {
+    // R2-36（N01-F6）：`cvs new` 没给品牌时拿项目名兜底（brand==title==name），
+    // 空串拦得住、等值兜底拦不住——成片满屏项目名当 logo 字。warn 级提示，
+    // --strict 下升级为 error（交付态不许拿项目名冒充品牌）。
+    warn('W_BRAND_FALLBACK', 'meta.brand',
+      `brand "${brand}" equals the project title/name — this is the cvs-new fallback, not a real brand; edit meta.brand (or run \`cvs brand apply\`) before delivery`);
   }
   const title = String(spec.meta?.title || spec.opening?.title || spec.meta?.name || '').trim();
   if (!title || title === 'untitled' || title === 'segment') {

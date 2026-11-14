@@ -46,7 +46,7 @@
             <h2 id="ref-title">有参考图？</h2>
             <span class="hint">提取配色与气质 · 浏览器内完成 · 不复制像素</span>
           </div>
-          <div id="ref-drop" style="display:flex;gap:14px;align-items:center;padding:14px;border:1px dashed rgba(255,255,255,.22);border-radius:12px;cursor:pointer">
+          <div id="ref-drop" role="button" tabindex="0" aria-label="选择参考图（JPG/PNG），识别后套用主题与主色" style="display:flex;gap:14px;align-items:center;padding:14px;border:1px dashed rgba(255,255,255,.22);border-radius:12px;cursor:pointer">
             <canvas id="ref-thumb" width="96" height="96" style="width:96px;height:96px;border-radius:8px;background:#111;image-rendering:pixelated;flex:none"></canvas>
             <div style="flex:1;min-width:0">
               <p id="ref-status" style="margin:0 0 8px">拖入或点击选择一张参考图（JPG/PNG）。识别后可一键套用主题与主色。</p>
@@ -82,7 +82,7 @@
           <section class="card" data-card="style">
             <header class="card-head">
               <span class="num">02</span>
-              <div><h3>什么画风</h3><p>12 种配方；灰色虚线 = 与当前主题冲突（avoid），不可选</p></div>
+              <div><h3>什么画风</h3><p id="style-count-copy">20 种配方；灰色虚线 = 与当前主题冲突（avoid），不可选</p></div>
             </header>
             <div class="chips" id="chips-style" role="group" aria-label="什么画风"></div>
           </section>
@@ -90,7 +90,7 @@
           <section class="card" data-card="theme">
             <header class="card-head">
               <span class="num">03</span>
-              <div><h3>什么气质</h3><p>themes.js 的 13 套真实主题；先换画风可解锁浅色主题</p></div>
+              <div><h3>什么气质</h3><p>themes.js 的 17 套真实主题；先换画风可解锁浅色主题</p></div>
             </header>
             <div class="chips chips-theme" id="chips-theme" role="group" aria-label="什么气质"></div>
           </section>

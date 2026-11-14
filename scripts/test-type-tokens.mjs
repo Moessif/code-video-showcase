@@ -21,26 +21,26 @@ import { fileURLToPath } from 'node:url';
 import { withRenderer } from '../templates/render-segment.mjs';
 import { TYPE_SCALE, safe, typeSize } from '../templates/tokens.mjs';
 import { safePad } from '../templates/recipes/util.js';
+import { STYLE_PAGES } from '../templates/style-pages.mjs';
+import { browserCandidates } from '../templates/cdp.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(HERE, '..');
-const CHROME = process.env.CHROME_EXE || '';
+// 与其它浏览器套件一致：CHROME_EXE 优先，否则自动发现（不再因缺 env 静默跳过）。
+const CHROME = process.env.CHROME_EXE || browserCandidates()[0] || '';
 
-const PAGES = [
-  { id: '8bit', page: 'templates/recipe-8bit.html', theme: 'cyber-neon' },
-  { id: 'cyber-pixel', page: 'templates/cyber-pixel.html', theme: 'cyber-neon' },
-  { id: 'datarace', page: 'templates/recipe-datarace.html', theme: 'cyber-neon' },
-  { id: 'flat', page: 'templates/recipe-flat.html', theme: 'coral-noir' },
-  { id: 'glitch', page: 'templates/recipe-glitch.html', theme: 'cyber-neon' },
-  { id: 'greatwall', page: 'templates/recipe-greatwall.html', theme: 'dark-gold-cinema' },
-  { id: 'guofeng', page: 'templates/recipe-guofeng.html', theme: 'celadon-paper' },
-  { id: 'inkwash', page: 'templates/recipe-inkwash.html', theme: 'celadon-paper' },
-  { id: 'kinetic', page: 'templates/recipe-kinetic.html', theme: 'coral-noir' },
-  { id: 'minimal', page: 'templates/recipe-minimal.html', theme: 'coral-noir' },
-  { id: 'screencast', page: 'templates/recipe-screencast.html', theme: 'coral-noir' },
-  { id: 'threed', page: 'templates/recipe-threed.html', theme: 'cyber-neon' },
-  { id: 'whiteboard', page: 'templates/recipe-whiteboard.html', theme: 'paper-journal' },
-];
+// 从 STYLE_PAGES 单一真值派生，新增风格不会漏检（v2.5.2 审计：旧硬编码漏了 6 个）。
+const THEME_FOR = {
+  'cyber-pixel': 'cyber-neon', 'cyber-glitch': 'cyber-neon', 'pixel-8bit': 'cyber-neon',
+  'ink-wash': 'celadon-paper', guofeng: 'celadon-paper', 'great-wall': 'dark-gold-cinema',
+  whiteboard: 'paper-journal', 'three-d': 'cyber-neon', 'data-viz': 'cyber-neon',
+  screencast: 'coral-noir', flat: 'coral-noir', minimal: 'coral-noir', kinetic: 'coral-noir',
+  swiss: 'ice-minimal', editorial: 'paper-journal', brutalist: 'pop-acid',
+  vaporwave: 'cyber-neon', blueprint: 'blueprint-stone', risograph: 'paper-journal',
+};
+const PAGES = Object.entries(STYLE_PAGES)
+  .filter(([id]) => id !== 'vertical') // 通用场景页不在字阶契约内
+  .map(([id, page]) => ({ id, page, theme: THEME_FOR[id] || 'coral-noir' }));
 
 let passed = 0;
 let failed = 0;

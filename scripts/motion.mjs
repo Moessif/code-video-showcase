@@ -14,6 +14,7 @@
 import {
   MOTION_LEVELS, MOTION_PROFILES, deriveMotionProfile, motionParams, motionSummary,
 } from '../templates/motion-profile.mjs';
+import { KIND_IDS, STYLE_IDS } from './nl2spec.mjs';
 
 function parseArgs(argv) {
   const a = { _: [] };
@@ -30,8 +31,9 @@ function parseArgs(argv) {
 const args = parseArgs(process.argv.slice(2));
 const cmd = args._[0] || 'list';
 
-const KINDS = ['promo', 'launch', 'knowledge', 'ecommerce', 'brand-story', 'data-report', 'recruiting', 'annual'];
-const STYLES = ['cyber-pixel', 'cyber-glitch', 'pixel-8bit', 'ink-wash', 'guofeng', 'whiteboard', 'three-d', 'data-viz', 'screencast', 'flat', 'minimal', 'vertical'];
+// 从单一真值导入，避免矩阵展示与真实推导表漂移（v2.5.2 审计 F2）。
+const KINDS = KIND_IDS;
+const STYLES = STYLE_IDS;
 
 function showProfile(level, asJson) {
   const p = motionParams(level);

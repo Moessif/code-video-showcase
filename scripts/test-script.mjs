@@ -48,21 +48,22 @@ test('fixture 可被解析为表格行，数量 = opening + N×2 + more + flash 
   const spec = makeSpec();
   const rows = model.specToRows(spec);
   const expected = 1 + spec.rounds.length * 2 + 1 + spec.structure.flash.count + 1;
-  assert.equal(expected, 23, 'fixture 应有 23 段');
   assert.equal(rows.length, expected);
 });
 
 test('行顺序与 plan 的段顺序一致：opening → card/scene 交替 → more → flash → ending', () => {
-  const rows = model.specToRows(makeSpec());
+  const spec = makeSpec();
+  const rows = model.specToRows(spec);
+  const flashes = spec.structure.flash.count;
   assert.equal(rows[0].id, '00-opening');
   assert.equal(rows[0].role, 'opening');
   assert.equal(rows[1].id, 'r01-card');
   assert.equal(rows[1].role, 'card');
   assert.equal(rows[2].id, 'r01-style');
   assert.equal(rows[2].role, 'scene');
-  assert.equal(rows[rows.length - 10].id, '99-more');
-  assert.equal(rows[rows.length - 9].id, 'f01');
-  assert.equal(rows[rows.length - 2].id, 'f08');
+  assert.equal(rows[rows.length - (flashes + 2)].id, '99-more');
+  assert.equal(rows[rows.length - (flashes + 1)].id, 'f01');
+  assert.equal(rows[rows.length - 2].id, `f${String(flashes).padStart(2, '0')}`);
   assert.equal(rows[rows.length - 1].id, '99-ending');
   assert.equal(rows[rows.length - 1].role, 'ending');
 });
@@ -91,7 +92,7 @@ test('speed/t0 为 null 时按 plan 默认值 1/0 处理，不应误报 E_SPEED'
   assert.deepEqual(codes(model.validateRows(spec)), []);
 });
 
-test('时间轴首尾相接，总时长 41s / 1230 帧 / 23 段', () => {
+test('时间轴首尾相接，总时长 41s / 1230 帧 / N 段', () => {
   const spec = makeSpec();
   const rows = model.specToRows(spec);
   assert.equal(rows[0].start, 0);
@@ -103,7 +104,7 @@ test('时间轴首尾相接，总时长 41s / 1230 帧 / 23 段', () => {
   const totals = model.specTotals(spec);
   assert.equal(totals.duration, 41);
   assert.equal(totals.frames, 1230);
-  assert.equal(totals.segments, 23);
+  assert.equal(totals.segments, rows.length);
   assert.equal(totals.nominal, 41);
 });
 

@@ -58,7 +58,10 @@ async function loadFonts() {
 function loadImage(id) {
   return new Promise((resolve, reject) => {
     const img = new Image();
-    img.onload = () => (img.decode ? img.decode().then(() => resolve(img), () => resolve(img)) : resolve(img));
+    // `img.decode()` 在 Chrome --virtual-time-budget 下可能永不 resolve（虚拟时钟不推进
+    // 真实解码），离线预览脚本用 ?noDecode=1 关掉它；浏览器正常渲染仍走 decode。
+    const plain = q.get('noDecode') === '1';
+    img.onload = () => (plain || !img.decode ? resolve(img) : img.decode().then(() => resolve(img), () => resolve(img)));
     img.onerror = () => reject(new Error(`thumbnail not found: ./thumbs/${id}.jpg`));
     img.src = `./thumbs/${id}.jpg`;
   });
@@ -110,6 +113,9 @@ function rnd() {
 }
 
 function backdrop() {
+  // 每次重置 LCG 种子：颗粒是静态装饰，renderFrame 必须是纯函数（同 t 同像素），
+  // 不能消耗模块级 seed 的连续状态（否则同会话重渲会漂移）。
+  seed = 20261028;
   ctx.fillStyle = BG;
   ctx.fillRect(0, 0, W, H);
 
@@ -139,13 +145,14 @@ function drawContact(imgs) {
   const labelH = 52;
   const rowGap = 16;
   const gridTop = 232;
-  const COLS = IDS.length <= 8 ? 4 : IDS.length <= 12 ? 4 : 5;
+  // 17 套时用 6 列 → 3 行；沿用 5 列会变成 4 行，最后一行压到 1012 的页脚线上。
+  const COLS = IDS.length <= 8 ? 4 : IDS.length <= 12 ? 4 : IDS.length <= 14 ? 5 : 6;
   const rows = Math.ceil(IDS.length / COLS);
   const cellW = (W - M * 2 - GAP * (COLS - 1)) / COLS;
   const maxCellH = (H - gridTop - 60 - rows * (labelH + rowGap)) / rows;
   const cellH = Math.min((cellW * 9) / 16, maxCellH);
 
-  spaced('CODE-VIDEO-SHOWCASE  /  THEME SYSTEM V2', M, 88, { size: 15, spacing: 2.4, color: MUTED });
+  spaced('CODE-VIDEO-SHOWCASE  /  THEME SYSTEM V3', M, 88, { size: 15, spacing: 2.4, color: MUTED });
   spaced(`${String(IDS.length).padStart(2, '0')} THEMES  ·  1920 × 1080  ·  STATIC PREVIEW`, W - M, 88, {
     size: 15, spacing: 2.2, color: MUTED, align: 'right',
   });

@@ -163,23 +163,38 @@ function captionRows() {
     if (s.kind === 'card' && s.card) text = [s.card.first, s.card.keyword].filter(Boolean).join(' ');
     else if (s.kind === 'opening') text = copy.title || title;
     else if (s.kind === 'ending') text = copy.cta || copy.sub || copy.title || title;
+    else if (s.kind === 'more' && s.card) text = [s.card.first, s.card.keyword].filter(Boolean).join(' ');
     else if (s.kind === 'style' && s.copy) text = s.copy.title || '';
     if (!text) continue;
     out.push({ start: s.start, end: s.end, text: String(text).trim() });
+  }
+  // R2-33（N08-F4）：零间隙 cue 在播放器里会粘成一片，部分校验器直接告警。
+  // 相邻 cue 之间留 ≥0.1s 呼吸（收的是前一条的尾，不动画面时序；短于 0.2s 的不动）。
+  for (let i = 0; i < out.length - 1; i++) {
+    const cur = out[i];
+    const next = out[i + 1];
+    if (cur.end >= next.start - 0.1 && cur.end - cur.start > 0.3) {
+      cur.end = Math.max(cur.start + 0.2, next.start - 0.1);
+    }
   }
   return out;
 }
 
 let captionCount = 0;
+let maxCps = 0;
 if (!args['no-subs']) {
   const rowsS = captionRows();
   if (rowsS.length) {
+    const lang = String(spec.meta?.locale || 'zh-CN').split(/[-_]/)[0].toLowerCase();
     const srt = rowsS.map((r, i) => `${i + 1}\n${srtTime(r.start)} --> ${srtTime(r.end)}\n${r.text}\n`).join('\n');
-    fs.writeFileSync(path.join(outDir, 'master.srt'), srt);
-    const vtt = `WEBVTT\n\n${rowsS.map((r) => `${vttTime(r.start)} --> ${vttTime(r.end)}\n${r.text}`).join('\n\n')}\n`;
+    // R2-32（N08-F6）：SRT 带 UTF-8 BOM + CRLF——Windows 记事本/国产剪辑器
+    // 对无 BOM 的 UTF-8 按本地代码页猜，中文 cue 变乱码。
+    fs.writeFileSync(path.join(outDir, 'master.srt'), '\uFEFF' + srt.replace(/\r?\n/g, '\r\n'));
+    const vtt = `WEBVTT\nLanguage: ${lang}\n\n${rowsS.map((r) => `${vttTime(r.start)} --> ${vttTime(r.end)}\n${r.text}`).join('\n\n')}\n`;
     fs.writeFileSync(path.join(outDir, 'master.vtt'), vtt);
     captionCount = rowsS.length;
-    console.log(`[subs]    master.srt / master.vtt · ${rowsS.length} cue(s)`);
+    maxCps = Math.max(...rowsS.map((r) => [...r.text].length / Math.max(0.05, r.end - r.start)));
+    console.error(`[subs]    master.srt / master.vtt · ${rowsS.length} cue(s) · lang=${lang} · max ${maxCps.toFixed(1)} cps`);
   }
 }
 
@@ -196,6 +211,7 @@ const manifest = {
     srt: fs.existsSync(path.join(outDir, 'master.srt')) ? relOrNull(path.join(outDir, 'master.srt')) : null,
     vtt: fs.existsSync(path.join(outDir, 'master.vtt')) ? relOrNull(path.join(outDir, 'master.vtt')) : null,
     cues: captionCount,
+    maxCps: +maxCps.toFixed(2),
     burnedInto: rows.filter((r) => burnedSet.has(path.basename(r.file))).map((r) => r.file),
   },
   rows,
@@ -203,5 +219,6 @@ const manifest = {
 const outPath = path.resolve(String(args.out || path.join(outDir, 'delivery.json')));
 fs.mkdirSync(path.dirname(outPath), { recursive: true });
 fs.writeFileSync(outPath, JSON.stringify(manifest, null, 2) + '\n');
-if (args.json) console.log(JSON.stringify(manifest, null, 2));
-console.log(`[deliver] ${rows.length} file(s) -> ${outPath}`);
+// R2-14：--json 时 stdout 只有这一行 JSON；其余全部 stderr。
+if (args.json) process.stdout.write(JSON.stringify(manifest) + '\n');
+console.error(`[deliver] ${rows.length} file(s) -> ${outPath}`);

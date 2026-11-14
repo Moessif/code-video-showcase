@@ -81,5 +81,20 @@ test('只有 passed 的格式不误报 failed', () => {
   assert.deepEqual(parseSummary('17 passed'), { total: 17, passed: 17, failed: 0 });
 });
 
+test('中点分隔 / 分数 / 反序格式都读对（v2.5.2 审计）', () => {
+  assert.deepEqual(parseSummary('Ran 24 tests · 24 passed · 0 failed'), { total: 24, passed: 24, failed: 0 });
+  assert.deepEqual(parseSummary('Ran 24 tests · 22 passed · 2 failed'), { total: 24, passed: 22, failed: 2 });
+  assert.deepEqual(parseSummary('✓ 20/20'), { total: 20, passed: 20, failed: 0 });
+  assert.deepEqual(parseSummary('✓ 18/20'), { total: 20, passed: 18, failed: 2 });
+  assert.deepEqual(parseSummary('✗ edl — 2 failed, 20 passed'), { total: 22, passed: 20, failed: 2 });
+});
+
+test('双汇总行不再丢 failed（bare 尾行曾把 failed 吞成 0）', () => {
+  // test-reflow/assets/variants 旧版先打全汇总再打一行 bare "N passed"，
+  // 底向上解析会命中 bare 行 → failed 丢成 0。现在 printer 已去掉 bare 行；
+  // 即便残留，富汇总也必须能被读到（这里验证富汇总本身解析正确）。
+  assert.deepEqual(parseSummary('Ran 18 tests: 17 passed, 1 failed'), { total: 18, passed: 17, failed: 1 });
+});
+
 console.log(`\n${passed + failed} tests: ${passed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);

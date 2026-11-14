@@ -17,7 +17,7 @@ node app/canvas/serve.mjs --port 5190
 | 区域 | 行为 |
 |---|---|
 | 顶栏 · 页面 | `big-card`（DURATION 1.0s） / `segment`（DURATION 3.0s） |
-| 顶栏 · 主题 | `templates/themes.js` 的 13 套主题；第一项是「无 theme」旧版默认画面 |
+| 顶栏 · 主题 | `templates/themes.js` 的 17 套主题；第一项是「无 theme」旧版默认画面 |
 | 画面 | 1920×1080 canvas，按容器等比 CSS 缩放；点击 = 命中测试 |
 | 时间轴 | `0..DURATION`，拖动即 `iframe.contentWindow.renderFrame(t)`；播放按钮按真实时间推进 |
 | 右侧 · 属性 | schema 驱动的 text / color / number / size / enum 控件，改动立即 `__patch` |

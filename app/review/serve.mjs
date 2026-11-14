@@ -10,15 +10,44 @@
  * /out/api/<job>/project.spec.json 与 /out/api/<job>/master.mp4。
  */
 import path from 'node:path';
+import http from 'node:http';
 import { fileURLToPath } from 'node:url';
 import { createStaticServer } from '../canvas/serve.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 export const DEFAULT_ROOT = path.resolve(HERE, '..', '..');
 export const DEFAULT_PORT = 5185;
+// 评审页与 API 不同源（5185 vs 5190），API 默认关 CORS → 跨源 fetch 被拦。
+// 同源反代 /jobs/* 与 /health 到 API，评审页默认即可用（无需开 CORS）。
+const API_TARGET = process.env.REVIEW_API || 'http://127.0.0.1:5190';
 
 export function createReviewServer(root = DEFAULT_ROOT) {
-  return createStaticServer(root);
+  const server = createStaticServer(root);
+  const staticHandler = server.listeners('request')[0];
+  server.removeAllListeners('request');
+  server.on('request', (req, res) => {
+    let pathname = req.url || '/';
+    try { pathname = new URL(req.url, 'http://localhost').pathname; } catch { /* keep raw */ }
+    if (pathname === '/health' || pathname === '/jobs' || pathname.startsWith('/jobs/')) {
+      const target = new URL(API_TARGET);
+      const preq = http.request({
+        hostname: target.hostname, port: target.port || 80,
+        path: req.url, method: req.method,
+        headers: { ...req.headers, host: target.host },
+      }, (pres) => {
+        res.writeHead(pres.statusCode || 502, pres.headers);
+        pres.pipe(res);
+      });
+      preq.on('error', () => {
+        if (!res.headersSent) res.writeHead(502, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'API unreachable at ' + API_TARGET }));
+      });
+      req.pipe(preq);
+      return;
+    }
+    staticHandler(req, res);
+  });
+  return server;
 }
 
 export function startReviewServer({ root = DEFAULT_ROOT, port = DEFAULT_PORT, host = '127.0.0.1' } = {}) {

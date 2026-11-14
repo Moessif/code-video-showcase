@@ -25,8 +25,9 @@ code-video-showcase/
 │  ├─ platform-presets.md                ← 各平台分辨率/CRF/LUFS/命令
 │  ├─ qa.md                              ← 视频/音频质检阈值与 JSON
 │  ├─ ai-lane.md                         ← 可选 AI 素材 lane、模型表、License 红线
-│  ├─ themes.md                          ← 13 套主题的调性/材质/token/HUD/推荐矩阵
-│  ├─ style-recipes.md                   ← 13 种风格的美术+技术+音色配方
+│  ├─ themes.md                          ← 17 套主题的调性/材质/token/HUD/推荐矩阵
+│  ├─ style-recipes.md                   ← 20 种风格的美术+技术+音色配方
+│  ├─ COVERAGE.md（docs/）               ← 领域×风格×效果×转场 覆盖矩阵 + 动效教义
 │  ├─ big-card-and-typography.md         ← 大字卡 4 版式、字体/字号/砸入参数
 │  ├─ audio-recipes.md                   ← 120BPM 编曲、音色合成公式、混音链
 │  ├─ render-pipeline.md                 ← 浏览器/FFmpeg/跨平台环境与命令
@@ -42,7 +43,7 @@ code-video-showcase/
 │  ├─ color.js                           ← OKLCH/OKLab、APCA、主题派生
 │  ├─ motion.js                          ← 弹簧/缓动/stagger/CJK 排版/质感/转场
 │  ├─ common.js                          ← 缓动/种子随机/noise/片段模式/卡点冲击
-│  ├─ themes.js                          ← 13 套主题 + 材质/卡片/HUD API（唯一数据源）
+│  ├─ themes.js                          ← 17 套主题 + 材质/卡片/HUD API（唯一数据源）
 │  ├─ render-segment.mjs                 ← 逐帧渲染 → ffmpeg（Playwright/原生 CDP）
 │  ├─ cdp.mjs                            ← 零依赖 Chrome DevTools Protocol 驱动
 │  ├─ render-farm.mjs                    ← 并行/重试/断点续渲 + manifest
@@ -51,7 +52,10 @@ code-video-showcase/
 │  ├─ synth_audio.py                     ← numpy/scipy 音色库 + 编排骨架
 │  ├─ timeline.example.json              ← 61s / 11 轮示例
 │  ├─ segment.html / big-card.html       ← 通用场景页 / 大字卡
-│  ├─ recipe-*.html / cyber-pixel.html   ← 13 个风格渲染页
+│  ├─ recipe-*.html / cyber-pixel.html   ← 20 个风格渲染页
+│  ├─ transitions.mjs                    ← 段间转场单一真值（xfade 数学，v2.5）
+│  ├─ effects.mjs                        ← 共享确定性效果库 26 个（v2.5）
+│  ├─ effects-probe.html                 ← 效果库渲染探针
 │  └─ theme-board.html / theme-sheet.html← 主题预览
 ├─ scripts/
 │  ├─ compile.mjs                        ← 一条命令：校验→plan→渲染→拼接→QA
@@ -75,7 +79,7 @@ code-video-showcase/
 │  ├─ theme-audit.mjs                    ← WCAG + APCA 审计
 │  ├─ test-core.mjs / test-*.mjs         ← 纯 Node 回归
 │  └─ test-compiler-contract.mjs         ← 交付契约回归（v2.3.5）
-├─ bin/cvs.mjs                           ← 统一 CLI（21 个子命令）
+├─ bin/cvs.mjs                           ← 统一 CLI（28 个子命令）
 ├─ server/api.mjs                        ← 本机 job 队列（Origin/Host/Token 防护）
 ├─ app/{wizard,canvas,script,versions,review}/  ← 本地 GUI（experimental）
 ├─ fixtures/mini-41s/                    ← 41s 端到端 fixture（真实配方页）
@@ -90,5 +94,5 @@ code-video-showcase/
 - `concat-and-encode.sh --platform master` 输出 bt709/AAC 48 kHz。
 - `qa-video.mjs` / `qa-audio.py` 实跑；42 秒 fixture 全链路通过。
 - `timeline.mjs` 对 11 轮示例产出 33 段 / 1830 帧 / 61.000 s。
-- 13 套主题 WCAG 全通过；`new-project.mjs` 脚手架可渲染。
+- 17 套主题 WCAG 全通过；`new-project.mjs` 脚手架可渲染。
 - v2.3.5：`cvs build` 自动配乐、`--platform` 出交付版、`cvs deliver` 出清单与字幕。

@@ -30,9 +30,14 @@ import {
   drawCyberPixel, drawPixelText, measurePixelText, cyberPixelPalette, hash01,
 } from './styles/cyber-pixel.js';
 import { typeSize, safe, probe } from './tokens.mjs';
+import { setupStage } from './recipes/util.js';
 
-const W = 1920, H = 1080;
+// D7 画幅契约：从视口取尺寸（偶数），不再硬编码 1920×1080——否则竖屏/方图
+// 会因 canvas 尺寸不匹配走 CDP 截图，把横屏画布裁进竖屏视口。
 const canvas = document.getElementById('c');
+const { W, H } = setupStage(canvas);
+document.getElementById('stage').style.width = `${W}px`;
+document.getElementById('stage').style.height = `${H}px`;
 const ctx = canvas.getContext('2d', { alpha: false });
 
 const params = new URLSearchParams(location.search);

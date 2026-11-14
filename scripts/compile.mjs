@@ -18,11 +18,25 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
-import { spawnSync } from 'node:child_process';
+import { spawnSync as _spawnSync } from 'node:child_process';
 import { buildPlanFromSpec } from '../templates/plan.mjs';
 import { concatList } from '../templates/timeline.mjs';
 import { deepValidate } from '../templates/spec-check.mjs';
 import { xfadeOffsets, xfadeFilterGraph } from '../templates/transitions.mjs';
+
+// R2-14（N04-F2）：build --json 机器模式——stdout 只有一行结果 JSON，
+// 所有进度（含子进程 render-farm/ffmpeg/qa 的输出）退到 stderr。旧版 build
+// 根本没有 --json，agent 只能正则人类日志或去 outDir 捞 error.json。
+const JSON_MODE = process.argv.includes('--json');
+const spawnSync = (cmd, args, opts = {}) => {
+  if (!JSON_MODE) return _spawnSync(cmd, args, opts);
+  const r = _spawnSync(cmd, args, { ...opts, stdio: ['ignore', 'pipe', 'pipe'] });
+  if (r.stdout && r.stdout.length) process.stderr.write(r.stdout);
+  if (r.stderr && r.stderr.length) process.stderr.write(r.stderr);
+  return r;
+};
+if (JSON_MODE) console.log = (...a) => console.error(...a);
+const emitJson = (obj) => { if (JSON_MODE) process.stdout.write(JSON.stringify(obj) + '\n'); };
 
 const EXIT = { spec: 10, render: 11, concat: 12, qa: 13, env: 14, usage: 2 };
 const STARTED = Date.now();
@@ -31,14 +45,27 @@ const CLI_VERSION = (() => {
   catch { return '0.0.0'; }
 })();
 
+// R2-16（N04-F8）：未知 flag 以前静默忽略——`--strik` 拼错一次，
+// 「已按交付态 strict 验收」就成了写进结论的假阳性。现在一律 exit 2 + 指名。
+const KNOWN_FLAGS = new Set(['spec', 'root', 'outdir', 'master', 'audio', 'no-audio', 'platform',
+  'concurrency', 'no-cache', 'no-resume', 'no-qa', 'no-strict', 'deliver', 'no-deliver',
+  'strict', 'burn-subtitles', 'cover', 'transition', 'transition-duration', 'dry-run', 'print',
+  'json', 'help']);
+
 function parseArgs(argv) {
   const a = {};
   for (let i = 0; i < argv.length; i++) {
     const k = argv[i];
     if (!k.startsWith('--')) continue;
+    const name = k.slice(2);
+    if (!KNOWN_FLAGS.has(name)) {
+      const near = [...KNOWN_FLAGS].find((f) => (f.startsWith(name.slice(0, 3)) || name.startsWith(f.slice(0, 3))));
+      console.error(`[error] [E_UNKNOWN_FLAG] ${k}${near ? ` — did you mean --${near}?` : ''}`);
+      process.exit(EXIT.usage);
+    }
     const next = argv[i + 1];
-    if (!next || next.startsWith('--')) a[k.slice(2)] = true;
-    else { a[k.slice(2)] = next; i++; }
+    if (!next || next.startsWith('--')) a[name] = true;
+    else { a[name] = next; i++; }
   }
   return a;
 }
@@ -74,8 +101,17 @@ const root = path.resolve(String(args.root || process.cwd()));
 
 /** 早期失败也要有落点：按 spec 里能读到的 outDir 推断。 */
 function errorDir(raw) {
-  const out = args.outdir || raw?.render?.outDir || 'out';
-  return path.resolve(root, String(out));
+  // CLI --outdir 是操作者显式给的，尊重它。
+  if (args.outdir) return path.resolve(root, String(args.outdir));
+  // spec.render.outDir 是不可信输入：被 validateSpec 拒绝的 spec 仍会走到这里写
+  // error.json，若直接 resolve 原始 outDir，`../../escape` 依旧能写到仓库外。
+  // 含绝对路径/盘符/../控制字符时回落到根内 out/，并做 relative  containment 双保险。
+  const s = String(raw?.render?.outDir || 'out');
+  const bad = /^(?:[/\\]|[A-Za-z]:)/.test(s) || s.split(/[\\/]+/).includes('..') || /[\x00-\x1f]/.test(s);
+  if (bad) return path.join(root, 'out');
+  const dir = path.resolve(root, s);
+  const rel = path.relative(root, dir);
+  return (rel.startsWith('..') || path.isAbsolute(rel)) ? path.join(root, 'out') : dir;
 }
 
 // extra.detailPath = 该阶段最有用的诊断产物（render→render-manifest.json、
@@ -95,6 +131,7 @@ function fail(phase, code, message, extra = {}) {
     ...publicExtra,
   };
   console.error(`[error] [${code}] ${message}`);
+  emitJson(payload);
   recordRun({ phase, exit: EXIT[phase] || 1, qaPass: false });
   try {
     const dir = errorDir(rawForDir || lastRaw);
@@ -107,6 +144,15 @@ function fail(phase, code, message, extra = {}) {
 let lastRaw = null;
 // 运行上下文：plan 生成后才填；失败路径（render/concat/qa）也用它记一次 run。
 const ctx = { spec: null, plan: null, outDir: null, specHash: null, platform: null };
+
+// 兜底：未预料的异常（如 outDir 含控制字符导致 mkdirSync 抛错）也要走 fail 写
+// error.json，而不是裸 exit 1 让 API/CI 拿不到 phase/code。
+process.on('uncaughtException', (err) => {
+  fail('env', 'E_EXCEPTION', `unexpected error: ${(err && err.stack) || err}`, { raw: lastRaw });
+});
+process.on('unhandledRejection', (err) => {
+  fail('env', 'E_EXCEPTION', `unhandled rejection: ${(err && err.stack) || err}`, { raw: lastRaw });
+});
 
 function recordRun({ phase, exit, qaPass }) {
   if (!ctx.outDir || !ctx.plan || !ctx.spec) return;
@@ -201,6 +247,8 @@ if (args.print) {
 }
 if (args['dry-run']) {
   console.log('[dry-run] stop after plan');
+  emitJson({ ok: true, phase: 'dry-run', exit: 0, outDir: path.relative(root, outDir).split(path.sep).join('/'),
+    segments: plan.stats.segments, frames: plan.stats.frames, duration: plan.stats.duration });
   process.exit(0);
 }
 
@@ -278,6 +326,12 @@ const platform = args.platform
   ? String(args.platform)
   : (spec.render?.preset && spec.render.preset !== 'master' ? String(spec.render.preset) : null);
 ctx.platform = platform;
+// 未知 --platform 不能静默回落 1920×1080（那会出一个贴错标签的交付物）。
+// 有音轨时 shell 会拒，但无音轨路径以前直接 PLATFORM_SIZE[p] || [1920,1080]。
+const ACCEPTED_PLATFORMS = new Set(['master', 'bilibili', 'douyin', 'youtube', 'xiaohongshu', 'wechat', 'weixin', 'square', 'archive']);
+if (platform && !ACCEPTED_PLATFORMS.has(platform)) {
+  fail('usage', 'E_PRESET', `unknown --platform "${platform}"; accepted: ${[...ACCEPTED_PLATFORMS].join('|')}`, { raw });
+}
 
 const PLATFORM_SIZE = {
   bilibili: [1920, 1080], youtube: [1920, 1080], master: [1920, 1080],
@@ -296,14 +350,24 @@ function transitionArgs() {
   return ['--transition', tr.token, '--td', String(tr.duration), '--offsets', xfadeOffsets(plan.segments, plan.stats.fps, tr).join(',')];
 }
 
-function encode(scripted, outFile, preset) {
+// spawnSync 启动失败（缺 bash/ffmpeg，ENOENT）时 status=null、error 有值。
+// 旧版 `c.status || 0` 把 null 当 0 → 编译器 exit 0 却没有 master.mp4。
+// 这里把「没跑起来」归为 env/E_SPAWN，绝不伪装成功。
+function spawnStatus(c, tool) {
+  if (c.error || c.status === null || c.status === undefined) {
+    fail('env', 'E_SPAWN', `${tool} failed to launch: ${c.error ? c.error.message : 'no exit status (is it installed / on PATH?)'}`, { raw });
+  }
+  return c.status;
+}
+
+function encode(scripted, outFile, preset, extraArgs = []) {
   if (scripted) {
     const script = path.join(root, 'templates', 'concat-and-encode.sh');
     const bash = process.env.BASH || 'bash';
-    const c = spawnSync(bash, [script, ...scriptPlatformArgs(preset || 'master'), ...transitionArgs(), concatPath, audioPath, outFile, String(plan.stats.duration), String(plan.stats.fps)], {
+    const c = spawnSync(bash, [script, ...scriptPlatformArgs(preset || 'master'), ...extraArgs, ...transitionArgs(), concatPath, audioPath, outFile, String(plan.stats.duration), String(plan.stats.fps)], {
       cwd: root, stdio: 'inherit', windowsHide: true,
     });
-    return c.status || 0;
+    return spawnStatus(c, 'bash');
   }
   const ffmpeg = process.env.FFMPEG || 'ffmpeg';
   const tr = plan.meta && plan.meta.transition;
@@ -321,19 +385,23 @@ function encode(scripted, outFile, preset) {
       '-x264-params', 'rc-lookahead=8:sync-lookahead=0:threads=2', '-movflags', '+faststart', outFile], {
       cwd: outDir, stdio: 'inherit', windowsHide: true,
     });
-    return c.status || 0;
+    return spawnStatus(c, 'ffmpeg');
   }
   // 清单是相对 outDir 的安全路径；在 outDir 下执行 ffmpeg，-safe 1 才能生效。
   const c = spawnSync(ffmpeg, ['-y', '-f', 'concat', '-safe', '1', '-i', path.basename(concatPath), '-c', 'copy', '-movflags', '+faststart', outFile], {
     cwd: outDir, stdio: 'inherit', windowsHide: true,
   });
-  return c.status || 0;
+  return spawnStatus(c, 'ffmpeg');
 }
 
 if (audioPath) {
-  // master 永远按 master 预设出（1920×1080）：母版被平台预设改成竖屏，
-  // 后续 qa / deliv​er / 版本快照量到的就不是「母版」了（v2.4 e2e 实测）。
-  let code = encode(true, master, 'master');
+  // R2-09（N01-F2）：master = **项目原生画幅**（spec.format），不是硬编 1920×1080。
+  // 旧逻辑把竖屏项目的母版强制成横屏，QA 按 spec.format 判 size FAIL——
+  // 9:16 + --platform 的项目从第一天起就出不了绿灯。母版用原生尺寸 + master
+  // 预设的高码率；平台版才是派生尺寸。横屏项目原生=1920×1080，行为不变。
+  const nativeW = Number(spec.format?.width) || 1920;
+  const nativeH = Number(spec.format?.height) || 1080;
+  let code = encode(true, master, 'master', ['--width', String(nativeW), '--height', String(nativeH)]);
   if (code !== 0) fail('concat', 'E_CONCAT', `master encode failed (exit ${code})`, { detailPath: concatPath, raw });
   if (platform && platform !== 'master') {
     const platformFile = path.join(outDir, `${platform}.mp4`);
@@ -425,39 +493,57 @@ if (burnSubtitles) {
   if (wantDeliver) runDeliver();
 }
 
-// ── 6. qa（视频 + 音频） ────────────────────────────────────────────────────
+// ── 6. qa（视频 + 音频，**每一条交付件都过闸**） ────────────────────────────
+// R2-01（N03+N07 交叉实证）：旧 QA 只测 master。实测 douyin.mp4 +2.67 dBTP /
+// 0.0 dBFS 削顶出闸、runs.jsonl 仍记 qaPass:true——平台件永远裸奔的假绿。
 let qaPass = true;
 if (!args['no-qa']) {
   const strict = !!(args.strict || args.deliver) && !args['no-strict'];
   const qa = path.join(root, 'scripts', 'qa-video.mjs');
-  const qaArgs = [qa, master, '--plan', planPath, '--json', path.join(outDir, 'qa', 'qa-video.json')];
-  if (strict) qaArgs.push('--strict');
-  const q = spawnSync(process.execPath, qaArgs, { cwd: root, stdio: 'inherit', windowsHide: true });
-  if (q.status !== 0) {
-    qaPass = false;
-    fail('qa', 'E_QA_VIDEO', `qa-video failed (exit ${q.status}); see ${path.join(outDir, 'qa', 'qa-video.json')}`, { raw });
+  const qaAudio = path.join(root, 'scripts', 'qa-audio.py');
+  const py = process.env.PYTHON || 'python';
+
+  const aliases = { wechat: 'weixin' };
+  const platformSize = (p) => PLATFORM_SIZE[aliases[String(p)] || String(p)] || PLATFORM_SIZE.master;
+  const targets = [{ file: master, name: 'master', w: null, h: null }];
+  if (platform && platform !== 'master') {
+    const pf = path.join(outDir, `${platform}.mp4`);
+    if (fs.existsSync(pf)) {
+      const [w, h] = platformSize(platform);
+      targets.push({ file: pf, name: String(platform), w, h });
+    }
   }
 
-  if (audioPath) {
-    // 质检要验**成片里的音轨**：master 已经过 concat-and-encode.sh 的 loudnorm，
-    // 而合成出来的 wav 是未归一化的原始总线。拿 wav 去量响度，等于对着错误的对象
-    // 断言「−14 LUFS」——每次自动配乐都必然 WARN。
-    const qaWav = path.join(outDir, 'qa', 'master-audio.wav');
-    fs.mkdirSync(path.dirname(qaWav), { recursive: true });
-    const ffmpeg = process.env.FFMPEG || 'ffmpeg';
-    const extract = spawnSync(ffmpeg, ['-y', '-hide_banner', '-loglevel', 'error', '-i', master, '-vn', '-ac', '2', '-ar', '48000', qaWav], {
-      cwd: root, stdio: 'inherit', windowsHide: true,
-    });
-    const qaTarget = extract.status === 0 ? qaWav : audioPath;
-
-    const qaAudio = path.join(root, 'scripts', 'qa-audio.py');
-    const py = process.env.PYTHON || 'python';
-    const qaAudioArgs = [qaAudio, qaTarget, '--plan', planPath, '--out', path.join(outDir, 'qa', 'qa-audio.json'), '--spectrogram', path.join(outDir, 'qa', 'spectrogram.png')];
-    if (strict) qaAudioArgs.push('--strict');
-    const qa2 = spawnSync(py, qaAudioArgs, { cwd: root, stdio: 'inherit', windowsHide: true });
-    if (qa2.status !== 0) {
+  for (const t of targets) {
+    const qaArgs = [qa, t.file, '--plan', planPath,
+      '--json', path.join(outDir, 'qa', t.name === 'master' ? 'qa-video.json' : `qa-video-${t.name}.json`)];
+    if (t.w) qaArgs.push('--width', String(t.w), '--height', String(t.h), '--no-contact');
+    // R2-09 配套：平台件画幅与原生不同 → letterbox/pillarbox 黑边是有意 padding，
+    // 黑帧检查降为 advisory（否则横→竖平台件必被黑边误红）。
+    if (t.w && t.h) {
+      const nativeAR = (Number(spec.format?.width) || 1920) / (Number(spec.format?.height) || 1080);
+      const platAR = t.w / t.h;
+      if (Math.abs(nativeAR - platAR) > 0.01) qaArgs.push('--allow-letterbox');
+    }
+    if (strict) qaArgs.push('--strict');
+    const q = spawnSync(process.execPath, qaArgs, { cwd: root, stdio: 'inherit', windowsHide: true });
+    if (q.status !== 0) {
       qaPass = false;
-      fail('qa', 'E_QA_AUDIO', `qa-audio failed (exit ${qa2.status}); see ${path.join(outDir, 'qa', 'qa-audio.json')}`, { raw });
+      fail('qa', 'E_QA_VIDEO', `qa-video failed for ${path.basename(t.file)} (exit ${q.status}); see ${qaArgs[qaArgs.indexOf('--json') + 1]}`, { raw });
+    }
+
+    if (audioPath) {
+      // 质检量的是**成片里的音轨**（过完 loudnorm 的交付流），不是未归一的合成 wav；
+      // qa-audio.py 自身能吃 mp4（内部 ffmpeg 抽流），不再手写抽取命令。
+      const report = path.join(outDir, 'qa', t.name === 'master' ? 'qa-audio.json' : `qa-audio-${t.name}.json`);
+      const audioArgs = [qaAudio, t.file, '--plan', planPath, '--out', report,
+        '--spectrogram', path.join(outDir, 'qa', t.name === 'master' ? 'spectrogram.png' : `spectrogram-${t.name}.png`)];
+      if (strict) audioArgs.push('--strict');
+      const qa2 = spawnSync(py, audioArgs, { cwd: root, stdio: 'inherit', windowsHide: true });
+      if (qa2.status !== 0) {
+        qaPass = false;
+        fail('qa', 'E_QA_AUDIO', `qa-audio failed for ${path.basename(t.file)} (exit ${qa2.status}); see ${report}`, { raw });
+      }
     }
   }
 }
@@ -471,3 +557,12 @@ if (fs.existsSync(manifestPath)) {
 }
 recordRun({ phase: 'done', exit: 0, qaPass });
 console.log(`[done]    ${master}`);
+emitJson({
+  ok: true, phase: 'done', exit: 0, qaPass: !!qaPass,
+  master: path.relative(root, master).split(path.sep).join('/'),
+  outDir: path.relative(root, outDir).split(path.sep).join('/'),
+  platform: platform || null,
+  specHash: ctx.specHash,
+  segments: plan.stats.segments, frames: plan.stats.frames, duration: plan.stats.duration,
+  durationMs: Date.now() - STARTED,
+});

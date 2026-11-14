@@ -1,4 +1,7 @@
-# 11 种风格配方（美术 + 技术 + 音色）
+# 20 种风格配方（美术 + 技术 + 音色）
+
+> v2.5：风格扩到 20（下表 01–11 为原有详细配方；12–20 为新增/收编，见文末「v2.5 新增风格」）。
+> 领域×风格×效果×转场 的完整覆盖矩阵与动效教义见 `docs/COVERAGE.md`。
 
 每个风格段 = 3 s / 6 拍。通用结构：
 
@@ -33,6 +36,21 @@
 | 09 代码录屏 | Canvas 2D（DOM 也可） | 编辑器 UI、逐字文本、实时预览 |
 | 10 3D 粘土 | Three.js | PhysicalMaterial、软阴影、环境反射、相机环绕 |
 | 11 竖屏 | Canvas 2D | 手机壳、描边字、弹出卡片、粒子心 |
+
+### v2.5 新增 / 收编风格（详见 docs/COVERAGE.md）
+
+下列风格已注册进 `templates/style-pages.mjs`，逐帧确定性、横竖屏真重排；音色按领域 mood 合成（无专属乐器）。
+
+| 风格 id | 渲染页 | 一句话 | 关键能力 |
+|---|---|---|---|
+| kinetic | recipe-kinetic.html | 动态字体（收编） | 逐字入场、字距呼吸、速度线、巨型描边数字 |
+| great-wall | recipe-greatwall.html | 长城（v2.3.3 补登记） | 关隘山峦、暗金、烽燧 |
+| swiss | recipe-swiss.html | 瑞士国际主义 | 12 列网格、发丝线、单红锚点、越大越轻 |
+| editorial | recipe-editorial.html | 报纸编辑 | 衬线大标、栏线、首字下沉、半调图（effects.halftone） |
+| brutalist | recipe-brutalist.html | 新粗野主义 | 粗边框、硬投影、撞色、贴纸徽章 |
+| vaporwave | recipe-vaporwave.html | 蒸汽波 | 渐变天空、透视网格、扫描线落日、镀铬字（effects.scanlines） |
+| blueprint | recipe-blueprint.html | 工程蓝图 | 普鲁士蓝、尺寸箭头、标题栏、十字线（effects.dotGrid） |
+| risograph | recipe-risograph.html | 孔版印刷 | 双专色、套印错位、颗粒平涂、纸纹（effects.grain/halftone） |
 
 ---
 
@@ -400,7 +418,7 @@ accent:  #ff5f9e
 
 ## 主题 × 风格段：换色规则
 
-上面那条「黑底 + 珊瑚强调」是无主题参数时的默认视觉（`coral-noir`）。启用主题系统后，**骨架色随主题整体替换**，风格段是骨架里的内容色块。主题的唯一数据源是 `templates/themes.js`，13 套主题的逐项说明见 `references/themes.md`（§8 选型矩阵、§9「覆盖主色 `accentOverride()`」）。
+上面那条「黑底 + 珊瑚强调」是无主题参数时的默认视觉（`coral-noir`）。启用主题系统后，**骨架色随主题整体替换**，风格段是骨架里的内容色块。主题的唯一数据源是 `templates/themes.js`，17 套主题的逐项说明见 `references/themes.md`（§8 选型矩阵、§9「覆盖主色 `accentOverride()`」）。
 
 **三条规则**
 

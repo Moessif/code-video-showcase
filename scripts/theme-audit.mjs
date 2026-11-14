@@ -25,10 +25,13 @@ const only = args.filter((a, i) => !a.startsWith('--') && (jsonIdx < 0 || i !== 
 const themes = only.length ? only.map((id) => getTheme(id)) : THEME_LIST;
 let failures = 0, apcaWarnings = 0;
 const report = { generatedAt: new Date().toISOString(), themes: [] };
+// 机器模式（--json）：人类可读块走 stderr，stdout 只留一行 JSON。
+const JSON_MODE = args.includes('--json');
+const say = (...a) => (JSON_MODE ? console.error(...a) : console.log(...a));
 
 for (const theme of themes) {
-  console.log(`\n■ ${theme.id}  ${theme.name} / ${theme.nameEn}  [${theme.mode}]  ${theme.material.kind}`);
-  console.log(`  底色 ${theme.colors.bg}  强调 ${theme.colors.accent}  ${theme.tagline}`);
+  say(`\n■ ${theme.id}  ${theme.name} / ${theme.nameEn}  [${theme.mode}]  ${theme.material.kind}`);
+  say(`  底色 ${theme.colors.bg}  强调 ${theme.colors.accent}  ${theme.tagline}`);
   const wcag = auditTheme(theme);
   const apca = auditApca(theme);
   const entry = { id: theme.id, name: theme.name, mode: theme.mode, wcag: [], apca: [] };
@@ -36,13 +39,13 @@ for (const theme of themes) {
     const mark = row.pass ? 'PASS' : 'FAIL';
     if (!row.pass) failures++;
     entry.wcag.push(row);
-    console.log(`  [${mark}] ${row.label.padEnd(18, ' ')} ${row.pair.padEnd(22, ' ')} ${String(row.ratio).padStart(6)} : 1   (min ${row.min})`);
+    say(`  [${mark}] ${row.label.padEnd(18, ' ')} ${row.pair.padEnd(22, ' ')} ${String(row.ratio).padStart(6)} : 1   (min ${row.min})`);
   }
   for (const row of apca) {
     const mark = row.pass ? 'PASS' : 'WARN';
     if (!row.pass) apcaWarnings++;
     entry.apca.push(row);
-    console.log(`  [${mark}] APCA ${row.label.padEnd(16, ' ')} ${row.pair.padEnd(22, ' ')} ${String(row.lc).padStart(6)} Lc  (min ${row.need})`);
+    say(`  [${mark}] APCA ${row.label.padEnd(16, ' ')} ${row.pair.padEnd(22, ' ')} ${String(row.lc).padStart(6)} Lc  (min ${row.need})`);
   }
   // HUD capsule: composite the rgba capsule over the theme background.
   const capsule = composite(theme.hud.capsuleBg, theme.colors.bg);
@@ -50,10 +53,10 @@ for (const theme of themes) {
   const textRatio = contrastRatio(theme.hud.capsuleText, capsule);
   const numPass = numRatio >= 3, textPass = textRatio >= 4.5;
   if (!numPass || !textPass) failures++;
-  console.log(`  [${numPass ? 'PASS' : 'FAIL'}] HUD 编号 / 胶囊        ${numRatio.toFixed(2)} : 1   (min 3)`);
-  console.log(`  [${textPass ? 'PASS' : 'FAIL'}] HUD 文字 / 胶囊        ${textRatio.toFixed(2)} : 1   (min 4.5)`);
+  say(`  [${numPass ? 'PASS' : 'FAIL'}] HUD 编号 / 胶囊        ${numRatio.toFixed(2)} : 1   (min 3)`);
+  say(`  [${textPass ? 'PASS' : 'FAIL'}] HUD 文字 / 胶囊        ${textRatio.toFixed(2)} : 1   (min 4.5)`);
   entry.hud = { numberRatio: +numRatio.toFixed(2), textRatio: +textRatio.toFixed(2), pass: numPass && textPass };
-  console.log(`  点缀色 ${theme.accents.map((a) => `${a.name} ${a.hex}`).join(' · ')}`);
+  say(`  点缀色 ${theme.accents.map((a) => `${a.name} ${a.hex}`).join(' · ')}`);
   report.themes.push(entry);
 }
 
@@ -72,6 +75,13 @@ if (jsonPath) {
   fs.mkdirSync(path.dirname(path.resolve(jsonPath)), { recursive: true });
   fs.writeFileSync(path.resolve(jsonPath), JSON.stringify(report, null, 2));
   console.log(`\n[report] ${path.resolve(jsonPath)}`);
+}
+// --json 不带路径 = 机器模式：stdout 只有一行可 parse 的 JSON，
+// 人类文本块全部退到 stderr（CI 管道 `theme-audit --json | jq` 之前会 parse 失败）。
+if (args.includes('--json') && !jsonPath) {
+  process.stdout.write(JSON.stringify(report) + '\n');
+  if (strict && failures > 0) process.exit(1);
+  process.exit(0);
 }
 console.log(`\n${failures === 0 ? '✓ WCAG 全部通过' : `✗ ${failures} 项 WCAG 不合格`}${apcaWarnings ? `  ·  ${apcaWarnings} 项 APCA 提醒` : ''}`);
 if (strict && failures > 0) process.exit(1);

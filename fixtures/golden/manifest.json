@@ -5,7 +5,7 @@
   "fonts": "410182e5b25c22a2bdef168df3bbe281181a603b9d7e012d082ae58749d216cb",
   "format": "png",
   "generatedBy": "scripts/golden.mjs",
-  "git": "f67616d",
+  "git": "936b3d4",
   "manifestVersion": 1,
   "node": "v24.22.1",
   "platform": "win32",
@@ -18,9 +18,9 @@
       "specHash": "f1947e867e2ed45a569bc491e11575f669ee20ffda69417f58fb21105061b377",
       "stills": [
         {
-          "bytes": 4098890,
+          "bytes": 4098808,
           "file": "card/01-t0.300.png",
-          "hash": "07bd677bf08bb36a959aad0bbb824f84b4806797fde1f0dc2b795900b317d679",
+          "hash": "bfe250fe7fca927f1c0f990fb5a91a06e5a12ff4016de84f767cddece54ea12d",
           "kind": "opening",
           "local": 0.3,
           "page": "templates/segment.html?theme=coral-noir&mp=standard&title=golden-card&brand=Golden+Labs",
@@ -45,7 +45,7 @@
           "hash": "d3b14ca1c77a8986bdfd1536edd259e4b1411a14fad2f68f934f147386732938",
           "kind": "more",
           "local": 0.1,
-          "page": "templates/big-card.html?theme=coral-noir&mp=standard&layout=1&index=2&total=2&first=%E8%BF%98%E6%9C%89&keyword=%E6%9B%B4%E5%A4%9A%EF%BC%9F&color=%23ffcf5c&brand=Golden+Labs&seconds=0.2",
+          "page": "templates/big-card.html?theme=coral-noir&mp=standard&layout=1&index=2&total=2&first=%E8%BF%98%E6%9C%89&keyword=%E6%9B%B4%E5%A4%9A%EF%BC%9F&brand=Golden+Labs&seconds=0.2",
           "sceneT": 0.1,
           "segment": "99-more",
           "t": 1.7
@@ -115,9 +115,9 @@
           "t": 0.75
         },
         {
-          "bytes": 3425666,
+          "bytes": 3426008,
           "file": "mixed/02-t2.500.png",
-          "hash": "33ae0cb1886067d2fcf9725ee7eb972b341e317dcfebaaa18c53a3cae2200017",
+          "hash": "6c6dc43acfbda6ba558b7ce045c1d181a28c21f90bcb9ddedaad286991704a8f",
           "kind": "style",
           "local": 0.1,
           "page": "templates/segment.html?theme=aqua-morandi&mp=standard&accentInk=%23151d1f&brand=Golden+Labs&title=%E6%9F%94%E5%85%89%E7%8E%BB%E7%92%83",
@@ -126,9 +126,9 @@
           "t": 2.5
         },
         {
-          "bytes": 3117672,
+          "bytes": 3115028,
           "file": "mixed/03-t4.250.png",
-          "hash": "eb051d68dfe379e9768ea90d0ee02a71af5a80239ddf44da31fcb8f6a549e5ea",
+          "hash": "9b6a218c20106c34edd9f1591eb97de6c0d31344ba029c01f9a1f0efd3a4d585",
           "kind": "ending",
           "local": 0.05,
           "page": "templates/segment.html?theme=aqua-morandi&mp=standard&accentInk=%23151d1f&title=golden-mixed&brand=Golden+Labs&sub=%E7%8E%B0%E5%9C%A8%E5%B0%B1%E8%AF%95%E8%AF%95",

@@ -54,7 +54,7 @@ export const STYLE_IDS = [
   'risograph',
 ];
 
-/** 与 templates/themes.js 的 13 个真实 id 一致（测试会交叉校验）。 */
+/** 与 templates/themes.js 的 17 个真实 id 一致（测试会交叉校验）。 */
 export const THEME_IDS = [
   'coral-noir',
   'claude-light',
@@ -69,9 +69,13 @@ export const THEME_IDS = [
   'dark-gold-cinema',
   'ice-minimal',
   'pop-acid',
+  'terminal-phosphor',
+  'solar-dusk',
+  'abyss-teal',
+  'sand-linen',
 ];
 
-export const ASPECTS = ['16:9', '9:16', '1:1'];
+export const ASPECTS = ['16:9', '9:16', '1:1', '3:4', '6:7'];
 export const MOODS = ['electronic', 'restrained', 'epic', 'upbeat', 'guofeng'];
 
 /** 动效档位（v2.3）：与 templates/motion-profile.mjs 的档位表一致。 */
@@ -225,6 +229,7 @@ const STYLE_DEFAULT_THEME = {
   'pixel-8bit': 'cyber-neon',
   'ink-wash': 'celadon-paper',
   guofeng: 'celadon-paper',
+  'great-wall': 'dark-gold-cinema',
   whiteboard: 'paper-journal',
   'three-d': 'amber-noir',
   'data-viz': 'blueprint-stone',
@@ -354,6 +359,13 @@ const MOOD_BPM = { electronic: 120, restrained: 90, epic: 100, upbeat: 128, guof
 // ── 关键词表（顺序 = 优先级）───────────────────────────────────────────────
 
 const KIND_RULES = [
+  // 高优先复合词消歧：跨领域短语里「更具体的领域」胜出（first-match-wins）。
+  // 没有它们时：游戏攻略→travel(攻略)、健身活动→event(活动)、新歌发布会→launch(发布)、
+  // 音乐访谈→podcast(访谈)、餐厅美食→localbiz(餐厅)。这些复合词必须排在通用词之前。
+  ['gaming', ['游戏攻略', '游戏解说', '游戏高光', '电竞比赛', '电竞选手']],
+  ['music', ['新歌发布', '新歌首发', '专辑发布', '单曲首发', '音乐访谈', '音乐发行']],
+  ['fitness', ['健身活动', '健身训练', '训练计划', '健身挑战']],
+  ['food', ['餐厅美食', '美食探店', '美食食谱']],
   ['annual', ['年度', '年终', '年会', '全年', '总结', '年度总结', 'recap', 'annual', 'year in review', 'year-end']],
   ['recruiting', ['招聘', '招人', '招募', '校招', '社招', '内推', 'hiring', 'recruit', 'careers', 'job opening']],
   [
@@ -429,6 +441,10 @@ const THEME_RULES = [
   ['dark-gold-cinema', ['暗金', '黑金电影', 'dark gold']],
   ['ice-minimal', ['冰蓝', 'ice minimal']],
   ['pop-acid', ['波普', '酸色', 'pop acid']],
+  ['terminal-phosphor', ['终端', '磷光', '命令行', 'terminal', 'phosphor', 'crt']],
+  ['solar-dusk', ['落日', '暖丘', '暮色', 'solar dusk', 'sunset']],
+  ['abyss-teal', ['深海', '藏青', 'abyss', 'teal', 'ocean']],
+  ['sand-linen', ['亚麻', '宣纸', '本色', 'linen', 'sand']],
 ];
 
 const ASPECT_RULES = [
@@ -764,7 +780,8 @@ export function nl2spec(text, overrides = {}) {
     patches: [],
     render: {
       quality: takeEnum(ov.quality, ['master', 'delivery', 'draft'], 'quality') || 'master',
-      preset: takeEnum(ov.preset, ['bilibili', 'douyin', 'youtube', 'wechat', 'master', 'square'], 'preset') || (aspect === '9:16' ? 'douyin' : aspect === '1:1' ? 'square' : 'bilibili'),
+      preset: takeEnum(ov.preset, ['bilibili', 'douyin', 'youtube', 'wechat', 'weixin', 'xiaohongshu', 'master', 'square'], 'preset')
+        || (aspect === '9:16' ? 'douyin' : aspect === '1:1' ? 'square' : aspect === '3:4' ? 'xiaohongshu' : aspect === '6:7' ? 'weixin' : 'bilibili'),
       concurrency: 4,
       outDir: String(ov.outDir || 'out'),
     },

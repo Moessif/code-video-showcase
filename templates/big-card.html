@@ -225,17 +225,33 @@ function computePal(layout, colorHex, explicitColor = false) {
   };
   const flash = THEME.colors.flash;
 
+  // R2-05（N08-F2）：layout0 字色必须按**实际底色**择极性，不能盲取 CC.ink。
+  // CC.ink=主题 accentInk 是为「主题自己的 accent 底」设计的；一旦 ?color=
+  // 覆盖成浅色（如默认黄 #ffcf5c）或主题 accent 本身偏浅（celadon 月白），
+  // 近白 ink 压浅底 = 1.38:1 白字白底。这里在候选里挑对比最高者（≥3:1 大字）。
+  const inkFor = (bg) => {
+    const cands = [CC.ink, THEME.colors.cardDarkInk, THEME.colors.paperInk, '#0e0e0d', '#f7f4ea'];
+    let best = cands[0], bestC = -1;
+    for (const hex of cands) {
+      if (!hex) continue;
+      const cr = contrast(hex, bg);
+      if (cr > bestC) { bestC = cr; best = hex; }
+    }
+    return best;
+  };
+
   if (layout === 0) {
+    const ink0 = inkFor(accent);
     return {
       bgTop: accent,
       bgBottom: mixHex(accent, '#000000', 0.18),
       grid: CC.grid,
-      firstColor: CC.ink,
-      keyColor: CC.ink,
+      firstColor: ink0,
+      keyColor: ink0,
       echo: CC.echo,
-      underline: withAlpha(CC.ink, 0.9),
+      underline: withAlpha(ink0, 0.9),
       streakRgb: accentRgb,
-      speedLine: withAlpha(CC.ink, 0.35),
+      speedLine: withAlpha(ink0, 0.35),
       glowRgb: parseColor(mixHex(accent, '#ffffff', 0.45)).slice(0, 3),
       ...footerFor(accent), flash,
     };
@@ -496,15 +512,18 @@ function drawBackground() {
     }
   } else {
     ctx.fillStyle = PAL.bgTop; ctx.fillRect(0, 0, W, H);
-    // streak lines
+    // streak lines —— 每帧用「局部」种子 RNG，保证 renderFrame 是 t 的纯函数。
+    // 旧版消耗模块级 rnd 的连续状态：同 t 重渲/stills vs video/--no-warmup/D3 重渲
+    // 都会得到不同条纹（确定性契约破坏）。条纹本就不随 t 动，按 index 固定即可。
+    const lrnd = rng(1200 + STATE.index * 37);
     const [sr, sg, sb] = PAL.streakRgb;
     ctx.save();
     ctx.translate(W / 2, H / 2);
     for (let i = 0; i < 34; i++) {
       const a = (i / 34) * Math.PI * 2 + 0.3;
-      const len = 460 + rnd.range(0, 520);
-      ctx.strokeStyle = `rgba(${sr},${sg},${sb},${0.06 + rnd.next() * 0.10})`;
-      ctx.lineWidth = rnd.range(1, 3);
+      const len = 460 + lrnd.range(0, 520);
+      ctx.strokeStyle = `rgba(${sr},${sg},${sb},${0.06 + lrnd.next() * 0.10})`;
+      ctx.lineWidth = lrnd.range(1, 3);
       ctx.beginPath();
       ctx.moveTo(Math.cos(a) * 120, Math.sin(a) * 120);
       ctx.lineTo(Math.cos(a) * len, Math.sin(a) * len);

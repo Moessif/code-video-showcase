@@ -209,6 +209,11 @@ export function drawCapsuleLabel(ctx, index, name, category = '', opts = {}) {
   } = opts;
   ctx.save();
   ctx.font = font;
+  // R2-06（N02-F1）：显式左对齐。本函数按左原点坐标 fillText（x+padX），
+  // 但从不设 textAlign——场景代码（segment.html 的居中大标题）把 ctx.textAlign
+  // 留成 'center'/'right'，胶囊文字就继承它向左侧溢出药丸框，浅色主题下整条
+  // 不可读。全主题全帧中招。save/restore 已有，只缺这一行。
+  ctx.textAlign = 'left';
   ctx.textBaseline = 'middle';
   const num = String(index).padStart(2, '0');
   const label = category ? `${name} · ${category}` : name;

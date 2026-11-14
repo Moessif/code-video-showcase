@@ -22,6 +22,23 @@ const KIND_OPTIONS = [
   { id: 'data-report', label: '数据报告', hint: '复盘 · 投研' },
   { id: 'recruiting', label: '招聘', hint: '岗位 · 团队' },
   { id: 'annual', label: '年度总结', hint: '回顾 · 年会' },
+  // v2.5：16 个新增垂直领域（与 scripts/nl2spec.mjs KIND_IDS 对齐）
+  { id: 'tutorial', label: '教程教学', hint: '步骤 · 实操' },
+  { id: 'changelog', label: '版本更新', hint: '新特性 · 升级' },
+  { id: 'event', label: '活动邀请', hint: '峰会 · 报名' },
+  { id: 'podcast', label: '播客音频', hint: '金句 · 波形' },
+  { id: 'travel', label: '旅行目的地', hint: '风光 · 攻略' },
+  { id: 'food', label: '美食食谱', hint: '食材 · 步骤' },
+  { id: 'fitness', label: '健身训练', hint: '动作 · 计时' },
+  { id: 'realestate', label: '房产展示', hint: '户型 · 看房' },
+  { id: 'fintech', label: '金融科普', hint: '理财 · 机制' },
+  { id: 'healthcare', label: '健康养生', hint: '指导 · 咨询' },
+  { id: 'course', label: '课程教育', hint: '大纲 · 报名' },
+  { id: 'gaming', label: '游戏高光', hint: '神操作 · 集锦' },
+  { id: 'music', label: '音乐发行', hint: '新歌 · 预存' },
+  { id: 'nonprofit', label: '公益影响', hint: '故事 · 捐赠' },
+  { id: 'sports', label: '体育战报', hint: '比分 · MVP' },
+  { id: 'localbiz', label: '本地商家', hint: '门店 · 到店' },
 ];
 
 const STYLE_OPTIONS = [
@@ -30,6 +47,7 @@ const STYLE_OPTIONS = [
   { id: 'pixel-8bit', label: '8-bit 像素', hint: '街机 · 精灵' },
   { id: 'ink-wash', label: '水墨', hint: '山水 · 留白' },
   { id: 'guofeng', label: '国风', hint: '东方 · 纹样' },
+  { id: 'great-wall', label: '长城', hint: '关隘 · 暗金' },
   { id: 'whiteboard', label: '白板', hint: '手绘 · 标注' },
   { id: 'three-d', label: '3D', hint: '材质 · 环绕' },
   { id: 'data-viz', label: '数据可视化', hint: '条形 · 竞速' },
@@ -37,6 +55,14 @@ const STYLE_OPTIONS = [
   { id: 'flat', label: '扁平插画', hint: '矢量 · 色块' },
   { id: 'minimal', label: '极简大字', hint: '发布会 · 克制' },
   { id: 'vertical', label: '竖屏卡片', hint: '手机 · 弹卡' },
+  // v2.5：收编 kinetic + 6 个新风格（与 templates/style-pages.mjs 对齐）
+  { id: 'kinetic', label: '动态字体', hint: '逐字 · 速度线' },
+  { id: 'swiss', label: '瑞士网格', hint: '栅格 · 单红' },
+  { id: 'editorial', label: '报纸编辑', hint: '衬线 · 栏线' },
+  { id: 'brutalist', label: '新粗野主义', hint: '粗边 · 撞色' },
+  { id: 'vaporwave', label: '蒸汽波', hint: '霓虹 · 落日' },
+  { id: 'blueprint', label: '工程蓝图', hint: '标注 · 图纸' },
+  { id: 'risograph', label: '孔版印刷', hint: '专色 · 套印' },
 ];
 
 const MOOD_LABEL = {
@@ -51,6 +77,8 @@ const ASPECT_LABEL = {
   '16:9': { label: '16:9 横屏', hint: '1920×1080' },
   '9:16': { label: '9:16 竖屏', hint: '1080×1920' },
   '1:1': { label: '1:1 方形', hint: '1080×1080' },
+  '3:4': { label: '3:4 竖屏', hint: '1080×1440 · 小红书' },
+  '6:7': { label: '6:7 竖屏', hint: '1080×1260 · 微信' },
 };
 
 const DURATIONS = [15, 30, 41, 60];
@@ -64,6 +92,22 @@ const KIND_CTA = {
   'data-report': '获取完整报告',
   recruiting: '投递简历',
   annual: '明年见',
+  tutorial: '跟着做',
+  changelog: '立即升级',
+  event: '立即报名',
+  podcast: '订阅收听',
+  travel: '出发吧',
+  food: '收藏食谱',
+  fitness: '开始训练',
+  realestate: '预约看房',
+  fintech: '了解更多',
+  healthcare: '咨询医生',
+  course: '立即报名',
+  gaming: '关注主播',
+  music: '立即预存',
+  nonprofit: '支持我们',
+  sports: '看下一场',
+  localbiz: '到店体验',
 };
 
 const KIND_COPY = {
@@ -75,6 +119,22 @@ const KIND_COPY = {
   'data-report': ['想晒', '增长数据？', '#2456d6'],
   recruiting: ['想招', '厉害的人？', '#ff4a1f'],
   annual: ['想回顾', '这一年？', '#f2c14e'],
+  tutorial: ['想学', '实操教程？', '#58c4dd'],
+  changelog: ['想看', '更新日志？', '#a58bff'],
+  event: ['想办', '一场活动？', '#ff4a1f'],
+  podcast: ['想听', '播客精华？', '#c9a45a'],
+  travel: ['想去', '远方看看？', '#7fb8a4'],
+  food: ['想做', '这道菜？', '#ff8a5c'],
+  fitness: ['想练', '好身材？', '#ff4a1f'],
+  realestate: ['想看', '理想家？', '#6fd3ff'],
+  fintech: ['想懂', '理财逻辑？', '#2456d6'],
+  healthcare: ['想问', '健康问题？', '#7fb8a4'],
+  course: ['想学', '一门课？', '#e2231a'],
+  gaming: ['想看', '神操作？', '#ff2bd6'],
+  music: ['想听', '新歌首发？', '#ff2bd6'],
+  nonprofit: ['想帮', '一个故事？', '#9e2b25'],
+  sports: ['想看', '比赛集锦？', '#ff4a1f'],
+  localbiz: ['想逛', '宝藏小店？', '#ff48a4'],
 };
 
 const MOOD_BPM = { electronic: 120, restrained: 90, epic: 100, upbeat: 128, guofeng: 80 };
@@ -280,7 +340,8 @@ function buildSpec(s) {
       : accentFix
         ? { accent: accentFix.accent, accentInk: accentFix.accentInk }
         : null;
-  const preset = s.aspect === '9:16' ? 'douyin' : s.aspect === '1:1' ? 'square' : 'bilibili';
+  const preset = s.aspect === '9:16' ? 'douyin' : s.aspect === '1:1' ? 'square'
+    : s.aspect === '3:4' ? 'xiaohongshu' : s.aspect === '6:7' ? 'weixin' : 'bilibili';
 
   return {
     specVersion: 1,
@@ -326,6 +387,11 @@ function buildSpec(s) {
 function renderPresets() {
   const grid = $('#preset-grid');
   grid.replaceChildren();
+  // 计数动态化，避免预设增减后标题漂移（v2.5.2 审计）。
+  const title = $('#presets-title');
+  if (title) title.textContent = `${presets.length} 组推荐组合`;
+  const resetBtn = $('#reset-preset');
+  if (resetBtn) resetBtn.textContent = `回到 ${presets.length} 组推荐`;
 
   for (const p of presets) {
     const btn = document.createElement('button');
@@ -436,6 +502,8 @@ function fillGroup(selector, chips) {
 }
 
 function renderCustom() {
+  const styleCopy = $('#style-count-copy');
+  if (styleCopy) styleCopy.textContent = `${styleOptions.length} 种配方；灰色虚线 = 与当前主题冲突（avoid），不可选`;
   // 01 kind
   fillGroup(
     '#chips-kind',
@@ -485,7 +553,7 @@ function renderCustom() {
     }),
   );
 
-  // 03 theme — 13 个 id 来自 themes.js；矩阵缺行时不渲染（正常不会发生）
+  // 03 theme — id 全部来自 themes.js（当前 17 套）；矩阵缺行时不渲染（正常不会发生）
   const themeIds = (themesDoc?.THEME_IDS || Object.keys(combos)).filter((id) => combos[id]);
   fillGroup(
     '#chips-theme',
@@ -652,6 +720,12 @@ function renderRefPreview(bitmap) {
 function applyReferenceResult(result, themeId) {
   const theme = themeId || result.theme.id;
   state.theme = theme;
+  // 与主题芯片同一 avoid 守卫：参考图可能匹配到与当前风格冲突的主题，
+  // 不能 silently 产出 combos=avoid 的 spec（手动选主题时会换风格，这里也要）。
+  if (compat(theme, state.style) === 'avoid') {
+    const next = styleOptions.find((s) => compat(theme, s.id) === 'recommended');
+    if (next) state.style = next.id;
+  }
   state.accent = result.theme.accentOverride?.accent || null;
   state.reference = {
     source: 'upload',
@@ -942,6 +1016,10 @@ function bindEvents() {
     refDrop.addEventListener('click', (e) => {
       if (e.target.closest('#ref-candidates')) return;
       refInput.click();
+    });
+    // 键盘可达：role=button + tabindex=0，Enter/Space 触发文件选择。
+    refDrop.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); refInput.click(); }
     });
     refInput.addEventListener('change', async () => {
       const f = refInput.files && refInput.files[0];

@@ -83,7 +83,7 @@
 | `E_STRUCTURE_MAX` | spec | 10 | 单段超过 600s | 缩短该段 |
 | `E_STYLE_PAGE` | spec | 10 | style 缺 page/recipe | 补 style.page 或 style.recipe |
 | `E_THEME` | spec | 10 | 缺 look.theme | 填主题 id |
-| `E_THEME_UNKNOWN` | spec | 10 | 主题 id 不存在 | 从报错列出的 13 个 id 中选 |
+| `E_THEME_UNKNOWN` | spec | 10 | 主题 id 不存在 | 从报错列出的 17 个 id 中选 |
 | `E_TITLE_MISSING` | spec | 10 | 片名为空/untitled | 填 meta.title |
 | `E_TRANSITION` | spec | 10 | render.transition / --transition 名字非法 | 见 templates/transitions.mjs TRANSITIONS（fade/dissolve/wipeleft/slideleft/circleopen/zoomin…），或 none 关闭 |
 | `E_TRANSITION_DURATION` | spec | 10 | 转场时长非法 | render.transitionDuration / --transition-duration 取 (0,2] 秒 |

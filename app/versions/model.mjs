@@ -133,8 +133,13 @@ export function readCurrent(storage) {
   }
 }
 
-/** 写入当前编辑缓冲区。 */
+/** 写入当前编辑缓冲区。配额满/隐私模式会抛错——吞掉并返回 false，不能让 boot/restore 崩。 */
 export function writeCurrent(storage, spec) {
   assertStorage(storage);
-  storage.setItem(CURRENT_KEY, JSON.stringify(spec));
+  try {
+    storage.setItem(CURRENT_KEY, JSON.stringify(spec));
+    return true;
+  } catch {
+    return false;
+  }
 }

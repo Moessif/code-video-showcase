@@ -45,6 +45,7 @@ const UNIT_SUITES = [
   'scripts/test-transitions.mjs',
   'scripts/test-effects.mjs',
   'scripts/test-domains.mjs',
+  'scripts/test-hardening.mjs',
   'ingest/test-edl.mjs',
 ];
 

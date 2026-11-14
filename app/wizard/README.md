@@ -18,7 +18,7 @@ node app/wizard/serve.mjs
 |---|---|---|---|
 | 01 | 做什么片 | `meta.kind` | `content/presets.json` 的 8 种 kind |
 | 02 | 什么画风 | `look.style` + 每轮 `style.recipe` | `content/combos.json` 的 12 个 style id |
-| 03 | 什么气质 | `look.theme` | `templates/themes.js` 的 13 个真实 theme id |
+| 03 | 什么气质 | `look.theme` | `templates/themes.js` 的 17 个真实 theme id |
 | 04 | 时长与画幅 | `format.duration/aspect/width/height` | schema 的 `aspect` 枚举；时长 4–600s |
 | 05 | 节奏 | `audio.mood/bpm` | schema 的 `mood` 枚举 |
 | 06 | 品牌与点缀 | `meta.brand` + `look.accentOverride` | 文本 / `#rgb`·`#rrggbb` |
@@ -30,7 +30,7 @@ node app/wizard/serve.mjs
 
 ### avoid 组合不可选
 
-`content/combos.json` 是 13 themes × 12 styles 的兼容矩阵，值为
+`content/combos.json` 是 17 themes × 20 styles 的兼容矩阵，值为
 `recommended | ok | avoid`。当主题与画风互为 `avoid` 时：
 
 - 对应的画风 chip / 主题 chip 直接 `disabled`（虚线 + 删除线 + tooltip 说明原因）；
@@ -104,7 +104,7 @@ CLI 同一算法：`node bin/cvs.mjs ref poster.jpg --spec project.spec.json --o
 | `serve.mjs` | 5181 静态服务 + timeline 浏览器改写 |
 | `../../scripts/ref-core.mjs` | 参考图纯函数核心（Node/浏览器共用） |
 | `../../content/presets.json` | 8 组首屏推荐预设 |
-| `../../content/combos.json` | 13×12 兼容矩阵 + `_meta` 生成规则 |
+| `../../content/combos.json` | 17×20 兼容矩阵 + `_meta` 生成规则 |
 
 ## 已知边界
 

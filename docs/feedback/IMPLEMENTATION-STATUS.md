@@ -1,10 +1,29 @@
-# 优化方案落地状态（v1.0 → v2.4.0）
+# 优化方案落地状态（v1.0 → v2.5.2）
 
 > 对照 [BACKLOG.json](BACKLOG.json) 的 26 项，逐项说明落地情况。
 > 判定口径：**已落地** = 代码 + 回归测试 + 文档齐；**部分** = 主路径可用但仍有明确缺口；**未做** = 未开始。
 > 统计：**已落地 26 · 部分 0 · 未做 0**（v2.3.5 时为 15 / 7 / 4）。
-> 终验：`test-all --browser --json` **28 套 / 670 passed / 0 failed**；**41s 全片 strict 全链路 BUILD=0**（v2.5.0 收官实测，
-> qa-video 19/0/0、qa-audio 6/0/2、cue 对齐 97.1%、deliver 出 master+douyin）；`golden --check` **9/9 相符**；快照/校验/回滚闭环全过。
+> 终验：`test-all --browser --json` **28 套 / 670 passed / 0 failed**；**41s 全片 strict 全链路 BUILD=0**；`golden --check` **9/9 相符**；快照/校验/回滚闭环全过。
+
+## 〇、第二轮 9 视角集群（v2.5.2，N01–N09）
+
+26 项台账清零后，再用 9 个独立视角（新手/设计/后期/Agent/安全/性能/混音/无障碍/验证官）审计，
+68 条 finding 去重为 P0×13 / P1×30，逐项落地。台账见 [docs/audit2/FINDINGS-ROUND2.md](../audit2/FINDINGS-ROUND2.md)。
+
+**P0 全部落地**：master=原生画幅（9:16 不再必红）· 每条交付件过 QA · 真峰限幅（4× 过采样，post-AAC TP≤-1）·
+qa-audio 假绿堵口（plan 缺失 exit 2 / 位深读 sampwidth / 8× dBTP）· 胶囊 textAlign 泄漏 · layout0 白字白底极性择色 ·
+八连闪 WCAG 2.3.1（4×0.5s + 拍派生 + YAVG 闪烁闸）· install.ps1 重写 + CI 语法门禁。
+
+**P1 主体落地**：GOP/level 受控 · two-pass 参数对齐 · master.mp4 bitexact 幂等 · 并发钳制 · tempo 八度归一 ·
+synth LUFS 闭环 · build --json · plan 退出码契约 · flag allowlist + --set 字符串语义 · manifest 增量可校验 ·
+API 并发尊重 spec + evict 清盘 · wizard --help · brand 兜底告警 · SRT BOM/CRLF + 字幕间隙 · golden 探测失败≠相符 ·
+combos 锚定渲染真值。
+
+**第二轮实测**：纯 Node 全量 409/0（contract 31/31，+5 第二轮回归）；golden 9/9（chrome reason=equal）；
+3s 竖屏 strict qa-video 20/0/0；非 120 BPM 矩阵（90/120/150）cue alignment 全 PASS；synth 直出 -14 LUFS。
+
+**第二轮边界**：① beat grid 是 advisory，非 120 BPM 下 card 固定秒长非拍倍数会偏低（cue alignment 硬闸全过，不阻塞交付）；
+② 真峰限幅以 -3dBFS 过采样天花板换 AAC 余量，响度仍守 -14±1 LUFS；③ 重启后首页偶发慢的根因仍未定位（可观测+安全失败已就位）。
 
 ## 一、v2.4.0 补齐的 11 项
 
